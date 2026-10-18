@@ -1,0 +1,13 @@
+== block {project}/AGENTS.md
+items: 66666666-6666-4666-8666-666666666666@1
+<!-- context-locker:start v1 -->
+## Context Locker: Docs site
+
+Preferences for this project, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync sends your edit for review.
+
+- short-sentences: Steps in the docs may use longer sentences when they need to.
+<!-- context-locker:end -->
+
+== skill {project}/.agents/skills/docs-style
+item: 77777777-7777-4777-8777-777777777777@1
+files: SKILL.md

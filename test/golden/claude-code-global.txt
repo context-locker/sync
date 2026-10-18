@@ -1,0 +1,17 @@
+== block {claude}/rules/context-locker.md
+items: 11111111-1111-4111-8111-111111111111@1, 22222222-2222-4222-8222-222222222222@2, 33333333-3333-4333-8333-333333333333@3
+<!-- context-locker:start v1 -->
+## Context Locker
+
+Your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync sends your edit for review.
+
+- dates-with-year: Write dates with the year, such as 17 Oct 2026.
+- no-dashes: Don't use em or en dashes.
+- short-sentences: Use short sentences in prose.
+
+When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line here or the skill's files, and say why in your reply. The next sync sends the fix for review.
+<!-- context-locker:end -->
+
+== skill {claude}/skills/code-review
+item: 44444444-4444-4444-8444-444444444444@2
+files: SKILL.md, references/checklist.md

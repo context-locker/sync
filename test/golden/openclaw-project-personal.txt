@@ -1,0 +1,2 @@
+== notes
+- OpenClaw doesn't work in project folders, so Docs site's preferences reach it through MCP only.

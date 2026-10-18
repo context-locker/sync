@@ -1,0 +1,35 @@
+== block {openclaw}/USER.md
+items: 00000000-0000-4000-8000-000000000001@1, 00000000-0000-4000-8000-000000000002@1, 00000000-0000-4000-8000-000000000003@1, 00000000-0000-4000-8000-000000000004@1, 00000000-0000-4000-8000-000000000005@1, 00000000-0000-4000-8000-000000000006@1, 00000000-0000-4000-8000-000000000007@1, 00000000-0000-4000-8000-000000000008@1, 00000000-0000-4000-8000-000000000009@1
+<!-- context-locker:start v1 -->
+## Context Locker
+
+Your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync sends your edit for review.
+
+- rule-001: Rule 1: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it pl
+- rule-002: Rule 2: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it pl
+- rule-003: Rule 3: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it pl
+- rule-004: Rule 4: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it pl
+- rule-005: Rule 5: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it pl
+- rule-006: Rule 6: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it pl
+- rule-007: Rule 7: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it pl
+- rule-008: Rule 8: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it pl
+- rule-009: Rule 9: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it pl
+
+5 more preferences didn't fit in this file. They're in AGENTS.md, under Context Locker.
+<!-- context-locker:end -->
+
+== block {openclaw}/AGENTS.md
+items: 00000000-0000-4000-8000-000000000010@1, 00000000-0000-4000-8000-000000000011@1, 00000000-0000-4000-8000-000000000012@1, 00000000-0000-4000-8000-000000000013@1, 00000000-0000-4000-8000-000000000014@1
+<!-- context-locker:start v1 -->
+## Context Locker
+
+More of your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync sends your edit for review.
+
+- rule-010: Rule 10: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it p
+- rule-011: Rule 11: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it p
+- rule-012: Rule 12: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it p
+- rule-013: Rule 13: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it p
+- rule-014: Rule 14: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it p
+
+When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line in USER.md or this file, or the skill's files, and say why in your reply. The next sync sends the fix for review.
+<!-- context-locker:end -->

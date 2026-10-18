@@ -1,0 +1,2 @@
+== notes
+- Hermes gets Docs site's preferences only in repos linked with a .contextlocker.json.
