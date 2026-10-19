@@ -8,7 +8,7 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Ask your AI app to follow the steps at `https://context.locker/setup/v1/SKILL.md`. The steps download the script, check its hash, sign the app in with a link and a code you approve, show what a sync would write, and add a hook so the app syncs at the start of each session. The same files are in [`setup/v1`](setup/v1).
+Ask your AI app to follow the steps at `https://context.locker/setup/v2/SKILL.md`. The steps download the script, check its hash, sign the app in with a link and a code you approve, show what a sync would write, and add a hook so the app syncs at the start of each session. The same files are in [`setup/v2`](setup/v2).
 
 A published version never changes. When a script changes, it's published as a new version, with the hashes of its files in its `SKILL.md`. The tests fail until the newest version matches the scripts in [`scripts`](scripts).
 
@@ -34,6 +34,8 @@ sh ~/.contextlocker/sync.sh readback codex    # what the app's files now hold
 
 The first `signin` returns at once, because an AI app usually shows a command's output only when it ends. Polling never runs faster than the server asks, even across runs. In PowerShell the same modes are `sync.ps1 signin codex` and so on, and sync.sh's spellings of the options work too.
 
+When changes wait for your approval, the script says so at the start of a Claude Code or Codex session, with a link to your inbox.
+
 The scripts only write where an app reads its files, and refuse anything else the server sends.
 
 ## The compilers
@@ -57,7 +59,7 @@ A managed block sits between `<!-- context-locker:start v1 -->` and `<!-- contex
 
 1. `GET /v1/sync[?project=<id>&layer=repo|personal]` with `If-None-Match` answers `304` or a manifest (see [`src/manifest.ts`](src/manifest.ts)). Its ETag is the SHA-256 of the text.
 2. `POST /v1/sync/blobs` with the hashes it needs, one per line, answers one tar archive: a file per block, a folder per skill, each named by its hash.
-3. `POST /v1/sync/edits` with `Context-Locker-Target` sends an edit found in a synced file: a block's text, or a skill folder as a bundle (see [`src/bundle.ts`](src/bundle.ts)). The answer is `pending` (keep it), `rejected` (put the synced version back), `same`, `accepted` or `gone`.
+3. `POST /v1/sync/edits` with `Context-Locker-Target` sends an edit found in a synced file: a block's text, or a skill folder as a bundle (see [`src/bundle.ts`](src/bundle.ts)). The answer is `accepted` (it applied straight away), `pending` (it waits for the owner's approval, so keep it), `rejected` (put the synced version back), `same` or `gone`.
 4. `POST /v1/sync/done` reports what was applied.
 
 ## Tests

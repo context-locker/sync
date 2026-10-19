@@ -1,5 +1,5 @@
 #!/bin/sh
-# Context Locker sync, version 1. MIT licence.
+# Context Locker sync, version 2. MIT licence.
 #
 #   sh sync.sh <app> [--project <id>] [--daily]
 #   sh sync.sh signin|plan|doctor|readback <app>
@@ -7,7 +7,7 @@
 # Keeps one AI app's files in step with your playbook at context.locker. <app>
 # is claude-code, codex, hermes or openclaw. The script asks for a manifest of
 # what the app's files should hold, writes only what changed, and sends any
-# edit it finds in a synced file back for review. It writes only inside
+# edit it finds in a synced file back to Context Locker. It writes only inside
 # Context Locker's marked blocks and skill folders, backs up anything it
 # replaces that it didn't write, and never deletes a file of yours. When
 # Context Locker can't be reached, the app keeps the files it has.
@@ -27,7 +27,7 @@
 set -u
 umask 077
 
-SCRIPT_VERSION=1
+SCRIPT_VERSION=2
 MODE=sync
 case ${1:-} in
   signin | plan | doctor | readback)
@@ -384,7 +384,7 @@ install_skill() {
   stage=$TMP/stage.$name old=$TMP/old.$name
   rm -rf "$stage" "$old"
   cp -R "$src" "$stage" || return 1
-  printf 'Managed by Context Locker: skill %s, version %s.\nEdits here are sent for review at the next sync.\n%s\n' \
+  printf 'Managed by Context Locker: skill %s, version %s.\nEdits here go to Context Locker at the next sync.\n%s\n' \
     "$item" "$version" "$hash" >"$stage/.ctx-managed"
   if [ -e "$dest" ]; then
     mv "$dest" "$old" || return 1
@@ -521,7 +521,7 @@ sync_scope() {
   [ -z "$query" ] && WORKSPACE_ID=$(sed -n "s/^workspace \\($UUID\\)\$/\\1/p" "$TMP/entries" | head -n 1)
 
   # One line per target: what the manifest says, what this script last wrote,
-  # edits waiting for review, and edits the API refused
+  # edits waiting for approval, and edits the API refused
   awk '
     FILENAME == ARGV[1] && ($1 == "block" || $1 == "skill") {
       kind[$3] = $1; S[$3] = $2; order[++n] = $3
@@ -630,7 +630,7 @@ sync_scope() {
       # Gone from the playbook: take it away, unless it holds an edit
       if [ "$held" = 1 ]; then
         HELD=$((HELD + 1))
-        planned "Keep your edit in $what while it waits for review."
+        planned "Keep your edit in $what while it waits for approval."
         printf 'wrote %s %s %s\n' "$kind" "$R" "$t" >>"$TMP/wrote"
       elif [ "$L" = none ]; then
         :
@@ -654,7 +654,7 @@ sync_scope() {
       printf 'wrote %s %s %s\n' "$kind" "$S" "$t" >>"$TMP/wrote"
     elif [ "$held" = 1 ]; then
       HELD=$((HELD + 1))
-      planned "Keep your edit in $what while it waits for review."
+      planned "Keep your edit in $what while it waits for approval."
       [ "$R" != - ] && printf 'wrote %s %s %s\n' "$kind" "$R" "$t" >>"$TMP/wrote"
     elif [ "$L" = none ]; then
       if [ "$kind" = skill ]; then
@@ -680,8 +680,8 @@ sync_scope() {
       # An edit made here since the last sync
       case ",$refused," in
         *",$L,"*)
-          warn "$path has an edit that couldn't be sent for review, so it won't update until you undo or fix the edit."
-          planned "Keep your edit in $what. It couldn't be sent for review, so this won't update until the edit is undone or fixed."
+          warn "$path has an edit Context Locker couldn't take, so it won't update until you undo or fix the edit."
+          planned "Keep your edit in $what. Context Locker couldn't take it, so this won't update until the edit is undone or fixed."
           printf 'refused %s %s\n' "$L" "$t" >>"$TMP/refused"
           printf 'wrote %s %s %s\n' "$kind" "$R" "$t" >>"$TMP/wrote"
           printf 'skipped refused %s\n' "$t" >>"$TMP/skipped"
@@ -690,7 +690,7 @@ sync_scope() {
       esac
       if [ "$MODE" = plan ]; then
         # A plan sends nothing
-        planned "Send your edit in $what for review, and keep it there until it's decided."
+        planned "Send your edit in $what to Context Locker, which applies it unless it needs approval first."
         continue
       fi
       outcome=$(send_edit "$t" "$kind" "$path" "$R" "$query")
@@ -708,7 +708,7 @@ sync_scope() {
           ;;
         refused)
           message=$(reply_field message "$TMP/edit-reply")
-          warn "your edit to $path couldn't be sent for review: ${message:-it was refused}"
+          warn "Context Locker couldn't take your edit to $path: ${message:-it was refused}"
           printf 'refused %s %s\n' "$L" "$t" >>"$TMP/refused"
           printf 'wrote %s %s %s\n' "$kind" "$R" "$t" >>"$TMP/wrote"
           printf 'skipped refused %s\n' "$t" >>"$TMP/skipped"
@@ -1371,7 +1371,7 @@ doctor() {
           if [ "$(block_lines "$path" "${pos% *}" "${pos#* }" | sha_stdin)" = "$hash" ]; then
             blocks=$((blocks + 1))
           else
-            check_warn "Context Locker's block in $path has an edit that isn't in your playbook. It goes for review at the next sync, if it hasn't already."
+            check_warn "Context Locker's block in $path has an edit that isn't in your playbook. It goes to Context Locker at the next sync, if it hasn't already."
           fi
           ;;
       esac
@@ -1509,9 +1509,15 @@ if [ "$DAILY" = 0 ]; then
   fi
 fi
 
+# What the app reads at the start of a session: a line about changes waiting
+# for the owner, then a project's preferences when they aren't in the repo
 context_file=
-[ -n "$PROJECT_ID" ] && [ -f "$APP_DIR/projects/$PROJECT_ID.context" ] &&
-  context_file=$APP_DIR/projects/$PROJECT_ID.context
+for part in "$APP_DIR/global.context" ${PROJECT_ID:+"$APP_DIR/projects/$PROJECT_ID.context"}; do
+  [ -f "$part" ] || continue
+  [ -n "$context_file" ] && printf '\n' >>"$TMP/context"
+  cat "$part" >>"$TMP/context"
+  context_file=$TMP/context
+done
 
 if [ "$DAILY" = 1 ]; then
   if [ "$FAILED" = 1 ]; then

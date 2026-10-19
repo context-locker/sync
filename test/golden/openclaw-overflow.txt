@@ -3,7 +3,7 @@ items: 00000000-0000-4000-8000-000000000001@1, 00000000-0000-4000-8000-000000000
 <!-- context-locker:start v1 -->
 ## Context Locker
 
-Your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync sends your edit for review.
+Your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.
 
 - rule-001: Rule 1: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it pl
 - rule-002: Rule 2: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it pl
@@ -23,7 +23,7 @@ items: 00000000-0000-4000-8000-000000000010@1, 00000000-0000-4000-8000-000000000
 <!-- context-locker:start v1 -->
 ## Context Locker
 
-More of your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync sends your edit for review.
+More of your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.
 
 - rule-010: Rule 10: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it p
 - rule-011: Rule 11: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it p
@@ -31,5 +31,5 @@ More of your preferences, kept in sync by Context Locker. To change one, edit it
 - rule-013: Rule 13: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it p
 - rule-014: Rule 14: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it p
 
-When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line in USER.md or this file, or the skill's files, and say why in your reply. The next sync sends the fix for review.
+When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line in USER.md or this file, or the skill's files, and say why in your reply. The next sync saves the fix in Context Locker, unless it needs approval first.
 <!-- context-locker:end -->

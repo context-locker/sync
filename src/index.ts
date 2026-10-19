@@ -25,7 +25,7 @@ export {
 } from "./hash.js";
 export { MANIFEST_HEADER, buildManifest, parseManifest } from "./manifest.js";
 export type { Blob, Hold, Manifest, ManifestEntry } from "./manifest.js";
-export { TEXT, preferenceLine } from "./render.js";
+export { OLD_INTROS, TEXT, preferenceLine } from "./render.js";
 export {
   SKILL_NAME,
   allowedTargets,

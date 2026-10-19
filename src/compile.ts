@@ -137,7 +137,7 @@ function compileGlobal(
       title: TEXT.globalTitle,
       intro:
         user.overflow.length > 0
-          ? "More of your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync sends your edit for review."
+          ? TEXT.moreIntro
           : "Context Locker keeps your preferences in USER.md.",
       preferences: user.overflow,
       budget: BUDGETS.openclawAgents,

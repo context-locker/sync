@@ -3,9 +3,9 @@ items: none
 <!-- context-locker:start v1 -->
 ## Context Locker
 
-Your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync sends your edit for review.
+Your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.
 
 No preferences saved yet.
 
-When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line here or the skill's files, and say why in your reply. The next sync sends the fix for review.
+When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line here or the skill's files, and say why in your reply. The next sync saves the fix in Context Locker, unless it needs approval first.
 <!-- context-locker:end -->
