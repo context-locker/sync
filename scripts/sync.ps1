@@ -1,4 +1,4 @@
-# Context Locker sync, version 1. MIT licence.
+# Context Locker sync, version 2. MIT licence.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 <app> [-Project <id>] [-Daily]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 signin|plan|doctor|readback <app>
@@ -6,7 +6,7 @@
 # Keeps one AI app's files in step with your playbook at context.locker. <app>
 # is claude-code, codex, hermes or openclaw. The script asks for a manifest of
 # what the app's files should hold, writes only what changed, and sends any
-# edit it finds in a synced file back for review. It writes only inside
+# edit it finds in a synced file back to Context Locker. It writes only inside
 # Context Locker's marked blocks and skill folders, backs up anything it
 # replaces that it didn't write, and never deletes a file of yours. When
 # Context Locker can't be reached, the app keeps the files it has.
@@ -36,7 +36,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 1
+$ScriptVersion = 2
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -470,7 +470,7 @@ function Install-Skill([string]$Source, [string]$Dest, [string]$Item, [string]$V
     Remove-Item -LiteralPath $stage, $old -Recurse -Force -ErrorAction SilentlyContinue
     Copy-Item -LiteralPath $Source -Destination $stage -Recurse -Force
     [IO.File]::WriteAllText((Join-Path $stage '.ctx-managed'),
-      "Managed by Context Locker: skill $Item, version $Version.`nEdits here are sent for review at the next sync.`n$TreeHash`n", $Utf8)
+      "Managed by Context Locker: skill $Item, version $Version.`nEdits here go to Context Locker at the next sync.`n$TreeHash`n", $Utf8)
     if (Test-Path -LiteralPath $Dest) { Move-Item -LiteralPath $Dest -Destination $old }
     try { Move-Item -LiteralPath $stage -Destination $Dest }
     catch {
@@ -613,7 +613,7 @@ function Sync-Scope([string]$Query, [string]$State) {
   }
 
   # What the manifest says, what this script last wrote, edits waiting for
-  # review, and edits the API refused, per target
+  # approval, and edits the API refused, per target
   $order = New-Object System.Collections.Generic.List[string]
   $plan = @{}
   foreach ($line in $entries) {
@@ -732,7 +732,7 @@ function Sync-Scope([string]$Query, [string]$State) {
       # Gone from the playbook: take it away, unless it holds an edit
       if ($isHeld) {
         $held++; $wrote.Add("wrote $kind $R $t")
-        Add-Planned "Keep your edit in $what while it waits for review."
+        Add-Planned "Keep your edit in $what while it waits for approval."
       } elseif ($L -eq 'none') {
       } elseif ($L -eq $R) {
         if ($kind -eq 'block') { Add-Planned "Take Context Locker's block out of $path, as it's no longer in your playbook." }
@@ -750,7 +750,7 @@ function Sync-Scope([string]$Query, [string]$State) {
       Add-Planned "Up to date: $what."
       $wrote.Add("wrote $kind $S $t")
     } elseif ($isHeld) {
-      Add-Planned "Keep your edit in $what while it waits for review."
+      Add-Planned "Keep your edit in $what while it waits for approval."
       $held++; if ($R -ne '-') { $wrote.Add("wrote $kind $R $t") }
     } elseif ($L -eq 'none') {
       if ($kind -eq 'skill') { Add-Planned "Add $what." }
@@ -765,12 +765,12 @@ function Sync-Scope([string]$Query, [string]$State) {
       if ($kind -eq 'skill') { Add-Planned "Update $what." } else { Add-Planned "Update Context Locker's block in $path." }
       $actions.Add($write)
     } elseif ($p.Refused -contains $L) {
-      Warn "$path has an edit that couldn't be sent for review, so it won't update until you undo or fix the edit."
-      Add-Planned "Keep your edit in $what. It couldn't be sent for review, so this won't update until the edit is undone or fixed."
+      Warn "$path has an edit Context Locker couldn't take, so it won't update until you undo or fix the edit."
+      Add-Planned "Keep your edit in $what. Context Locker couldn't take it, so this won't update until the edit is undone or fixed."
       $refusedOut.Add("refused $L $t"); $wrote.Add("wrote $kind $R $t"); $skipped.Add("skipped refused $t")
     } elseif ($Mode -eq 'plan') {
       # A plan sends nothing
-      Add-Planned "Send your edit in $what for review, and keep it there until it's decided."
+      Add-Planned "Send your edit in $what to Context Locker, which applies it unless it needs approval first."
     } else {
       # An edit made here since the last sync
       $outcome = Send-Edit $t $kind $path $R $Query
@@ -784,7 +784,7 @@ function Sync-Scope([string]$Query, [string]$State) {
         'refused' {
           $message = Get-ReplyField $Script:EditReply 'message'
           if (-not $message) { $message = 'it was refused' }
-          Warn "your edit to $path couldn't be sent for review: $message"
+          Warn "Context Locker couldn't take your edit to ${path}: $message"
           $refusedOut.Add("refused $L $t"); $wrote.Add("wrote $kind $R $t"); $skipped.Add("skipped refused $t")
         }
         default { $complete = $false; $wrote.Add("wrote $kind $R $t") }
@@ -1465,7 +1465,7 @@ function Invoke-Doctor {
       if ($pos -eq 'none') { Warning "Context Locker's block is missing from $path. The next sync adds it again." }
       elseif ($pos -eq 'broken') { Fail "The Context Locker markers in $path don't pair up, so syncs leave the file alone until someone fixes it by hand." }
       elseif ((Get-Sha256Text (Get-BlockText $lines $pos)) -eq $f[2]) { $blocks++ }
-      else { Warning "Context Locker's block in $path has an edit that isn't in your playbook. It goes for review at the next sync, if it hasn't already." }
+      else { Warning "Context Locker's block in $path has an edit that isn't in your playbook. It goes to Context Locker at the next sync, if it hasn't already." }
     }
     if ($skills -gt 0) { Pass "$(Get-Plural $blocks 'block' 'blocks') and $(Get-Plural $skills 'skill' 'skills') in place." }
     elseif ($blocks -gt 0) { Pass "$(Get-Plural $blocks 'block' 'blocks') in place." }
@@ -1622,11 +1622,16 @@ try {
   Remove-Item -LiteralPath $Tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-$contextFile = ''
+# What the app reads at the start of a session: a line about changes waiting
+# for the owner, then a project's preferences when they aren't in the repo
+$contextParts = New-Object System.Collections.Generic.List[string]
+$globalContext = Join-Path $AppDir 'global.context'
+if (Test-Path -LiteralPath $globalContext -PathType Leaf) { $contextParts.Add((Read-Text $globalContext)) }
 if ($Script:ProjectId) {
   $candidate = Join-Path (Join-Path $AppDir 'projects') "$($Script:ProjectId).context"
-  if (Test-Path -LiteralPath $candidate -PathType Leaf) { $contextFile = $candidate }
+  if (Test-Path -LiteralPath $candidate -PathType Leaf) { $contextParts.Add((Read-Text $candidate)) }
 }
+$context = $contextParts -join "`n"
 
 if ($Daily) {
   if ($Script:Failed) {
@@ -1638,13 +1643,13 @@ if ($Daily) {
 
 foreach ($line in $Script:Warnings) { [Console]::Error.WriteLine($line) }
 
-if ($Harness -eq 'claude-code' -and ($Script:SkillsChanged -or $contextFile)) {
+if ($Harness -eq 'claude-code' -and ($Script:SkillsChanged -or $context)) {
   $output = [ordered]@{ hookEventName = 'SessionStart' }
-  if ($contextFile) { $output['additionalContext'] = (Read-Text $contextFile) }
+  if ($context) { $output['additionalContext'] = $context }
   if ($Script:SkillsChanged) { $output['reloadSkills'] = $true }
   Write-Out ((@{ hookSpecificOutput = $output } | ConvertTo-Json -Compress -Depth 4) + "`n")
-} elseif ($contextFile) {
-  Write-Out (Read-Text $contextFile)
+} elseif ($context) {
+  Write-Out $context
 }
 $Script:Stdout.Flush()
 exit 0
