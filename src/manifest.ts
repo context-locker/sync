@@ -8,7 +8,7 @@
 //   block <sha256> <target>                          a managed block
 //   skill <tree hash> <target> <item id> <version>   a skill folder
 //   context <sha256>                                 printed at session start
-//   hold <sha256> <target>                           a local edit waiting for review: keep it
+//   hold <sha256> <target>                           a local edit waiting for approval: keep it
 //
 // Scripts skip lines they don't know, so later versions can add kinds.
 import { blockHash, sha256, treeHash } from "./hash.js";

@@ -3,7 +3,7 @@ items: 00000000-0000-4000-8000-000000000001@1, 00000000-0000-4000-8000-000000000
 <!-- context-locker:start v1 -->
 ## Context Locker: Docs site
 
-Preferences for this project, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync sends your edit for review.
+Preferences for this project, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.
 
 - rule-001: Rule 1: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain ke
 - rule-002: Rule 2: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain ke

@@ -7,18 +7,21 @@ import type { ItemRef, PreferenceInput } from "./types.js";
 export const TEXT = {
   globalTitle: "## Context Locker",
   globalIntro:
-    "Your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync sends your edit for review.",
+    "Your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
+  /** The intro of OpenClaw's second file, for preferences that didn't fit in USER.md. */
+  moreIntro:
+    "More of your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
   noPreferences: "No preferences saved yet.",
   projectTitle: (name: string) => `## Context Locker: ${name}`,
   projectIntro:
-    "Preferences for this project, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync sends your edit for review.",
+    "Preferences for this project, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
   personalIntro: (name: string) =>
     `Context Locker preferences for ${name}. Where one has the same name as a general preference, it replaces that one here. To change one, ask your user to edit it in Context Locker.`,
   endOfTask:
-    "When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line here or the skill's files, and say why in your reply. The next sync sends the fix for review.",
+    "When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line here or the skill's files, and say why in your reply. The next sync saves the fix in Context Locker, unless it needs approval first.",
   /** The same question, in a file that doesn't hold all the preference lines. */
   endOfTaskIn: (where: string) =>
-    `When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line in ${where}, or the skill's files, and say why in your reply. The next sync sends the fix for review.`,
+    `When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line in ${where}, or the skill's files, and say why in your reply. The next sync saves the fix in Context Locker, unless it needs approval first.`,
   overflow: (count: number, where: string | null) =>
     count === 1
       ? `1 more preference didn't fit in this file. ${where ? `It's in ${where}.` : "It's in Context Locker."}`
@@ -28,6 +31,16 @@ export const TEXT = {
       ? "1 preference was left out of this file because some AI apps refuse to load files with wording like it. It's in Context Locker."
       : `${count} preferences were left out of this file because some AI apps refuse to load files with wording like theirs. They're in Context Locker.`,
 } as const;
+
+/**
+ * Intros the compilers wrote before. A file edited from an older copy of its
+ * block can still hold one, and reading the edit skips it like today's.
+ */
+export const OLD_INTROS: readonly string[] = [
+  "Your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync sends your edit for review.",
+  "Preferences for this project, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync sends your edit for review.",
+  "More of your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync sends your edit for review.",
+];
 
 export function preferenceLine(preference: PreferenceInput): string {
   return `- ${preference.name}: ${preference.text}`;
