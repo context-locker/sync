@@ -12,6 +12,10 @@ export const TEXT = {
   moreIntro:
     "More of your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
   noPreferences: "No preferences saved yet.",
+  /** Headings, used only when some preferences are in About */
+  aboutUser: "### About the user",
+  aboutProject: "### About this project",
+  preferencesHeading: "### Preferences",
   projectTitle: (name: string) => `## Context Locker: ${name}`,
   projectIntro:
     "Preferences for this project, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
@@ -42,8 +46,41 @@ export const OLD_INTROS: readonly string[] = [
   "More of your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync sends your edit for review.",
 ];
 
+/**
+ * A preference as one list item. Any further lines are indented under the
+ * first, so the item reads as one and an edit to it can be read back.
+ */
 export function preferenceLine(preference: PreferenceInput): string {
-  return `- ${preference.name}: ${preference.text}`;
+  return `- ${preference.name}: ${preference.text.replace(/\n/g, "\n  ")}`;
+}
+
+/** About first, then the rest, each in the order given. */
+function aboutFirst(preferences: PreferenceInput[]): PreferenceInput[] {
+  return [
+    ...preferences.filter((preference) => preference.about),
+    ...preferences.filter((preference) => !preference.about),
+  ];
+}
+
+/**
+ * The preference lines, under About and Preferences headings when some are
+ * in About, and as a plain list when none are, as before About existed.
+ */
+function preferenceSections(
+  preferences: PreferenceInput[],
+  aboutHeading: string,
+): string[] {
+  const about = preferences.filter((preference) => preference.about);
+  const rest = preferences.filter((preference) => !preference.about);
+  if (about.length === 0) {
+    return rest.length > 0 ? [rest.map(preferenceLine).join("\n")] : [];
+  }
+  return [
+    `${aboutHeading}\n\n${about.map(preferenceLine).join("\n")}`,
+    ...(rest.length > 0
+      ? [`${TEXT.preferencesHeading}\n\n${rest.map(preferenceLine).join("\n")}`]
+      : []),
+  ];
 }
 
 export interface BlockPlan {
@@ -59,6 +96,8 @@ export interface BlockPlan {
   /** Leave out preferences whose wording looks like prompt injection. */
   shared?: boolean;
   footer?: string;
+  /** The heading over About, when some preferences are in it. About the user, unless set. */
+  aboutHeading?: string;
 }
 
 export interface RenderedBlock {
@@ -73,13 +112,16 @@ const bytes = (text: string) => Buffer.byteLength(text, "utf8");
 
 function assemble(
   plan: BlockPlan,
-  lines: string[],
+  kept: PreferenceInput[],
   overflowCount: number,
   leftOutCount: number,
 ): string {
   const sections: string[] = [`${plan.title}\n\n${plan.intro}`];
-  if (lines.length > 0) sections.push(lines.join("\n"));
-  else if (plan.empty && overflowCount === 0 && leftOutCount === 0) {
+  if (kept.length > 0) {
+    sections.push(
+      ...preferenceSections(kept, plan.aboutHeading ?? TEXT.aboutUser),
+    );
+  } else if (plan.empty && overflowCount === 0 && leftOutCount === 0) {
     sections.push(plan.empty);
   }
   const notes: string[] = [];
@@ -93,9 +135,9 @@ function assemble(
 }
 
 /**
- * Builds a managed block within its byte budget. Preferences go in order
- * until the next one wouldn't fit; the rest are counted in a line that says
- * where they are, so nothing is cut without saying so.
+ * Builds a managed block within its byte budget. Preferences go in order,
+ * About first, until the next one wouldn't fit; the rest are counted in a
+ * line that says where they are, so nothing is cut without saying so.
  */
 export function renderBlock(plan: BlockPlan): RenderedBlock {
   const leftOut = plan.shared
@@ -103,8 +145,8 @@ export function renderBlock(plan: BlockPlan): RenderedBlock {
         (preference) => injectionMatches(preferenceLine(preference)).length > 0,
       )
     : [];
-  const candidates = plan.preferences.filter(
-    (preference) => !leftOut.includes(preference),
+  const candidates = aboutFirst(
+    plan.preferences.filter((preference) => !leftOut.includes(preference)),
   );
 
   const kept: PreferenceInput[] = [];
@@ -112,7 +154,7 @@ export function renderBlock(plan: BlockPlan): RenderedBlock {
     const remaining = candidates.length - index - 1;
     const trial = assemble(
       plan,
-      [...kept, preference].map(preferenceLine),
+      [...kept, preference],
       remaining,
       leftOut.length,
     );
@@ -121,12 +163,7 @@ export function renderBlock(plan: BlockPlan): RenderedBlock {
   }
 
   const overflow = candidates.slice(kept.length);
-  const text = assemble(
-    plan,
-    kept.map(preferenceLine),
-    overflow.length,
-    leftOut.length,
-  );
+  const text = assemble(plan, kept, overflow.length, leftOut.length);
   return {
     text,
     items: kept.map(({ id, version }) => ({ id, version })),
@@ -143,19 +180,22 @@ export function renderContext(
 ): RenderedBlock {
   const kept: PreferenceInput[] = [];
   const intro = TEXT.personalIntro(projectName);
+  const ordered = aboutFirst(preferences);
+  // Sections under headings get a blank line between them; a plain list
+  // stays as compact as it always was
   const build = (list: PreferenceInput[], overflowCount: number) =>
     [
       intro,
-      ...list.map(preferenceLine),
+      ...preferenceSections(list, TEXT.aboutProject),
       ...(overflowCount > 0 ? [TEXT.overflow(overflowCount, null)] : []),
-    ].join("\n") + "\n";
+    ].join(list.some((preference) => preference.about) ? "\n\n" : "\n") + "\n";
 
-  for (const [index, preference] of preferences.entries()) {
-    const remaining = preferences.length - index - 1;
+  for (const [index, preference] of ordered.entries()) {
+    const remaining = ordered.length - index - 1;
     if (bytes(build([...kept, preference], remaining)) > budget) break;
     kept.push(preference);
   }
-  const overflow = preferences.slice(kept.length);
+  const overflow = ordered.slice(kept.length);
   return {
     text: build(kept, overflow.length),
     items: kept.map(({ id, version }) => ({ id, version })),

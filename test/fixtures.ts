@@ -74,6 +74,43 @@ export const projectSkills: SkillInput[] = [
   },
 ];
 
+/** Facts in About, then preferences, one of them over several lines. */
+export const withAbout: PreferenceInput[] = [
+  {
+    id: "a1111111-1111-4111-8111-111111111111",
+    name: "role",
+    version: 1,
+    text: "I'm Nova, the founder of Scrollport, in London.\nI decide on product and design.",
+    about: true,
+  },
+  ...preferences,
+  {
+    id: "a2222222-2222-4222-8222-222222222222",
+    name: "commit-messages",
+    version: 1,
+    text: "Write commit messages like this:\n- a title in the imperative mood\n- then why the change was made",
+  },
+  {
+    id: "a3333333-3333-4333-8333-333333333333",
+    name: "scrollport",
+    version: 2,
+    text: "Scrollport is a two-person software studio.",
+    about: true,
+  },
+];
+
+/** A project's own facts and preferences. */
+export const projectWithAbout: PreferenceInput[] = [
+  ...projectPreferences,
+  {
+    id: "a4444444-4444-4444-8444-444444444444",
+    name: "stack",
+    version: 1,
+    text: "Built with Astro and deployed on Vercel.",
+    about: true,
+  },
+];
+
 /** Numbered preferences of a given length, for testing caps. */
 export function manyPreferences(
   count: number,

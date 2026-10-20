@@ -43,6 +43,10 @@ describe("the published setup files", () => {
         /^---\nname: context-locker-setup\ndescription: .+\n---\n/,
       );
       assert.ok(
+        skill.includes(`This is version ${version.slice(1)} of these steps,`),
+        "the steps say which version they are",
+      );
+      assert.ok(
         skill.includes(`https://context.locker/setup/${version}/sync.sh`),
       );
       assert.ok(

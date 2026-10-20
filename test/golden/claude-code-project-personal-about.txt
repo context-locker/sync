@@ -1,0 +1,11 @@
+== context
+items: a4444444-4444-4444-8444-444444444444@1, 66666666-6666-4666-8666-666666666666@1
+Context Locker preferences for Docs site. Where one has the same name as a general preference, it replaces that one here. To change one, ask your user to edit it in Context Locker.
+
+### About this project
+
+- stack: Built with Astro and deployed on Vercel.
+
+### Preferences
+
+- short-sentences: Steps in the docs may use longer sentences when they need to.

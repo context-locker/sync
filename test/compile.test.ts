@@ -20,7 +20,9 @@ import {
   project,
   projectPreferences,
   projectSkills,
+  projectWithAbout,
   skills,
+  withAbout,
 } from "./fixtures.js";
 
 const GOLDEN = join(dirname(fileURLToPath(import.meta.url)), "golden");
@@ -87,6 +89,36 @@ describe("the compilers' fixed expected files", () => {
         compile(inProject(harness, "personal")),
       ));
   }
+
+  for (const harness of COMPILED_HARNESSES) {
+    it(`${harness}: About the user first, under its own heading`, () =>
+      golden(
+        `${harness}-global-about`,
+        compile({ harness, project: null, preferences: withAbout, skills: [] }),
+      ));
+  }
+
+  it("codex: a repo's block puts About this project first", () =>
+    golden(
+      "codex-project-about",
+      compile({
+        harness: "codex",
+        project: { ...project, layer: "repo" },
+        preferences: projectWithAbout,
+        skills: [],
+      }),
+    ));
+
+  it("claude-code: a project the repo isn't linked to puts About this project first", () =>
+    golden(
+      "claude-code-project-personal-about",
+      compile({
+        harness: "claude-code",
+        project: { ...project, layer: "personal" },
+        preferences: projectWithAbout,
+        skills: [],
+      }),
+    ));
 
   it("claude-code: an empty playbook still gets its block", () =>
     golden(

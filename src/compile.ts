@@ -236,6 +236,7 @@ function compileProject(
     const rendered = renderBlock({
       title: TEXT.projectTitle(project.name),
       intro: TEXT.projectIntro,
+      aboutHeading: TEXT.aboutProject,
       preferences,
       budget: shared ? BUDGETS.sharedAgentsMd : BUDGETS.claudeRules,
       shared,
