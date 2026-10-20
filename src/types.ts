@@ -27,7 +27,10 @@ export interface ItemRef {
 
 export interface PreferenceInput extends ItemRef {
   name: string;
+  /** One or more lines, with no empty ones */
   text: string;
+  /** In About: a fact about the person or their work, which goes first */
+  about?: boolean;
 }
 
 export interface SkillInput extends ItemRef {

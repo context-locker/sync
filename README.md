@@ -8,7 +8,7 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Ask your AI app to follow the steps at `https://context.locker/setup/v2/SKILL.md`. The steps download the script, check its hash, sign the app in with a link and a code you approve, show what a sync would write, and add a hook so the app syncs at the start of each session. The same files are in [`setup/v2`](setup/v2).
+Ask your AI app to follow the steps at `https://context.locker/setup/v3/SKILL.md`. The steps download the script, check its hash, sign the app in with a link and a code you approve, show what a sync would write, and add a hook so the app syncs at the start of each session. The same files are in [`setup/v3`](setup/v3). An app that can't run commands, such as Claude or ChatGPT in a browser, connects over MCP instead, at `https://mcp.context.locker`.
 
 A published version never changes. When a script changes, it's published as a new version, with the hashes of its files in its `SKILL.md`. The tests fail until the newest version matches the scripts in [`scripts`](scripts).
 
@@ -52,6 +52,8 @@ The scripts only write where an app reads its files, and refuse anything else th
 Roots in braces are worked out on the computer: `{claude}` is `CLAUDE_CONFIG_DIR` or `~/.claude`, `{codex}` is `CODEX_HOME` or `~/.codex`, `{hermes}` is `HERMES_HOME` or `~/.hermes`, `{agents}` is `~/.agents`, `{openclaw}` is the configured workspace, and `{project}` is the repo.
 
 Project files go into a repo only when it holds a `.contextlocker.json` naming the same workspace. Otherwise the session-start output carries the project's preferences and nothing is written to the repo.
+
+Facts in About come first, under `### About the user` in an app's own files and `### About this project` in a project's block, then the rest under `### Preferences`. A preference can run over several lines, each further line indented under its first, and an edit to it reads back the same way.
 
 A managed block sits between `<!-- context-locker:start v1 -->` and `<!-- context-locker:end -->`, and nothing outside the markers changes. Each block has a size limit for its app (see `BUDGETS`). Preferences that don't fit are counted in a line saying where they are, and a repo's `AGENTS.md` block leaves out wording that Hermes would refuse, saying so in the block.
 
