@@ -110,11 +110,11 @@ export type {
   CompiledHarness,
   DocsHome,
   ItemRef,
-  LinkInput,
   NoteInput,
   Output,
   PreferenceInput,
   ProjectLayer,
   SkillFile,
   SkillInput,
+  StartHereInput,
 } from "./types.js";

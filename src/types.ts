@@ -39,30 +39,35 @@ export interface SkillInput extends ItemRef {
 }
 
 /**
- * A link from a project's map, such as its agent guide or its runbook, as a
- * project's block lists it under Start here or names it as the docs home.
- * Its title and description may come from an AI app.
+ * One of a project's Start here entries, the few a new agent opens first: a
+ * note, or a pointer to the one file or page that holds the content. Its
+ * title and summary may come from an AI app.
  */
-export interface LinkInput extends ItemRef {
+export interface StartHereInput extends ItemRef {
   title: string;
-  /** An http or https address, or a path in the repo */
-  url: string;
+  /** What it is, such as runbook or code */
+  kind: string;
   /** What it holds, in one line */
-  description: string;
-  /** What it's for, such as onboarding or runbook */
-  role: string;
+  summary: string;
+  /**
+   * A pointer's address: an http or https address, or a path in the repo.
+   * Null for a note, which holds its own text
+   */
+  address: string | null;
+  /** A note's name, which its file in the notes folder is named after */
+  name: string;
 }
 
 /**
  * A note as a project's notes folder holds it: a Markdown document and its
- * front matter, in a file named after the note. Links have no text, so they
- * have no files.
+ * front matter, in a file named after the note. Pointers hold no text, so
+ * they have no files.
  */
 export interface NoteInput extends ItemRef {
   /** The note's name, such as release-plan, which its file is named after */
   name: string;
   title: string;
-  /** plan, spec, decision, research, idea, log or profile */
+  /** plan, spec, decision, research, idea, log, profile, design, runbook or onboarding */
   kind: string;
   /** current, or superseded once a newer note takes its place */
   status: string;
@@ -76,11 +81,11 @@ export interface NoteInput extends ItemRef {
 }
 
 /**
- * Where a project's lasting docs go: one of its links, Context Locker Notes,
- * or null when the owner hasn't said yet.
+ * Where a project's lasting docs go: Context Locker Notes, a place such as a
+ * folder in the repo or a web address, or null when the owner hasn't said yet.
  */
 export type DocsHome =
-  { kind: "notes" } | { kind: "link"; link: LinkInput } | null;
+  { kind: "notes" } | { kind: "place"; place: string } | null;
 
 /**
  * Where a project's compiled files go. "repo": into the repo's own files,
@@ -101,15 +106,15 @@ export interface CompileInput {
   /** The skills for this sync, scoped the same way. */
   skills: SkillInput[];
   /**
-   * For a project sync: its Start here links, in the order they're listed.
-   * A block lists 10 at most.
+   * For a project sync: its Start here entries, notes and pointers, in the
+   * order they're listed. A block lists 10 at most.
    */
-  startHere?: LinkInput[];
+  startHere?: StartHereInput[];
   /** For a project sync: its docs home. Left out, none is recorded. */
   docsHome?: DocsHome;
   /**
    * For a project sync: its live notes and the ones that apply everywhere,
-   * current and superseded, which its notes folder mirrors. Links are left
+   * current and superseded, which its notes folder mirrors. Pointers are left
    * out.
    */
   notes?: NoteInput[];

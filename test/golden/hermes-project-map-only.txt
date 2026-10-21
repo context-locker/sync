@@ -9,7 +9,7 @@ Preferences for this project, kept in sync by Context Locker. Where one has the 
 
 - [Agent guide](AGENTS.md) (onboarding): How to build, test and ship the docs site.
 
-Start each session with a three-line startup brief for the user: the project, the sources you'll use, and your first step. These links are from the project's map in Context Locker. When the task needs more of it, call Context Locker's project_map tool if you have it.
+Start each session with a three-line startup brief for the user: the project, the sources you'll use, and your first step. These come from the project's map in Context Locker. When the task needs more of it, call Context Locker's project_map tool if you have it.
 
 No preferences saved yet.
 

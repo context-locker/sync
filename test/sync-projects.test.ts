@@ -57,7 +57,7 @@ interface FakeProject {
   fail?: number;
 }
 
-/** A fake Context Locker that knows some projects, their remotes and links */
+/** A fake Context Locker that knows some projects, their remotes and pointers to paths in their repos */
 class FakeLocker {
   projects = new Map<string, FakeProject>();
   /** The newest script the global manifest names */
@@ -445,7 +445,7 @@ describe("a project in the sync", () => {
           assert.equal(fake.sent.find?.length, 1);
         });
 
-        it("checks the project's links to paths in its repo, says which are missing in one line, and reports them", async () => {
+        it("checks the project's pointers to paths in its repo, says which are missing in one line, and reports them", async () => {
           const machine = computer();
           const ids = Array.from({ length: 6 }, () => randomUUID());
           const docs = fake.add({
@@ -484,7 +484,7 @@ describe("a project in the sync", () => {
           assert.equal(first.status, 0, first.stderr);
           assert.equal(
             first.stderr,
-            `Context Locker: 3 of this project's links point to paths that aren't in ${clone}: docs/missing.md, docs/outside.md, shared/notes.md. If they moved, change the links in Context Locker.\n`,
+            `Context Locker: 3 of this project's pointers point to paths that aren't in ${clone}: docs/missing.md, docs/outside.md, shared/notes.md. If they moved, change their addresses in Context Locker.\n`,
           );
           const report = fake.sent.done?.at(-1) ?? "";
           assert.match(report, /^links 6$/m);
@@ -505,7 +505,7 @@ describe("a project in the sync", () => {
           const third = await run(shell, machine, { cwd: clone });
           assert.match(
             third.stderr,
-            /2 of this project's links point to paths that aren't in .*: docs\/outside\.md, shared\/notes\.md\./,
+            /2 of this project's pointers point to paths that aren't in .*: docs\/outside\.md, shared\/notes\.md\./,
           );
           assert.equal(fake.sent.done?.length, (reports ?? 0) + 1);
           assert.deepEqual(
@@ -521,7 +521,7 @@ describe("a project in the sync", () => {
           );
         });
 
-        it("prints the project's map for the folder it runs in, or every link with --all", async () => {
+        it("prints the project's map for the folder it runs in, or every entry with --all", async () => {
           const machine = computer();
           const docs = fake.add({ name: "Docs site" });
           const clone = repo(machine.home, "docs");

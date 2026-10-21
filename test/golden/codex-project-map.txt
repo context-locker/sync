@@ -1,5 +1,5 @@
 == block {project}/AGENTS.md
-items: b1111111-1111-4111-8111-111111111111@1, b2222222-2222-4222-8222-222222222222@2, b3333333-3333-4333-8333-333333333333@1, b4444444-4444-4444-8444-444444444444@3, a4444444-4444-4444-8444-444444444444@1, 66666666-6666-4666-8666-666666666666@1
+items: b1111111-1111-4111-8111-111111111111@1, b2222222-2222-4222-8222-222222222222@2, b3333333-3333-4333-8333-333333333333@1, d1111111-1111-4111-8111-111111111111@3, a4444444-4444-4444-8444-444444444444@1, 66666666-6666-4666-8666-666666666666@1
 <!-- context-locker:start v1 -->
 ## Context Locker: Docs site
 
@@ -10,8 +10,9 @@ Preferences for this project, kept in sync by Context Locker. Where one has the 
 - [Agent guide](AGENTS.md) (onboarding): How to build, test and ship the docs site.
 - [Billing runbook](https://www.notion.so/scrollport/Billing-runbook-1a2b3c4d) (runbook): What to do when a payment fails or a refund is stuck.
 - [Design notes \[draft\]](docs/Design%20notes%20%282026%29.md) (design): Why the pages look as they do, with \<details\> on the grid.
+- [Release plan](.context-locker/notes/release-plan.md) (plan): What ships in the Q4 release of the docs site, and when.
 
-Start each session with a three-line startup brief for the user: the project, the sources you'll use, and your first step. These links are from the project's map in Context Locker. When the task needs more of it, call Context Locker's project_map tool if you have it.
+Start each session with a three-line startup brief for the user: the project, the sources you'll use, and your first step. These come from the project's map in Context Locker. When the task needs more of it, call Context Locker's project_map tool if you have it.
 
 ### About this project
 
@@ -23,7 +24,7 @@ Start each session with a three-line startup brief for the user: the project, th
 
 ### Docs home
 
-Keep lasting docs in [Docs repo](https://github.com/scrollport/docs), this project's docs home.
+Keep lasting docs in [docs/decisions](docs/decisions), this project's docs home, and add a pointer for each new one with write_note, if you have it.
 <!-- context-locker:end -->
 
 == file {project}/.context-locker/notes/README.md

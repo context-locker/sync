@@ -16,7 +16,7 @@ export const RESERVED_SKILL_PREFIX = "context-locker-";
  * playbook: the version goes up whenever the steps change.
  */
 export const GATHER_SKILL_ID = "c0de0000-6a7e-4e00-8000-000000000001";
-export const GATHER_SKILL_VERSION = 1;
+export const GATHER_SKILL_VERSION = 2;
 
 /**
  * What the skill may take. The Agent Skills format and Hermes allow a
@@ -102,11 +102,11 @@ export const GATHER_PLAN_EXAMPLE = Object.freeze({
       ],
     },
     {
-      type: "link",
+      type: "pointer",
       title: "Runbook",
-      url: "docs/runbook.md",
-      description: "How to deploy the docs site and roll it back.",
-      role: "runbook",
+      kind: "runbook",
+      address: "docs/runbook.md",
+      summary: "How to deploy the docs site and roll it back.",
       applies_to: "Docs site",
       sources: [
         {
@@ -291,17 +291,19 @@ function skillMd(harness: CompiledHarness | "mcp"): string {
     '| A preference for how to work, such as "write dates with the year" | A preference, everywhere or for one project |',
     "| A fact about the person or their company, such as their role or what the company sells | An About preference |",
     "| A repeatable procedure | A new skill, or an addition to one |",
-    "| Where something lives, such as a repo, runbook or channel | A link in a project's map |",
-    "| A person, company or competitor | A profile note, or a link to where it lives, such as a CRM |",
+    "| Where something lives, such as a repo, runbook or channel | A pointer in a project's map, with the kind of what it points to |",
+    "| A person, company or competitor | A profile note, or a pointer to where it lives, such as a CRM |",
     "| The app's own identity, such as SOUL.md or IDENTITY.md | Left out as `persona`: personas aren't in Context Locker yet |",
-    "| A project fact, such as an architecture decision | Not stored: a link to the doc that holds it, if every AI app can reach it; otherwise the doc moves to the project's docs home or a note |",
+    "| A project fact, such as an architecture decision | Not stored: a pointer to the doc that holds it, if every AI app can reach it; otherwise the doc moves to the project's docs home or a note |",
     "| A personal life detail | Left out as `personal`, unless the person opts in |",
     "| A secret, a token or a raw transcript | Left out as `secret` or `transcript`. Point secrets to ScopeHold |",
     '| A one-off or stale note, such as "fixed the login bug yesterday" | Left out as `stale` |',
     "",
     `A preference that only makes sense in one project applies to that project; one that holds everywhere applies everywhere. Name a project by its name or id, as ${harness === "mcp" ? "`project_map` lists them" : "`sh ~/.contextlocker/sync.sh map <app>` shows it"}.`,
     "",
-    "Flag each doc some AI apps can't reach, such as a Claude Doc. Only an app that can open it moves it: if you can, bring its text in as a note for the project, or offer to save it in the project's docs home, and add a link to where it was, with `authority` set to `legacy`. If you can't open it, leave it out as `unreachable`, so an app that can moves it later.",
+    "A pointer stands in for a note: each document gets a pointer of its own, to its own file or page, never one to its folder. A `code` pointer can name a folder or a repo, and a `channel` pointer a channel.",
+    "",
+    "Flag each doc some AI apps can't reach, such as a Claude Doc. Only an app that can open it moves it: if you can, bring its text in as a note for the project, or offer to save it in the project's docs home, and add a pointer to where it was, with `authority` set to `legacy`. If you can't open it, leave it out as `unreachable`, so an app that can moves it later.",
     "",
     "## 4. De-duplicate",
     "",
@@ -323,7 +325,8 @@ function skillMd(harness: CompiledHarness | "mcp"): string {
     "Rank items by how many apps agree and how recent they are, and keep the best within these limits. Leave the rest out as `over_cap`.",
     "",
     "- 100 preferences in each scope, counting the ones already there, and 10 About facts.",
-    "- 100 links in a project's map, and 10 Start here links.",
+    "- Notes and pointers share one room: 1,000 on the Free plan and 100,000 on Pro, counting the ones already there.",
+    "- 10 in a project's Start here, notes and pointers together.",
     "- 300 items in one plan.",
     "- Short preferences: every app loads them at the start of every session.",
     "",
@@ -331,7 +334,7 @@ function skillMd(harness: CompiledHarness | "mcp"): string {
     "",
     "Show the person the whole plan in the chat, in plain words:",
     "",
-    '1. What comes in, grouped by where it goes: About, preferences (everywhere, then each project), skills, links and notes. One line each, with where it came from, such as "Write dates with the year (Claude Code, Codex)".',
+    '1. What comes in, grouped by where it goes: About, preferences (everywhere, then each project), skills, pointers and notes. One line each, with where it came from, such as "Write dates with the year (Claude Code, Codex)".',
     "2. The questions, each with its choices.",
     "3. The left-out list: every drop with its reason, so nothing goes silently.",
     "",
@@ -341,7 +344,7 @@ function skillMd(harness: CompiledHarness | "mcp"): string {
     "",
     ...submit(harness),
     "",
-    "Context Locker checks the whole plan first. If anything is wrong, it changes nothing and names each problem with its item number: fix them and submit again with the same `plan_id`. Otherwise it brings everything in together, with each item's sources. Links and notes apply at once. A high-risk preference or skill waits for the person's approval, and everything but links and notes waits if they asked this app to check with them first. Tell the person what came in and what waits, with the links the reply gives. Sending the same plan again changes nothing.",
+    "Context Locker checks the whole plan first. If anything is wrong, it changes nothing and names each problem with its item number: fix them and submit again with the same `plan_id`. Otherwise it brings everything in together, with each item's sources. Pointers and notes apply at once. A high-risk preference or skill waits for the person's approval, and everything but pointers and notes waits if they asked this app to check with them first. Tell the person what came in and what waits, with the links the reply gives. Sending the same plan again changes nothing.",
     "",
     "## 9. Tidy, only if asked",
     "",
@@ -372,8 +375,8 @@ function planMd(): string {
     "- `items`: up to 300. Each has a `type`, `applies_to` (`everywhere`, or a project's name or id) and `sources`: every source it came from, each with `app`, `path` and `date` as `sources.tsv` gives them, and `kind` if you like. An optional `note` says why it's in the plan, in one line.",
     "  - `preference` and `about`: `name` (lowercase words joined by hyphens) and `text`, up to 500 characters, with no empty lines.",
     "  - `skill`: `name` and `files`, each with `path` and `content`. A new skill needs SKILL.md, with front matter whose name matches. For a skill the playbook already has, send only the files to add or replace.",
-    "  - `link`: `title`, `url` (an http or https address, or a path in the repo), `description` (one line of up to 120 characters) and `role` (onboarding, code, run-test, decisions, planning, design, runbook or channel). It can also have `authority` (primary, secondary or legacy), `area`, `start_here` and `tags`.",
-    "  - `note`: `title`, `kind` (plan, spec, decision, research, idea, log or profile), `summary` (one line), `text` (Markdown, up to 100 KB) and 1 to 20 `tags`. Use tags the playbook already has where one fits.",
+    "  - `pointer`: `title`, `kind` (plan, spec, decision, research, idea, log, profile, design, runbook, onboarding, code, run-test or channel), `address` (an http or https address, or a path in the repo: a document's own file or page, never its folder) and `summary` (one line of up to 200 characters). It can also have `authority` (primary, secondary or legacy), `area`, `start_here`, `tags` and `status`.",
+    "  - `note`: `title`, `kind` (plan, spec, decision, research, idea, log, profile, design, runbook or onboarding), `summary` (one line), `text` (Markdown, up to 100 KB) and 1 to 20 `tags`. Use tags the playbook already has where one fits. It can also have `area`, `start_here` and `status`.",
     '- `left_out`: up to 300 entries, each with `summary`, `reason` and `sources`. The summary says what it was in a few words that don\'t repeat it, such as "A personal detail about family": never the detail itself, and never a secret. The reason is personal, secret, transcript, stale, persona, duplicate, conflict, over_cap, unreachable, declined or other, and other needs a `detail`. Put alike drops in one entry, with all their sources.',
     "- `questions`: each `question` the person settled, with their `answer`. Empty when there were none.",
   ].join("\n")}\n`;

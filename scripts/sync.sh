@@ -1,12 +1,12 @@
 #!/bin/sh
-# Context Locker sync, version 5. MIT licence.
+# Context Locker sync, version 6. MIT licence.
 #
 #   sh sync.sh <app> [--project <id>] [--daily]
 #   sh sync.sh map <app> [--all]
 #   sh sync.sh gather <app>
 #   sh sync.sh gather-submit <app> <plan.json>
 #   sh sync.sh export <app> [--to <folder>]
-#   sh sync.sh notes-move-out <app> --to <folder> [--title <title>]
+#   sh sync.sh notes-move-out <app> --to <folder>
 #   sh sync.sh signin|plan|doctor|readback <app>
 #
 # Keeps one AI app's files in step with your playbook at context.locker. <app>
@@ -22,7 +22,7 @@
 # notes and, in everywhere/, the ones that apply everywhere, one Markdown
 # file each. An edited note or a new .md file there goes to Context Locker
 # at the next sync, and git leaves the folder out. The sync also checks that
-# the project's links to paths in its repo are there.
+# the project's pointers to paths in its repo are there.
 #
 # The project is the one --project names; else the one a .contextlocker.json
 # in the repo names; else a folder linked on this computer; else the project
@@ -34,8 +34,10 @@
 # --daily        is for scheduled runs: silent when all is well, exit 1 when
 #                not. It syncs the projects linked on this computer too.
 #
-# map prints the project's map: its docs home, Start here links, the links
-# that matter in the current folder (every one with --all) and its notes.
+# map prints the project's map: its docs home, its Start here entries, the
+# notes and pointers that matter in the current folder (every one with --all)
+# and the newest of the rest. A pointer stands in for a note kept somewhere
+# else, such as a file in the repo, and says where.
 #
 # gather copies what every AI app on this computer already knows, their
 # instructions, skills and memories, into a working set only this account can
@@ -52,10 +54,11 @@
 #
 # notes-move-out moves the project's notes out of Context Locker into a
 # folder in its repo that --to names: it writes each note there as a Markdown
-# file, never over a file, and only then asks Context Locker to retire them
-# and record a link to the folder as the project's docs home. The folder must
-# be inside the project, outside .context-locker, and reached through no
-# link. The notes that apply everywhere stay.
+# file, never over a file, and only then asks Context Locker to turn each one
+# into a pointer to its file, with the same id, and to make the folder the
+# project's docs home. The folder must be inside the project, outside
+# .context-locker, and reached through no link. The notes that apply
+# everywhere stay.
 #
 # For setup (see context.locker/setup):
 #   signin    connects the app with a code you approve in your browser. The
@@ -75,7 +78,7 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=5
+SCRIPT_VERSION=6
 MODE=sync
 case ${1:-} in
   signin | plan | doctor | readback | map | gather | gather-submit | export | notes-move-out)
@@ -92,8 +95,6 @@ PLAN_FILE=
 WAIT=50
 TO=
 TO_SET=0
-TITLE=
-TITLE_SET=0
 # gather-submit's plan comes before any option
 if [ "$MODE" = gather-submit ] && [ $# -gt 0 ]; then
   case $1 in
@@ -121,11 +122,6 @@ while [ $# -gt 0 ]; do
       TO_SET=1
       [ $# -gt 1 ] && shift
       ;;
-    --title)
-      TITLE=${2:-}
-      TITLE_SET=1
-      [ $# -gt 1 ] && shift
-      ;;
     *)
       printf 'Context Locker: unknown option %s\n' "$1" >&2
       exit 2
@@ -135,7 +131,7 @@ while [ $# -gt 0 ]; do
 done
 
 usage() {
-  printf 'Usage: sh sync.sh <app> [--project <id>] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh gather <app>\n       sh sync.sh gather-submit <app> <plan.json>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder> [--title <title>]\n       sh sync.sh signin|plan|doctor|readback <app>\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
+  printf 'Usage: sh sync.sh <app> [--project <id>] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh gather <app>\n       sh sync.sh gather-submit <app> <plan.json>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder>\n       sh sync.sh signin|plan|doctor|readback <app>\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
   exit 2
 }
 case $HARNESS in
@@ -144,14 +140,12 @@ case $HARNESS in
 esac
 [ "$MODE" = gather-submit ] && [ -z "$PLAN_FILE" ] && usage
 case $WAIT in '' | *[!0-9]*) usage ;; esac
-# --to is for export and notes-move-out, which needs it, and --title for
-# notes-move-out
+# --to is for export and notes-move-out, which needs it
 case $MODE in
   export) [ "$TO_SET" = 1 ] && [ -z "$TO" ] && usage ;;
   notes-move-out) [ -n "$TO" ] || usage ;;
   *) [ "$TO_SET" = 1 ] && usage ;;
 esac
-[ "$TITLE_SET" = 1 ] && { [ "$MODE" != notes-move-out ] || [ -z "$TITLE" ]; } && usage
 
 case $HARNESS in
   claude-code) APP_NAME='Claude Code' ;;
@@ -812,7 +806,7 @@ notes_write_list() {
   return 1
 }
 
-# --- A project's links to paths in its repo ---------------------------------
+# --- A project's pointers to paths in its repo ------------------------------
 
 # Whether a path in the repo is there, under the folder $1 (with no link in
 # its own path), going through no link that leads out of it
@@ -846,8 +840,8 @@ path_here() {
   return 0
 }
 
-# Checks the project's links to paths in its repo, from the manifest's link
-# lines, and says in one line which ones aren't in the folder
+# Checks the project's pointers to paths in its repo, from the manifest's
+# link lines, and says in one line which ones aren't in the folder
 check_links() {
   LINKS_CHECKED=0
   : >"$TMP/missing"
@@ -870,9 +864,9 @@ check_links() {
   cl_names=$(head -n 5 "$TMP/missing-paths" | awk '{ printf "%s%s", (NR > 1 ? ", " : ""), $0 }')
   [ "$cl_count" -gt 5 ] && cl_names="$cl_names and $((cl_count - 5)) more"
   if [ "$cl_count" = 1 ]; then
-    warn "1 of this project's links points to a path that isn't in $PROJECT_ROOT: $cl_names. If it moved, change the link in Context Locker."
+    warn "1 of this project's pointers points to a path that isn't in $PROJECT_ROOT: $cl_names. If it moved, change the pointer's address in Context Locker."
   else
-    warn "$cl_count of this project's links point to paths that aren't in $PROJECT_ROOT: $cl_names. If they moved, change the links in Context Locker."
+    warn "$cl_count of this project's pointers point to paths that aren't in $PROJECT_ROOT: $cl_names. If they moved, change their addresses in Context Locker."
   fi
 }
 
@@ -946,7 +940,7 @@ sync_scope() {
   old_etag=$(sed -n "s/^etag \\($HASH\\)\$/\\1/p" "$lockfile" | head -n 1)
   # A plan always looks at the whole manifest
   [ "$MODE" = plan ] && old_etag=
-  # What the last check of the project's links found
+  # What the last check of the project's pointers found
   grep -E '^(links|missing) ' "$lockfile" >"$TMP/links-before" 2>/dev/null
 
   code=$(status_of "$(http GET "/v1/sync$query" "$TMP/manifest" '' '' "$old_etag" '' '')")
@@ -1027,7 +1021,7 @@ sync_scope() {
     fi
   fi
 
-  # Whether the project's links to paths in its repo are there
+  # Whether the project's pointers to paths in its repo are there
   LINKS_CHECKED=
   : >"$TMP/missing"
   [ "$SCOPE" = project ] && [ "$MODE" = sync ] && check_links
@@ -1429,7 +1423,7 @@ sync_scope() {
     notes_write_list "$TMP/notes-wrote" || complete=0
   fi
 
-  # What this check of the links found, kept to tell when it changes
+  # What this check of the pointers found, kept to tell when it changes
   : >"$TMP/links-now"
   [ -n "$LINKS_CHECKED" ] && { printf 'links %s\n' "$LINKS_CHECKED"; cat "$TMP/missing"; } >"$TMP/links-now"
 
@@ -1442,7 +1436,7 @@ sync_scope() {
   } >"$lockfile.tmp" && mv -f "$lockfile.tmp" "$lockfile"
 
   [ "$complete" = 1 ] || FAILED=1
-  # The report goes with a new manifest, and when the missing links changed
+  # The report goes with a new manifest, and when the missing paths changed
   if [ "$complete" = 1 ] && { [ "$fresh" = 1 ] ||
     { [ -n "$LINKS_CHECKED" ] && [ "$(sha_file "$TMP/links-now")" != "$(sha_file "$TMP/links-before")" ]; }; }; then
     {
@@ -2547,15 +2541,16 @@ readback() {
   return 0
 }
 
-# Prints the project's map: its docs home, Start here links, the links that
-# matter in the current folder, or every one with --all, and its notes
+# Prints the project's map: its docs home, its Start here entries, the notes
+# and pointers that matter in the current folder, or every one with --all,
+# and the newest of the rest
 map() {
   WORKSPACE_ID=$(sed -n "s/^entry workspace \\($UUID\\)\$/\\1/p" "$APP_DIR/global.lock" 2>/dev/null | head -n 1)
   if ! find_project ask; then
     printf "Context Locker: this folder isn't in a project this computer knows. Link it to one with: %s %s --project <id>\n" "$RUN" "$HARNESS" >&2
     return 1
   fi
-  # Where this folder is in the project, unless every link is wanted
+  # Where this folder is in the project, unless every entry is wanted
   : >"$TMP/map-path"
   if [ "$ALL" = 0 ]; then
     mp_here=$(cd -P "$PWD" 2>/dev/null && pwd -P)
@@ -3317,7 +3312,7 @@ export_mode() {
     printf -- '- %s\n' "$(plural "$(ex_count preferences)" preference preferences)"
   fi
   printf -- '- %s\n' "$(plural "$(ex_count skills)" skill skills)"
-  printf -- '- %s and %s\n' "$(plural "$(ex_count notes)" note notes)" "$(plural "$(ex_count links)" link links)"
+  printf -- '- %s and %s\n' "$(plural "$(ex_count notes)" note notes)" "$(plural "$(ex_count pointers)" pointer pointers)"
   printf -- '- %s\n' "$(plural "$(ex_count projects)" project projects)"
   printf -- '- %s and %s in the history\n' "$(plural "$(ex_count events)" event events)" "$(plural "$(ex_count versions)" version versions)"
   printf 'README.md there says what each file is.\n'
@@ -3357,16 +3352,12 @@ folder_in_project() {
 }
 
 # Moves the project's notes into the folder --to names: writes each note's
-# file there, never over a file, and only then asks Context Locker to retire
-# them and record a link to the folder as the project's docs home
+# file there, never over a file, and only then asks Context Locker to turn
+# each one into a pointer to its file and make the folder the docs home
 notes_move_out() {
   WORKSPACE_ID=$(sed -n "s/^entry workspace \\($UUID\\)\$/\\1/p" "$APP_DIR/global.lock" 2>/dev/null | head -n 1)
   if ! find_project ask; then
     printf "Context Locker: this folder isn't in a project this computer knows. Link it to one with: %s %s --project <id>\n" "$RUN" "$HARNESS" >&2
-    return 1
-  fi
-  if [ "$(printf '%s' "$TITLE" | clean)" != "$TITLE" ]; then
-    printf "Context Locker: the link's title must be one line.\n" >&2
     return 1
   fi
   if ! mo_root=$(cd -P "$PROJECT_ROOT" 2>/dev/null && pwd -P); then
@@ -3466,7 +3457,7 @@ notes_move_out() {
   mo_bad="Context Locker: the notes that came down couldn't be read safely, so nothing moved. Try again."
   if ! archive_safe "$TMP/move.tar" '' || ! mkdir "$TMP/move" || ! tar -xof "$TMP/move.tar" -C "$TMP/move" 2>/dev/null ||
     [ -n "$(find "$TMP/move" ! -type f ! -type d | head -n 1)" ] ||
-    [ "$(head -n 1 "$TMP/move/index" 2>/dev/null)" != 'context-locker-move-out 1' ]; then
+    [ "$(head -n 1 "$TMP/move/index" 2>/dev/null)" != 'context-locker-move-out 2' ]; then
     printf '%s\n' "$mo_bad" >&2
     return 1
   fi
@@ -3552,10 +3543,9 @@ notes_move_out() {
     fi
   done <"$TMP/move-plan"
 
-  # Every file is written, so Context Locker can retire the notes
+  # Every file is written, so Context Locker can turn the notes into pointers
   {
-    printf 'context-locker-move-out 1\nfolder %s\n' "$mo_rel"
-    [ -n "$TITLE" ] && printf 'title %s\n' "$TITLE"
+    printf 'context-locker-move-out 2\nfolder %s\n' "$mo_rel"
     while read -r mo_id mo_ver mo_hash mo_file mo_state; do
       printf 'note %s %s %s\n' "$mo_id" "$mo_ver" "$mo_file"
     done <"$TMP/move-plan"
@@ -3564,7 +3554,7 @@ notes_move_out() {
   case $code in
     200) ;;
     000)
-      printf "Context Locker: the notes are written in %s, but Context Locker couldn't be reached to retire them, so it isn't known whether they moved. Run the same command again: it takes the files there as they are, and moves what's left.\n" "$mo_rel" >&2
+      printf "Context Locker: the notes are written in %s, but Context Locker couldn't be reached to turn them into pointers, so it isn't known whether they moved. Run the same command again: it takes the files there as they are, and moves what's left.\n" "$mo_rel" >&2
       return 1
       ;;
     *)
@@ -3574,7 +3564,7 @@ notes_move_out() {
       return 1
       ;;
   esac
-  if [ "$(head -n 1 "$TMP/move-reply")" != 'context-locker-move-out 1' ]; then
+  if [ "$(head -n 1 "$TMP/move-reply")" != 'context-locker-move-out 2' ]; then
     printf "Context Locker: couldn't make sense of Context Locker's answer, so it isn't known whether the notes moved. Run the same command again to find out.\n" >&2
     return 1
   fi
@@ -3593,25 +3583,22 @@ notes_move_out() {
   while IFS= read -r mo_file; do
     move_take_back "$mo_file"
   done <"$TMP/move-kept"
-  mo_link=$(sed -nE 's/^link (added|kept) [^ ]+ //p' "$TMP/move-reply" | head -n 1 | clean)
-  mo_added=$(sed -nE 's/^link (added|kept) .*/\1/p' "$TMP/move-reply" | head -n 1)
-  mo_was=$(sed -n 's/^docs-home //p' "$TMP/move-reply" | head -n 1 | clean)
+  # The docs home: what it was, then the place it is now
+  mo_home=$(sed -n 's/^docs-home //p' "$TMP/move-reply" | head -n 1 | clean)
+  mo_was=${mo_home%% *}
+  mo_place=${mo_home#* }
+  [ "$mo_place" = "$mo_home" ] && mo_place=$mo_rel
 
   mo_count=$(wc -l <"$TMP/move-moved" | tr -d ' ')
   if [ "$mo_count" -gt 0 ]; then
     printf 'Moved %s from Context Locker into %s:\n' "$(plural "$mo_count" note notes)" "$mo_rel"
     while IFS= read -r mo_file; do printf -- '- %s/%s\n' "$mo_rel" "$mo_file"; done <"$TMP/move-moved"
-    printf "They're retired in Context Locker, and its History says where each one went.\n"
-    if [ "$mo_added" = added ]; then
-      printf 'Added the link "%s", to %s, for the decisions in %s.\n' "$mo_link" "$mo_rel" "$mo_name"
-    else
-      printf 'Used the link "%s", which already points to %s.\n' "$mo_link" "$mo_rel"
-    fi
+    printf "Each one is a pointer in Context Locker now, to its file here, with the same id, and History says where each one went. Restoring an earlier version in Context Locker brings a note's text back.\n"
     case $mo_was in
-      notes) printf "The docs home for %s is that link now, instead of Notes.\n" "$mo_name" ;;
-      link) printf "The docs home for %s is that link now, instead of the link it had.\n" "$mo_name" ;;
-      none) printf "The docs home for %s is that link now.\n" "$mo_name" ;;
-      same) printf "That link was already the docs home for %s.\n" "$mo_name" ;;
+      notes) printf "The docs home for %s is %s now, instead of Notes.\n" "$mo_name" "$mo_place" ;;
+      place) printf "The docs home for %s is %s now, instead of the place it had.\n" "$mo_name" "$mo_place" ;;
+      none) printf "The docs home for %s is %s now.\n" "$mo_name" "$mo_place" ;;
+      same) printf "%s was already the docs home for %s.\n" "$mo_place" "$mo_name" ;;
     esac
   fi
   mo_changed=$(wc -l <"$TMP/move-changed" | tr -d ' ')
@@ -3627,10 +3614,10 @@ notes_move_out() {
   mo_gone=$(wc -l <"$TMP/move-gone" | tr -d ' ')
   if [ "$mo_gone" -gt 0 ]; then
     if [ "$mo_gone" = 1 ]; then
-      printf "1 note was retired, or left the project, while it was moving, so it didn't move: %s. The file this move wrote for it came out again.\n" \
+      printf "1 note was retired, became a pointer or left the project while it was moving, so it didn't move: %s. The file this move wrote for it came out again.\n" \
         "$(short_list "$TMP/move-gone")"
     else
-      printf "%s notes were retired, or left the project, while they were moving, so they didn't move: %s. The files this move wrote for them came out again.\n" \
+      printf "%s notes were retired, became pointers or left the project while they were moving, so they didn't move: %s. The files this move wrote for them came out again.\n" \
         "$mo_gone" "$(short_list "$TMP/move-gone")"
     fi
   fi
