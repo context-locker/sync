@@ -10,15 +10,15 @@
 //   skill <tree hash> <target> <item id> <version>   a skill folder
 //   file <sha256> <target>                           a whole file, such as the notes folder's README
 //   note <sha256> <target> <item id> <version>       a note's file in a project's notes folder
-//   link <item id> <path>                            a project's link to a path in the repo, which
-//                                                    the script checks is there; the path is the
-//                                                    rest of the line, and may hold spaces
+//   link <item id> <path>                            a project's pointer to a path in the repo,
+//                                                    which the script checks is there; the path
+//                                                    is the rest of the line, and may hold spaces
 //   context <sha256>                                 printed at session start
 //   hold <sha256> <target>                           a local edit waiting for approval: keep it
 //
 // Scripts skip lines they don't know, so later versions can add kinds: a
 // script from before notes leaves the notes folder alone, and one from before
-// links doesn't check them.
+// link lines doesn't check pointers' paths.
 import { blockHash, sha256, treeHash } from "./hash.js";
 import type { ItemRef, Output, SkillFile } from "./types.js";
 
@@ -28,7 +28,7 @@ export const MANIFEST_HEADER = "context-locker-sync 1";
  * The newest version of the sync scripts, as their SCRIPT_VERSION says. The
  * global manifest names it, so an older script can say a newer one is out.
  */
-export const SYNC_SCRIPT_VERSION = 5;
+export const SYNC_SCRIPT_VERSION = 6;
 
 export type ManifestEntry =
   | { kind: "block"; hash: string; target: string }
@@ -40,7 +40,7 @@ export type ManifestEntry =
   | { kind: "hold"; hash: string; target: string }
   | { kind: "script"; version: number };
 
-/** A project's link to a path in its repo, such as docs/runbook.md, which the script checks. */
+/** A project's pointer to a path in its repo, such as docs/runbook.md, which the script checks. */
 export interface RepoLink {
   id: string;
   path: string;
@@ -66,8 +66,9 @@ export interface Manifest {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const TARGET = /^\{[a-z-]+\}(?:\/[A-Za-z0-9._-]+)+$/;
 const HASH = /^[0-9a-f]{64}$/;
-// What a link's path never holds: control characters and line breaks, which
-// would end its line, and backslashes and angle brackets, as links never do
+// What a pointer's path never holds: control characters and line breaks,
+// which would end its line, and backslashes and angle brackets, as addresses
+// never do
 const NOT_IN_PATHS = /[\p{Cc}\p{Zl}\p{Zp}\\<>]/u;
 
 function checkTarget(target: string): string {
@@ -108,7 +109,7 @@ export function buildManifest(input: {
   holds: readonly Hold[];
   /** The newest sync script's version, for the global manifest */
   script?: number;
-  /** A project's links to paths in its repo */
+  /** A project's pointers to paths in its repo */
   links?: readonly RepoLink[];
 }): Manifest {
   if (!UUID.test(input.workspaceId)) {
@@ -181,7 +182,7 @@ export function buildManifest(input: {
 
   const links = [...(input.links ?? [])]
     .map((link) => {
-      if (!UUID.test(link.id)) throw new Error("A link's id must be a UUID");
+      if (!UUID.test(link.id)) throw new Error("A pointer's id must be a UUID");
       return {
         kind: "link" as const,
         id: link.id,

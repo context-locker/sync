@@ -9,9 +9,9 @@ Preferences for this project, kept in sync by Context Locker. Where one has the 
 
 - [Agent guide](AGENTS.md) (onboarding): How to build, test and ship the docs site.
 
-2 Start here links were left out here because some AI apps refuse to load files with wording like theirs. They're in Context Locker.
+3 Start here entries were left out here because some AI apps refuse to load files with wording like theirs. They're in Context Locker.
 
-Start each session with a three-line startup brief for the user: the project, the sources you'll use, and your first step. These links are from the project's map in Context Locker. When the task needs more of it, call Context Locker's project_map tool if you have it.
+Start each session with a three-line startup brief for the user: the project, the sources you'll use, and your first step. These come from the project's map in Context Locker. When the task needs more of it, call Context Locker's project_map tool if you have it.
 
 ### Preferences
 
@@ -21,4 +21,4 @@ Start each session with a three-line startup brief for the user: the project, th
 == file {project}/.context-locker/notes/README.md
 
 == notes
-- 2 Start here links were left out of {project}/.claude/rules/context-locker.md for wording or an address some apps refuse: Ops channel, Status page.
+- 3 Start here entries were left out of {project}/.claude/rules/context-locker.md for wording or an address some apps refuse: Ops channel, Status page, Admin notes.

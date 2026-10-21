@@ -15,12 +15,12 @@ import type {
   Compiled,
   CompiledHarness,
   DocsHome,
-  LinkInput,
   NoteInput,
   Output,
   PreferenceInput,
   ProjectLayer,
   SkillInput,
+  StartHereInput,
 } from "./types.js";
 
 /** Most bytes each compiled block may take, markers included. */
@@ -43,9 +43,9 @@ export const BUDGETS = Object.freeze({
   /** Session-start output. Claude Code previews hook output over 10,000 characters. */
   context: 8_000,
   /**
-   * The most a project's Start here links take of its block or session-start
-   * output, heading included: room for 10 links of a usual length, so the
-   * project's preferences keep most of the room.
+   * The most a project's Start here entries take of its block or
+   * session-start output, heading included: room for 10 of a usual length,
+   * so the project's preferences keep most of the room.
    */
   startHere: 3_000,
 });
@@ -142,20 +142,20 @@ function capNotes(rendered: RenderedBlock, where: string): string[] {
       `${plural(rendered.leftOut.length, "preference was", "preferences were")} left out of ${where} for wording some apps refuse: ${rendered.leftOut.map((p) => p.name).join(", ")}.`,
     );
   }
-  const { links } = rendered;
-  if (links.overflow.length > 0) {
+  const { map } = rendered;
+  if (map.overflow.length > 0) {
     notes.push(
-      `${plural(links.overflow.length, "Start here link didn't", "Start here links didn't")} fit in ${where}: ${links.overflow.map((link) => link.title).join(", ")}.`,
+      `${plural(map.overflow.length, "Start here entry didn't", "Start here entries didn't")} fit in ${where}: ${map.overflow.map((entry) => entry.title).join(", ")}.`,
     );
   }
-  if (links.leftOut.length > 0) {
+  if (map.leftOut.length > 0) {
     notes.push(
-      `${plural(links.leftOut.length, "Start here link was", "Start here links were")} left out of ${where} for wording or an address some apps refuse: ${links.leftOut.map((link) => link.title).join(", ")}.`,
+      `${plural(map.leftOut.length, "Start here entry was", "Start here entries were")} left out of ${where} for wording or an address some apps refuse: ${map.leftOut.map((entry) => entry.title).join(", ")}.`,
     );
   }
-  if (links.docsHomeLeftOut) {
+  if (map.docsHomeLeftOut) {
     notes.push(
-      `The docs home's link was left out of ${where} for wording or an address some apps refuse: ${links.docsHomeLeftOut.title}.`,
+      `The docs home's place was left out of ${where} for wording or an address some apps refuse: ${map.docsHomeLeftOut}.`,
     );
   }
   return notes;
@@ -279,7 +279,7 @@ function compileProject(
   project: NonNullable<CompileInput["project"]>,
   preferences: PreferenceInput[],
   skillList: SkillInput[],
-  map: { startHere: LinkInput[]; docsHome: DocsHome },
+  map: { startHere: StartHereInput[]; docsHome: DocsHome },
   folder: { notes: NoteInput[]; tags: string[] },
 ): Compiled {
   const targets = TARGETS[harness];
@@ -290,7 +290,7 @@ function compileProject(
     startHereBudget: BUDGETS.startHere,
     notesFolder: notesSynced(harness, project.layer),
   };
-  // A project with preferences, Start here links or a docs home gets its
+  // A project with preferences, Start here entries or a docs home gets its
   // block, which says where lasting docs go once a docs home is recorded
   const compiled =
     preferences.length > 0 || map.startHere.length > 0 || map.docsHome !== null;

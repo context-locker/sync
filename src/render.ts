@@ -1,10 +1,19 @@
 // The words compiled into every AI app's files. Agents read these, so they
 // stay short and plain, and none of them may look like prompt injection.
 import { BLOCK_END, BLOCK_START } from "./blocks.js";
+import { plainMarkdown } from "./markdown.js";
+import { NOTES_PATH, noteFileName } from "./notes.js";
 import { injectionMatches } from "./threats.js";
-import type { DocsHome, ItemRef, LinkInput, PreferenceInput } from "./types.js";
+import type {
+  DocsHome,
+  ItemRef,
+  PreferenceInput,
+  StartHereInput,
+} from "./types.js";
 
-/** The most Start here links a project's block or session-start output lists. */
+export { plainMarkdown };
+
+/** The most Start here entries a project's block or session-start output lists. */
 export const START_HERE_MOST = 10;
 
 export const TEXT = {
@@ -37,30 +46,32 @@ export const TEXT = {
     count === 1
       ? "1 preference was left out of this file because some AI apps refuse to load files with wording like it. It's in Context Locker."
       : `${count} preferences were left out of this file because some AI apps refuse to load files with wording like theirs. They're in Context Locker.`,
-  /** A project's map: the links a new agent opens first */
+  /** A project's map: the notes and pointers a new agent opens first */
   startHereHeading: "### Start here",
   /**
-   * After the Start here links: what to do with them, and where the rest of
+   * After the Start here entries: what to do with them, and where the rest of
    * the map is. An app that only reads its files may not have the tool
    */
   onboarding:
-    "Start each session with a three-line startup brief for the user: the project, the sources you'll use, and your first step. These links are from the project's map in Context Locker. When the task needs more of it, call Context Locker's project_map tool if you have it.",
+    "Start each session with a three-line startup brief for the user: the project, the sources you'll use, and your first step. These come from the project's map in Context Locker. When the task needs more of it, call Context Locker's project_map tool if you have it.",
+  /** After a note that has no file here, which an app with the tools can open */
+  readNote: "Read it with read_note, if you have it.",
   startHereOverflow: (count: number) =>
     count === 1
-      ? "1 more Start here link didn't fit here. It's in Context Locker."
-      : `${count} more Start here links didn't fit here. They're in Context Locker.`,
+      ? "1 more Start here entry didn't fit here. It's in Context Locker."
+      : `${count} more Start here entries didn't fit here. They're in Context Locker.`,
   startHereLeftOut: (count: number) =>
     count === 1
-      ? "1 Start here link was left out here because some AI apps refuse to load files with wording like it. It's in Context Locker."
-      : `${count} Start here links were left out here because some AI apps refuse to load files with wording like theirs. They're in Context Locker.`,
+      ? "1 Start here entry was left out here because some AI apps refuse to load files with wording like it. It's in Context Locker."
+      : `${count} Start here entries were left out here because some AI apps refuse to load files with wording like theirs. They're in Context Locker.`,
   /**
    * Where a project's lasting docs go, once a docs home is recorded. With
    * none, a file says nothing: an app that only reads its files couldn't
    * record the answer, so it would ask the user every session
    */
   docsHomeHeading: "### Docs home",
-  docsHomeIn: (link: string) =>
-    `Keep lasting docs in ${link}, this project's docs home.`,
+  docsHomePlace: (place: string) =>
+    `Keep lasting docs in ${place}, this project's docs home, and add a pointer for each new one with write_note, if you have it.`,
   docsHomeNotes:
     "Keep lasting docs in Context Locker Notes, this project's docs home.",
   /**
@@ -69,24 +80,10 @@ export const TEXT = {
    */
   notesFolder:
     "Save each as a Markdown file in .context-locker/notes, with the front matter its README shows; the next sync saves it.",
-  /** When the docs home's own link has wording some apps refuse */
+  /** When the docs home's place has wording or an address some apps refuse */
   docsHomeLeftOut:
-    "Keep lasting docs in this project's docs home. Its link is left out here because some AI apps refuse to load files with wording like it. It's in Context Locker.",
+    "Keep lasting docs in this project's docs home, and add a pointer for each new one with write_note, if you have it. The place is left out here because some AI apps refuse to load files with wording like it. It's in Context Locker.",
 } as const;
-
-// Control characters, and Unicode's line and paragraph separators
-const LINE_BREAKS = /[\p{Cc}\p{Zl}\p{Zp}]+/gu;
-
-/**
- * Text beside a Markdown link, on one line, with the characters that could
- * start another link, an autolink or a tag escaped.
- */
-export function plainMarkdown(text: string): string {
-  return text
-    .replace(LINE_BREAKS, " ")
-    .trim()
-    .replace(/[\\[\]<>]/g, (character) => `\\${character}`);
-}
 
 const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/;
 const WEB_ADDRESS = /^https?:\/\/[^/?#\s]+\S*$/i;
@@ -116,52 +113,68 @@ export function linkDestination(url: string): string | null {
   );
 }
 
+/** A summary that ends a sentence, so another can follow it. */
+function sentence(text: string): string {
+  const said = plainMarkdown(text);
+  return said === "" || /[.!?]$/.test(said) ? said : `${said}.`;
+}
+
 /**
- * A link as Start here lists it: its title linked to where it points, its
- * role, then its description. Null when it points somewhere a block can't
- * link to.
+ * A Start here entry as a block lists it. A pointer is its title linked to
+ * its address; a note is its title linked to its file in the notes folder,
+ * when the app mirrors it, and otherwise its title with a word on how to read
+ * it. Then its kind and its summary. Null for a pointer whose address a block
+ * can't link to. With ids, each line ends with the entry's id, for an app
+ * that can open it by its id.
  */
-export function startHereLine(link: LinkInput): string | null {
-  const destination = linkDestination(link.url);
-  if (destination === null) return null;
-  return `- [${plainMarkdown(link.title)}](${destination}) (${plainMarkdown(link.role)}): ${plainMarkdown(link.description)}`;
+export function startHereLine(
+  entry: StartHereInput,
+  options: { notesFolder?: boolean; ids?: boolean } = {},
+): string | null {
+  const title = plainMarkdown(entry.title);
+  const facts = `(${plainMarkdown(entry.kind)})`;
+  const id = options.ids ? ` Id: ${entry.id}.` : "";
+  if (entry.address !== null) {
+    const destination = linkDestination(entry.address);
+    if (destination === null) return null;
+    return `- [${title}](${destination}) ${facts}: ${plainMarkdown(entry.summary)}${id}`;
+  }
+  if (options.notesFolder) {
+    const file = `${NOTES_PATH}/${noteFileName(entry)}.md`;
+    return `- [${title}](${file}) ${facts}: ${plainMarkdown(entry.summary)}${id}`;
+  }
+  return `- ${title} ${facts}: ${sentence(entry.summary)} ${TEXT.readNote}${id}`;
 }
 
 /**
  * The docs-home rule for a project: where to keep lasting docs, or null when
- * no docs home is recorded. A link that points somewhere a block can't link
- * to, or whose wording looks like prompt injection, is left out and the rule
- * says so.
+ * no docs home is recorded. A place a block can't link to, or whose wording
+ * looks like prompt injection, is left out and the rule says so.
  */
 export function docsHomeRule(home: DocsHome): {
   rule: string | null;
-  items: ItemRef[];
-  leftOut: LinkInput | null;
+  leftOut: string | null;
 } {
   if (home === null) {
-    return { rule: null, items: [], leftOut: null };
+    return { rule: null, leftOut: null };
   }
   if (home.kind === "notes") {
-    return { rule: TEXT.docsHomeNotes, items: [], leftOut: null };
+    return { rule: TEXT.docsHomeNotes, leftOut: null };
   }
-  const destination = linkDestination(home.link.url);
+  const destination = linkDestination(home.place);
   const rule =
     destination === null
       ? null
-      : TEXT.docsHomeIn(`[${plainMarkdown(home.link.title)}](${destination})`);
+      : TEXT.docsHomePlace(`[${plainMarkdown(home.place)}](${destination})`);
   if (rule === null || injectionMatches(rule).length > 0) {
-    return { rule: TEXT.docsHomeLeftOut, items: [], leftOut: home.link };
+    return { rule: TEXT.docsHomeLeftOut, leftOut: home.place };
   }
-  return {
-    rule,
-    items: [{ id: home.link.id, version: home.link.version }],
-    leftOut: null,
-  };
+  return { rule, leftOut: null };
 }
 
-/** A project's Start here links and docs home, to compile into its block. */
+/** A project's Start here entries and docs home, to compile into its block. */
 export interface MapPlan {
-  startHere: LinkInput[];
+  startHere: StartHereInput[];
   docsHome: DocsHome;
   /** Most bytes the Start here section may take, so preferences keep most of the room */
   startHereBudget: number;
@@ -176,34 +189,39 @@ interface RenderedMap {
   /** The docs-home rule, or nothing when none is recorded */
   docsHome: string[];
   items: ItemRef[];
-  links: RenderedBlock["links"];
+  map: RenderedBlock["map"];
 }
 
 const NO_MAP: RenderedMap = {
   startHere: [],
   docsHome: [],
   items: [],
-  links: { overflow: [], leftOut: [], docsHomeLeftOut: null },
+  map: { overflow: [], leftOut: [], docsHomeLeftOut: null },
 };
 
 /**
- * The map's parts of a block. Every link line goes through the same filter
- * that keeps wording like prompt injection out of a shared AGENTS.md, as an
- * AI app may have written it. Links that fit go in order, up to 10, until the
- * section's budget runs out; the rest are counted in a line.
+ * The map's parts of a block. Every Start here line goes through the same
+ * filter that keeps wording like prompt injection out of a shared AGENTS.md,
+ * as an AI app may have written it. Entries that fit go in order, up to 10,
+ * until the section's budget runs out; the rest are counted in a line.
  */
 function renderMap(map: MapPlan | undefined): RenderedMap {
   if (!map) return NO_MAP;
   const listed = map.startHere.slice(0, START_HERE_MOST);
   const extra = map.startHere.slice(START_HERE_MOST);
-  const lines = new Map(listed.map((link) => [link, startHereLine(link)]));
-  const leftOut = listed.filter((link) => {
-    const line = lines.get(link);
+  const lines = new Map(
+    listed.map((entry) => [
+      entry,
+      startHereLine(entry, { notesFolder: map.notesFolder === true }),
+    ]),
+  );
+  const leftOut = listed.filter((entry) => {
+    const line = lines.get(entry);
     return !line || injectionMatches(line).length > 0;
   });
-  const candidates = listed.filter((link) => !leftOut.includes(link));
+  const candidates = listed.filter((entry) => !leftOut.includes(entry));
 
-  const section = (kept: LinkInput[], overflowCount: number) => {
+  const section = (kept: StartHereInput[], overflowCount: number) => {
     const notes = [
       ...(overflowCount > 0 ? [TEXT.startHereOverflow(overflowCount)] : []),
       ...(leftOut.length > 0 ? [TEXT.startHereLeftOut(leftOut.length)] : []),
@@ -211,19 +229,19 @@ function renderMap(map: MapPlan | undefined): RenderedMap {
     return [
       TEXT.startHereHeading,
       ...(kept.length > 0
-        ? [kept.map((link) => lines.get(link) ?? "").join("\n")]
+        ? [kept.map((entry) => lines.get(entry) ?? "").join("\n")]
         : []),
       ...(notes.length > 0 ? [notes.join("\n")] : []),
     ].join("\n\n");
   };
 
-  const kept: LinkInput[] = [];
-  for (const [index, link] of candidates.entries()) {
+  const kept: StartHereInput[] = [];
+  for (const [index, entry] of candidates.entries()) {
     const remaining = candidates.length - index - 1 + extra.length;
-    if (bytes(section([...kept, link], remaining)) > map.startHereBudget) {
+    if (bytes(section([...kept, entry], remaining)) > map.startHereBudget) {
       break;
     }
-    kept.push(link);
+    kept.push(entry);
   }
   const overflow = [...candidates.slice(kept.length), ...extra];
   const home = docsHomeRule(map.docsHome);
@@ -239,8 +257,8 @@ function renderMap(map: MapPlan | undefined): RenderedMap {
         ? [section(kept, overflow.length), TEXT.onboarding]
         : [],
     docsHome: rule === null ? [] : [`${TEXT.docsHomeHeading}\n\n${rule}`],
-    items: [...kept.map(({ id, version }) => ({ id, version })), ...home.items],
-    links: { overflow, leftOut, docsHomeLeftOut: home.leftOut },
+    items: kept.map(({ id, version }) => ({ id, version })),
+    map: { overflow, leftOut, docsHomeLeftOut: home.leftOut },
   };
 }
 
@@ -310,7 +328,7 @@ export interface BlockPlan {
   footer?: string;
   /** The heading over About, when some preferences are in it. About the user, unless set. */
   aboutHeading?: string;
-  /** A project's map, whose Start here links and docs home join its block */
+  /** A project's map, whose Start here entries and docs home join its block */
   map?: MapPlan;
 }
 
@@ -320,11 +338,11 @@ export interface RenderedBlock {
   /** Preferences that didn't fit, in order. */
   overflow: PreferenceInput[];
   leftOut: PreferenceInput[];
-  /** Start here links that didn't fit or were left out, and a docs-home link left out */
-  links: {
-    overflow: LinkInput[];
-    leftOut: LinkInput[];
-    docsHomeLeftOut: LinkInput | null;
+  /** Start here entries that didn't fit or were left out, and a docs-home place left out */
+  map: {
+    overflow: StartHereInput[];
+    leftOut: StartHereInput[];
+    docsHomeLeftOut: string | null;
   };
 }
 
@@ -365,7 +383,7 @@ function assemble(
 
 /**
  * Builds a managed block within its byte budget. A project's Start here
- * links and docs home go in first, then preferences in order, About first,
+ * entries and docs home go in first, then preferences in order, About first,
  * until the next one wouldn't fit; the rest are counted in a line that says
  * where they are, so nothing is cut without saying so.
  */
@@ -401,7 +419,7 @@ export function renderBlock(plan: BlockPlan): RenderedBlock {
     items: [...map.items, ...kept.map(({ id, version }) => ({ id, version }))],
     overflow,
     leftOut,
-    links: map.links,
+    map: map.map,
   };
 }
 
@@ -448,6 +466,6 @@ export function renderContext(
     items: [...map.items, ...kept.map(({ id, version }) => ({ id, version }))],
     overflow,
     leftOut: [],
-    links: map.links,
+    map: map.map,
   };
 }

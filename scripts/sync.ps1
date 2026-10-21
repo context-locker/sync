@@ -1,11 +1,11 @@
-# Context Locker sync, version 5. MIT licence.
+# Context Locker sync, version 6. MIT licence.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 <app> [-Project <id>] [-Daily]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 map <app> [-All]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 gather <app>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 gather-submit <app> <plan.json>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 export <app> [-To <folder>]
-#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 notes-move-out <app> -To <folder> [-Title <title>]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 notes-move-out <app> -To <folder>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 signin|plan|doctor|readback <app>
 #
 # Keeps one AI app's files in step with your playbook at context.locker. <app>
@@ -21,7 +21,7 @@
 # notes and, in everywhere/, the ones that apply everywhere, one Markdown
 # file each. An edited note or a new .md file there goes to Context Locker
 # at the next sync, and git leaves the folder out. The sync also checks that
-# the project's links to paths in its repo are there.
+# the project's pointers to paths in its repo are there.
 #
 # The project is the one -Project names; else the one a .contextlocker.json
 # in the repo names; else a folder linked on this computer; else the project
@@ -33,8 +33,10 @@
 # -Daily        is for scheduled runs: silent when all is well, exit 1 when
 #               not. It syncs the projects linked on this computer too.
 #
-# map prints the project's map: its docs home, Start here links, the links
-# that matter in the current folder (every one with -All) and its notes.
+# map prints the project's map: its docs home, its Start here entries, the
+# notes and pointers that matter in the current folder (every one with -All)
+# and the newest of the rest. A pointer stands in for a note kept somewhere
+# else, such as a file in the repo, and says where.
 #
 # gather copies what every AI app on this computer already knows, their
 # instructions, skills and memories, into a working set only this account can
@@ -51,10 +53,11 @@
 #
 # notes-move-out moves the project's notes out of Context Locker into a
 # folder in its repo that -To names: it writes each note there as a Markdown
-# file, never over a file, and only then asks Context Locker to retire them
-# and record a link to the folder as the project's docs home. The folder must
-# be inside the project, outside .context-locker, and reached through no
-# link. The notes that apply everywhere stay.
+# file, never over a file, and only then asks Context Locker to turn each one
+# into a pointer to its file, with the same id, and to make the folder the
+# project's docs home. The folder must be inside the project, outside
+# .context-locker, and reached through no link. The notes that apply
+# everywhere stay.
 #
 # For setup (see context.locker/setup):
 #   signin    connects the app with a code you approve in your browser. The
@@ -70,8 +73,8 @@
 #   readback  prints what Context Locker has put in the app's files
 #
 # The same steps as sync.sh, for Windows PowerShell 5.1 and PowerShell 7.
-# sync.sh's spellings of the options (--daily, --project, --wait, --all,
-# --to, --title) work too.
+# sync.sh's spellings of the options (--daily, --project, --wait, --all and
+# --to) work too.
 param(
   [Parameter(Position = 0)][string]$First = '',
   [Parameter(Position = 1)][string]$Second = '',
@@ -80,7 +83,6 @@ param(
   [switch]$All,
   [int]$Wait = 50,
   [string]$To = '',
-  [string]$Title = '',
   [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest = @()
 )
 
@@ -88,7 +90,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 5
+$ScriptVersion = 6
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -116,7 +118,6 @@ if ($Mode -eq 'gather-submit' -and $extra.Count -gt 0 -and -not $extra[0].Starts
 }
 $badOption = $false
 $ToSet = $PSBoundParameters.ContainsKey('To')
-$TitleSet = $PSBoundParameters.ContainsKey('Title')
 for ($i = 0; $i -lt $extra.Count; $i++) {
   $option = $extra[$i]
   $value = if ($i + 1 -lt $extra.Count) { $extra[$i + 1] } else { '' }
@@ -125,15 +126,12 @@ for ($i = 0; $i -lt $extra.Count; $i++) {
   elseif ($option -eq '--project' -and $value) { $Project = $value; $i++ }
   elseif ($option -eq '--wait' -and $value -match '^\d+$') { $Wait = [int]$value; $i++ }
   elseif ($option -eq '--to' -and $value) { $To = $value; $ToSet = $true; $i++ }
-  elseif ($option -eq '--title' -and $value) { $Title = $value; $TitleSet = $true; $i++ }
   else { $badOption = $true }
 }
-# -To is for export and notes-move-out, which needs it, and -Title for
-# notes-move-out
+# -To is for export and notes-move-out, which needs it
 $badTo = if ($Mode -eq 'export') { $ToSet -and -not $To } elseif ($Mode -eq 'notes-move-out') { -not $To } else { $ToSet }
-$badTitle = $TitleSet -and ($Mode -ne 'notes-move-out' -or -not $Title)
-if ($badOption -or $badTo -or $badTitle -or (@('claude-code', 'codex', 'hermes', 'openclaw') -notcontains $Harness) -or $Wait -lt 0 -or ($Mode -eq 'gather-submit' -and -not $PlanFile)) {
-  [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 gather <app>`n       sync.ps1 gather-submit <app> <plan.json>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder> [-Title <title>]`n       sync.ps1 signin|plan|doctor|readback <app>`n<app> is claude-code, codex, hermes or openclaw.")
+if ($badOption -or $badTo -or (@('claude-code', 'codex', 'hermes', 'openclaw') -notcontains $Harness) -or $Wait -lt 0 -or ($Mode -eq 'gather-submit' -and -not $PlanFile)) {
+  [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 gather <app>`n       sync.ps1 gather-submit <app> <plan.json>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder>`n       sync.ps1 signin|plan|doctor|readback <app>`n<app> is claude-code, codex, hermes or openclaw.")
   exit 2
 }
 $AppName = @{ 'claude-code' = 'Claude Code'; 'codex' = 'Codex'; 'hermes' = 'Hermes'; 'openclaw' = 'OpenClaw' }[$Harness]
@@ -886,7 +884,7 @@ function Write-NotesList($Records) {
   }
 }
 
-# --- A project's links to paths in its repo ---------------------------------
+# --- A project's pointers to paths in its repo ------------------------------
 
 # Where a link points, as it was made
 function Get-LinkTarget($Item) {
@@ -928,8 +926,8 @@ function Test-PathHere([string]$Root, [string]$Path) {
   }
 }
 
-# Checks the project's links to paths in its repo, from the manifest's link
-# lines, and says in one line which ones aren't in the folder
+# Checks the project's pointers to paths in its repo, from the manifest's
+# link lines, and says in one line which ones aren't in the folder
 function Test-Links([string[]]$Entries) {
   $Script:LinksChecked = 0
   $paths = New-Object System.Collections.Generic.List[string]
@@ -945,9 +943,9 @@ function Test-Links([string[]]$Entries) {
   $names = (@($paths) | Select-Object -First 5) -join ', '
   if ($paths.Count -gt 5) { $names += " and $($paths.Count - 5) more" }
   if ($paths.Count -eq 1) {
-    Warn "1 of this project's links points to a path that isn't in $($Script:ProjectRoot): $names. If it moved, change the link in Context Locker."
+    Warn "1 of this project's pointers points to a path that isn't in $($Script:ProjectRoot): $names. If it moved, change the pointer's address in Context Locker."
   } else {
-    Warn "$($paths.Count) of this project's links point to paths that aren't in $($Script:ProjectRoot): $names. If they moved, change the links in Context Locker."
+    Warn "$($paths.Count) of this project's pointers point to paths that aren't in $($Script:ProjectRoot): $names. If they moved, change their addresses in Context Locker."
   }
 }
 
@@ -1010,7 +1008,7 @@ function Sync-Scope([string]$Query, [string]$State) {
   $lockfile = "$State.lock"
   $lockLines = @()
   if (Test-Path -LiteralPath $lockfile -PathType Leaf) { $lockLines = @([IO.File]::ReadAllLines($lockfile)) }
-  # What the last check of the project's links found
+  # What the last check of the project's pointers found
   $linksBefore = (@($lockLines | Where-Object { $_ -cmatch '^(links|missing) ' }) | ForEach-Object { "$_`n" }) -join ''
   $oldEtag = ''
   foreach ($line in $lockLines) { if ($line -match '^etag ([0-9a-f]{64})$') { $oldEtag = $Matches[1] } }
@@ -1100,7 +1098,7 @@ function Sync-Scope([string]$Query, [string]$State) {
     }
   }
 
-  # Whether the project's links to paths in its repo are there
+  # Whether the project's pointers to paths in its repo are there
   $Script:LinksChecked = $null
   $Script:MissingLinks = New-Object System.Collections.Generic.List[string]
   if ($Script:Scope -eq 'project' -and $Mode -eq 'sync') { Test-Links $entries }
@@ -1472,7 +1470,7 @@ function Sync-Scope([string]$Query, [string]$State) {
   foreach ($line in $entries) { if ($line) { [void]$out.Append("entry $line`n") } }
   foreach ($line in $wrote) { [void]$out.Append("$line`n") }
   foreach ($line in $refusedOut) { [void]$out.Append("$line`n") }
-  # What this check of the links found, kept to tell when it changes
+  # What this check of the pointers found, kept to tell when it changes
   $linksNow = ''
   if ($null -ne $Script:LinksChecked) {
     $linksNow = "links $($Script:LinksChecked)`n" + ((@($Script:MissingLinks) | ForEach-Object { "missing $_`n" }) -join '')
@@ -1482,7 +1480,7 @@ function Sync-Scope([string]$Query, [string]$State) {
   if (Test-Path -LiteralPath $lockfile) { [IO.File]::Replace("$lockfile.tmp", $lockfile, [NullString]::Value) } else { [IO.File]::Move("$lockfile.tmp", $lockfile) }
 
   if (-not $complete) { $Script:Failed = $true }
-  # The report goes with a new manifest, and when the missing links changed
+  # The report goes with a new manifest, and when the missing paths changed
   if ($complete -and ($fresh -or ($null -ne $Script:LinksChecked -and $linksNow -cne $linksBefore))) {
     $missing = (@($Script:MissingLinks) | Select-Object -First 100 | ForEach-Object { "missing $_`n" }) -join ''
     $linksReport = if ($null -ne $Script:LinksChecked) { "links $($Script:LinksChecked)`n$missing" } else { '' }
@@ -2620,8 +2618,9 @@ function Invoke-Readback {
   return 0
 }
 
-# Prints the project's map: its docs home, Start here links, the links that
-# matter in the current folder, or every one with -All, and its notes
+# Prints the project's map: its docs home, its Start here entries, the notes
+# and pointers that matter in the current folder, or every one with -All,
+# and the newest of the rest
 function Invoke-Map {
   $globalLock = Join-Path $AppDir 'global.lock'
   if (Test-Path -LiteralPath $globalLock -PathType Leaf) {
@@ -2633,7 +2632,7 @@ function Invoke-Map {
     [Console]::Error.WriteLine("Context Locker: this folder isn't in a project this computer knows. Link it to one with: $Run $Harness -Project <id>")
     return 1
   }
-  # Where this folder is in the project, unless every link is wanted
+  # Where this folder is in the project, unless every entry is wanted
   $path = ''
   if (-not $All) {
     $sep = [IO.Path]::DirectorySeparatorChar
@@ -3458,7 +3457,7 @@ function Invoke-Export {
     Say "- $(Get-Plural (& $count 'preferences') 'preference' 'preferences')"
   }
   Say "- $(Get-Plural (& $count 'skills') 'skill' 'skills')"
-  Say "- $(Get-Plural (& $count 'notes') 'note' 'notes') and $(Get-Plural (& $count 'links') 'link' 'links')"
+  Say "- $(Get-Plural (& $count 'notes') 'note' 'notes') and $(Get-Plural (& $count 'pointers') 'pointer' 'pointers')"
   Say "- $(Get-Plural (& $count 'projects') 'project' 'projects')"
   Say "- $(Get-Plural (& $count 'events') 'event' 'events') and $(Get-Plural (& $count 'versions') 'version' 'versions') in the history"
   Say 'README.md there says what each file is.'
@@ -3493,8 +3492,8 @@ function Get-ShortList([string[]]$Items) {
 }
 
 # Moves the project's notes into the folder -To names: writes each note's
-# file there, never over a file, and only then asks Context Locker to retire
-# them and record a link to the folder as the project's docs home
+# file there, never over a file, and only then asks Context Locker to turn
+# each one into a pointer to its file and make the folder the docs home
 function Invoke-NotesMoveOut {
   $sep = [IO.Path]::DirectorySeparatorChar
   $globalLock = Join-Path $AppDir 'global.lock'
@@ -3505,10 +3504,6 @@ function Invoke-NotesMoveOut {
   }
   if (-not (Find-Project 'ask')) {
     [Console]::Error.WriteLine("Context Locker: this folder isn't in a project this computer knows. Link it to one with: $Run $Harness -Project <id>")
-    return 1
-  }
-  if ((Get-Clean $Title) -cne $Title) {
-    [Console]::Error.WriteLine("Context Locker: the link's title must be one line.")
     return 1
   }
   if (-not (Test-Path -LiteralPath $Script:ProjectRoot -PathType Container)) {
@@ -3615,7 +3610,7 @@ function Invoke-NotesMoveOut {
     return 1
   }
   $lines = @(([IO.File]::ReadAllText($index) -replace "`r", '') -split "`n")
-  if ($lines[0] -cne 'context-locker-move-out 1') {
+  if ($lines[0] -cne 'context-locker-move-out 2') {
     [Console]::Error.WriteLine($bad)
     return 1
   }
@@ -3702,14 +3697,13 @@ function Invoke-NotesMoveOut {
     }
   }
 
-  # Every file is written, so Context Locker can retire the notes
+  # Every file is written, so Context Locker can turn the notes into pointers
   $request = New-Object System.Text.StringBuilder
-  [void]$request.Append("context-locker-move-out 1`nfolder $rel`n")
-  if ($Title) { [void]$request.Append("title $Title`n") }
+  [void]$request.Append("context-locker-move-out 2`nfolder $rel`n")
   foreach ($note in $plan) { [void]$request.Append("note $($note.Id) $($note.Ver) $($note.File)`n") }
   $reply = Invoke-Api 'POST' "/v1/sync/move-out?project=$($Script:ProjectId)" ($Utf8.GetBytes($request.ToString())) 'text/plain' @{}
   if ($reply.Status -eq 0) {
-    [Console]::Error.WriteLine("Context Locker: the notes are written in $rel, but Context Locker couldn't be reached to retire them, so it isn't known whether they moved. Run the same command again: it takes the files there as they are, and moves what's left.")
+    [Console]::Error.WriteLine("Context Locker: the notes are written in $rel, but Context Locker couldn't be reached to turn them into pointers, so it isn't known whether they moved. Run the same command again: it takes the files there as they are, and moves what's left.")
     return 1
   }
   if ($reply.Status -ne 200) {
@@ -3718,7 +3712,7 @@ function Invoke-NotesMoveOut {
     return 1
   }
   $answer = @(($Utf8.GetString($reply.Body) -replace "`r", '') -split "`n")
-  if ($answer[0] -cne 'context-locker-move-out 1') {
+  if ($answer[0] -cne 'context-locker-move-out 2') {
     [Console]::Error.WriteLine("Context Locker: couldn't make sense of Context Locker's answer, so it isn't known whether the notes moved. Run the same command again to find out.")
     return 1
   }
@@ -3727,9 +3721,8 @@ function Invoke-NotesMoveOut {
   $moved = New-Object System.Collections.Generic.List[string]
   $changed = New-Object System.Collections.Generic.List[string]
   $gone = New-Object System.Collections.Generic.List[string]
-  $link = ''
-  $added = ''
   $was = ''
+  $place = $rel
   foreach ($line in $answer) {
     if ($line -cmatch '^(moved|changed|gone) [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12} (.+)\z') {
       if (-not $taken.ContainsKey($Matches[2])) { continue }
@@ -3738,11 +3731,10 @@ function Invoke-NotesMoveOut {
         'changed' { $changed.Add($Matches[2]) }
         'gone' { $gone.Add($Matches[2]) }
       }
-    } elseif (-not $added -and $line -cmatch '^link (added|kept) \S+ (.*)\z') {
-      $added = $Matches[1]
-      $link = Get-Clean $Matches[2]
-    } elseif (-not $was -and $line.StartsWith('docs-home ')) {
-      $was = Get-Clean $line.Substring('docs-home '.Length)
+    } elseif (-not $was -and $line -cmatch '^docs-home (\S+) (.+)\z') {
+      # The docs home: what it was, then the place it is now
+      $was = Get-Clean $Matches[1]
+      $place = Get-Clean $Matches[2]
     }
   }
   # A note that changed or went meanwhile stays in Context Locker, and the
@@ -3752,14 +3744,12 @@ function Invoke-NotesMoveOut {
   if ($moved.Count -gt 0) {
     Say "Moved $(Get-Plural $moved.Count 'note' 'notes') from Context Locker into ${rel}:"
     foreach ($file in $moved) { Say "- $rel/$file" }
-    Say "They're retired in Context Locker, and its History says where each one went."
-    if ($added -eq 'added') { Say "Added the link `"$link`", to $rel, for the decisions in $name." }
-    else { Say "Used the link `"$link`", which already points to $rel." }
+    Say "Each one is a pointer in Context Locker now, to its file here, with the same id, and History says where each one went. Restoring an earlier version in Context Locker brings a note's text back."
     switch ($was) {
-      'notes' { Say "The docs home for $name is that link now, instead of Notes." }
-      'link' { Say "The docs home for $name is that link now, instead of the link it had." }
-      'none' { Say "The docs home for $name is that link now." }
-      'same' { Say "That link was already the docs home for $name." }
+      'notes' { Say "The docs home for $name is $place now, instead of Notes." }
+      'place' { Say "The docs home for $name is $place now, instead of the place it had." }
+      'none' { Say "The docs home for $name is $place now." }
+      'same' { Say "$place was already the docs home for $name." }
     }
   }
   if ($changed.Count -eq 1) {
@@ -3768,9 +3758,9 @@ function Invoke-NotesMoveOut {
     Say "$($changed.Count) notes changed in Context Locker while they were moving, so they stay there: $(Get-ShortList @($changed)). The files this move wrote for them came out again. Run this again to move them."
   }
   if ($gone.Count -eq 1) {
-    Say "1 note was retired, or left the project, while it was moving, so it didn't move: $(Get-ShortList @($gone)). The file this move wrote for it came out again."
+    Say "1 note was retired, became a pointer or left the project while it was moving, so it didn't move: $(Get-ShortList @($gone)). The file this move wrote for it came out again."
   } elseif ($gone.Count -gt 1) {
-    Say "$($gone.Count) notes were retired, or left the project, while they were moving, so they didn't move: $(Get-ShortList @($gone)). The files this move wrote for them came out again."
+    Say "$($gone.Count) notes were retired, became pointers or left the project while they were moving, so they didn't move: $(Get-ShortList @($gone)). The files this move wrote for them came out again."
   }
   if ($moved.Count -eq 0) { return 1 }
   if (Test-Path -LiteralPath (Get-NotesPath $Notes) -PathType Container) {

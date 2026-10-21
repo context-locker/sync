@@ -105,7 +105,7 @@ function exportArchive(top: string, extra: Entry[] = []): Buffer {
     about: 2,
     skills: 1,
     notes: 3,
-    links: 2,
+    pointers: 2,
     projects: 1,
     events: 21,
     versions: 12,
@@ -161,7 +161,7 @@ class FakeLocker {
   ) => ({
     status: 200,
     text: [
-      "context-locker-move-out 1",
+      "context-locker-move-out 2",
       ...body
         .split("\n")
         .filter((line) => line.startsWith("note "))
@@ -169,8 +169,7 @@ class FakeLocker {
           const [, id, , file] = line.split(" ");
           return `moved ${id} ${file}`;
         }),
-      `link added ${randomUUID()} Project docs`,
-      "docs-home none",
+      `docs-home none ${/^folder (.*)$/m.exec(body)?.[1] ?? ""}`,
       "",
     ].join("\n"),
   });
@@ -215,7 +214,7 @@ class FakeLocker {
 
   moveOutTar(): Buffer {
     if (this.moveArchive) return this.moveArchive;
-    const index = ["context-locker-move-out 1", `project ${PROJECT} Docs site`];
+    const index = ["context-locker-move-out 2", `project ${PROJECT} Docs site`];
     const entries: Entry[] = [];
     for (const note of this.notes) {
       const hash = sha256(note.text);
@@ -350,9 +349,7 @@ describe("the sync scripts' tools", () => {
     const start = options.mode ? [options.mode, "codex"] : ["codex"];
     const spelled = (options.args ?? []).map((arg) =>
       shell === "pwsh"
-        ? (({ "--to": "-To", "--title": "-Title" } as Record<string, string>)[
-            arg
-          ] ?? arg)
+        ? (({ "--to": "-To" } as Record<string, string>)[arg] ?? arg)
         : arg,
     );
     const args = options.command
@@ -485,12 +482,12 @@ describe("the sync scripts' tools", () => {
         addHook(machine.home, shell);
 
         fake.caps.text =
-          "context-locker-caps 1\nPASS  Preferences: 1 of 50 everywhere.\nWARN  Links: 46 links in Docs site's map, which works best with 50 or fewer.\n";
+          "context-locker-caps 1\nPASS  Preferences: 1 of 50 everywhere.\nWARN  Notes and pointers: 913 of the 1,000 the Free plan holds. Retire the ones you no longer need before it fills up.\n";
         const near = await run(shell, machine, { mode: "doctor" });
         assert.equal(near.status, 0, near.stdout + near.stderr);
         assert.match(
           near.stdout,
-          /^WARN {2}Links: 46 links in Docs site's map, which works best with 50 or fewer\.$/m,
+          /^WARN {2}Notes and pointers: 913 of the 1,000 the Free plan holds\. Retire the ones you no longer need before it fills up\.$/m,
         );
         assert.ok(
           near.stdout.endsWith("\nWorking, with 1 warning.\n"),
@@ -740,7 +737,7 @@ describe("the sync scripts' tools", () => {
             `Context Locker exported the playbook to ${folder}:`,
             "- 4 preferences, 2 of them About facts",
             "- 1 skill",
-            "- 3 notes and 2 links",
+            "- 3 notes and 2 pointers",
             "- 1 project",
             "- 21 events and 12 versions in the history",
             "README.md there says what each file is.",
@@ -887,7 +884,7 @@ describe("the sync scripts' tools", () => {
         assert.ok(!existsSync("/tmp/ctx-escaped.txt"));
       });
 
-      it("moves notes out only once every file is written, and takes back the ones that changed", async () => {
+      it("moves notes out only once every file is written, says each is a pointer now, and takes back the ones that changed", async () => {
         const machine = computer(shell);
         const repo = project(machine.home);
         const plan = note("release-plan.md");
@@ -897,12 +894,12 @@ describe("the sync scripts' tools", () => {
         fake.watch = decisions;
         fake.answer = () => ({
           status: 200,
-          text: `context-locker-move-out 1\nmoved ${plan.id} release-plan.md\nchanged ${idea.id} dark-mode.md\nlink added ${randomUUID()} Decision log\ndocs-home notes\n`,
+          text: `context-locker-move-out 2\nmoved ${plan.id} release-plan.md\nchanged ${idea.id} dark-mode.md\ndocs-home notes docs/decisions\n`,
         });
         const moved = await run(shell, machine, {
           mode: "notes-move-out",
           cwd: repo,
-          args: ["--to", "docs/decisions", "--title", "Decision log"],
+          args: ["--to", "docs/decisions"],
         });
         assert.equal(moved.status, 0, moved.stdout + moved.stderr);
         assert.equal(moved.stderr, "");
@@ -914,16 +911,15 @@ describe("the sync scripts' tools", () => {
         ]);
         assert.equal(
           fake.posted[0]?.body,
-          `context-locker-move-out 1\nfolder docs/decisions\ntitle Decision log\nnote ${idea.id} 3 dark-mode.md\nnote ${plan.id} 1 release-plan.md\n`,
+          `context-locker-move-out 2\nfolder docs/decisions\nnote ${idea.id} 3 dark-mode.md\nnote ${plan.id} 1 release-plan.md\n`,
         );
         assert.equal(
           moved.stdout,
           [
             "Moved 1 note from Context Locker into docs/decisions:",
             "- docs/decisions/release-plan.md",
-            "They're retired in Context Locker, and its History says where each one went.",
-            'Added the link "Decision log", to docs/decisions, for the decisions in Docs site.',
-            "The docs home for Docs site is that link now, instead of Notes.",
+            "Each one is a pointer in Context Locker now, to its file here, with the same id, and History says where each one went. Restoring an earlier version in Context Locker brings a note's text back.",
+            "The docs home for Docs site is docs/decisions now, instead of Notes.",
             "1 note changed in Context Locker while it was moving, so it stays there: dark-mode.md. The file this move wrote for it came out again. Run this again to move it.",
             "",
           ].join("\n"),
@@ -1030,7 +1026,7 @@ describe("the sync scripts' tools", () => {
             { path: sha256(text), data: text },
             {
               path: "index",
-              data: `context-locker-move-out 1\nproject ${PROJECT} Docs site\n${index}\n`,
+              data: `context-locker-move-out 2\nproject ${PROJECT} Docs site\n${index}\n`,
             },
           ]);
           const bad = await moveOut();
@@ -1048,13 +1044,13 @@ describe("the sync scripts' tools", () => {
         fake.notes = [note("release-plan.md")];
         fake.answer = () => ({
           status: 400,
-          text: '{"error":"invalid_request","message":"The link\'s title must be at most 80 characters."}',
+          text: '{"error":"invalid_request","message":"The folder\'s path must be at most 500 characters."}',
         });
         const refused = await moveOut();
         assert.equal(refused.status, 1, refused.stdout);
         assert.equal(
           refused.stderr,
-          "Context Locker: nothing moved: The link's title must be at most 80 characters. The files it wrote came out again.\n",
+          "Context Locker: nothing moved: The folder's path must be at most 500 characters. The files it wrote came out again.\n",
         );
         assert.ok(!existsSync(join(repo, "docs")));
 
@@ -1064,7 +1060,7 @@ describe("the sync scripts' tools", () => {
         assert.equal(dropped.status, 1, dropped.stdout);
         assert.match(
           dropped.stderr,
-          /the notes are written in docs\/decisions, but Context Locker couldn't be reached to retire them, so it isn't known whether they moved\. Run the same command again/,
+          /the notes are written in docs\/decisions, but Context Locker couldn't be reached to turn them into pointers, so it isn't known whether they moved\. Run the same command again/,
         );
         assert.deepEqual(readdirSync(decisions), ["release-plan.md"]);
         fake.answer = new FakeLocker().answer;
@@ -1086,8 +1082,22 @@ describe("the sync scripts' tools", () => {
         );
       });
 
+      it("takes no title for a move, as each note becomes a pointer to its own file", async () => {
+        const machine = computer(shell);
+        const repo = project(machine.home);
+        fake.notes = [note("release-plan.md")];
+        const titled = await run(shell, machine, {
+          mode: "notes-move-out",
+          cwd: repo,
+          args: ["--to", "docs/decisions", "--title", "Decision log"],
+        });
+        assert.equal(titled.status, 2, titled.stdout + titled.stderr);
+        assert.ok(!existsSync(join(repo, "docs")));
+        assert.deepEqual(fake.posted, []);
+      });
+
       it(
-        "takes sync.sh's spelling of --to and --title",
+        "takes sync.sh's spelling of --to, and no --title",
         { skip: shell !== "pwsh" && "only PowerShell spells them differently" },
         async () => {
           const machine = computer(shell);

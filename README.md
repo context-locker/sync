@@ -8,7 +8,7 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Ask your AI app to follow the steps at `https://context.locker/setup/v6/SKILL.md`. The steps download the script, check its hash, sign the app in with a link and a code you approve, show what a sync would write, run Gather once to bring in what your AI apps already know, and add a hook so the app syncs at the start of each session. The same files are in [`setup/v6`](setup/v6). An app that can't run commands, such as Claude or ChatGPT in a browser, connects over MCP instead, at `https://mcp.context.locker`.
+Ask your AI app to follow the steps at `https://context.locker/setup/v7/SKILL.md`. The steps download the script, check its hash, sign the app in with a link and a code you approve, show what a sync would write, run Gather once to bring in what your AI apps already know, and add a hook so the app syncs at the start of each session. The same files are in [`setup/v7`](setup/v7). An app that can't run commands, such as Claude or ChatGPT in a browser, connects over MCP instead, at `https://mcp.context.locker`.
 
 A published version never changes. When a script changes, it's published as a new version, with the hashes of its files in its `SKILL.md`. The tests fail until the newest version matches the scripts in [`scripts`](scripts).
 
@@ -52,13 +52,13 @@ sh ~/.contextlocker/sync.sh gather-submit codex <plan.json>  # sends the plan yo
 Two more modes take things out:
 
 ```sh
-sh ~/.contextlocker/sync.sh export codex [--to <folder>]                                # the whole playbook as plain files
-sh ~/.contextlocker/sync.sh notes-move-out codex --to docs/decisions [--title <title>] # a project's notes into its repo
+sh ~/.contextlocker/sync.sh export codex [--to <folder>]               # the whole playbook as plain files
+sh ~/.contextlocker/sync.sh notes-move-out codex --to docs/decisions # a project's notes into its repo
 ```
 
 `export` unpacks everything in the playbook, with its history as JSON Lines, into a new folder that only this account can read: `Context Locker export <date>` in the current folder, or the one `--to` names. It never writes into a folder that holds anything.
 
-`notes-move-out` writes a project's notes into a folder in its repo, never over a file, never through a link, and never into `.git` or `.context-locker`. Only then does it ask Context Locker to retire them and make a link to that folder the project's docs home. Notes that changed meanwhile stay in Context Locker. The notes that apply everywhere never move.
+`notes-move-out` writes a project's notes into a folder in its repo, never over a file, never through a link, and never into `.git` or `.context-locker`. Only then does it ask Context Locker to turn each one into a pointer to its file, keeping its id, and to make that folder the project's docs home. Notes that changed meanwhile stay as they are. The notes that apply everywhere never move.
 
 When changes wait for your approval, the script says so at the start of a Claude Code or Codex session, with a link to your inbox. When a newer script is out, the session start and the doctor say so, and nothing changes on its own.
 
@@ -83,19 +83,19 @@ Facts in About come first, under `### About the user` in an app's own files and 
 
 A managed block sits between `<!-- context-locker:start v1 -->` and `<!-- context-locker:end -->`, and nothing outside the markers changes. Each block has a size limit for its app (see `BUDGETS`). Preferences that don't fit are counted in a line saying where they are, and a repo's `AGENTS.md` block leaves out wording that Hermes would refuse, saying so in the block.
 
-A project's block also carries its map: up to 10 Start here links, and once the project has a docs home, where its lasting docs go. Every link goes through the same filter as the rest of the block, as an AI app may have written it.
+A project's block also carries its map: up to 10 Start here entries, notes or pointers, and once the project has a docs home, where its lasting docs go. A pointer stands in for a note kept somewhere else, a file in the repo or a page on the web, and the block links to its address. Every entry goes through the same filter as the rest of the block, as an AI app may have written it.
 
 Every app's sync also writes Context Locker's own skill, `context-locker-gather` (see [`src/gather.ts`](src/gather.ts)), with the steps for Gather. Skill names that start with `context-locker-` are kept for Context Locker's own.
 
-A project's sync mirrors its notes into `{project}/.context-locker/notes`, one Markdown file per note with YAML front matter, and the notes that apply everywhere in `everywhere/`, with a README on how to edit and add notes (see [`src/notes.ts`](src/notes.ts)). An edited or new file there goes to Context Locker at the next sync, and a deleted one comes back, as only Context Locker retires a note. The first time a sync writes there in a git work tree, it adds `.context-locker/` to `.git/info/exclude`, and it never changes `.gitignore`.
+A project's sync mirrors its notes into `{project}/.context-locker/notes`, one Markdown file per note with YAML front matter, and never a pointer, which has no text of its own, and the notes that apply everywhere in `everywhere/`, with a README on how to edit and add notes (see [`src/notes.ts`](src/notes.ts)). An edited or new file there goes to Context Locker at the next sync, and a deleted one comes back, as only Context Locker retires a note. The first time a sync writes there in a git work tree, it adds `.context-locker/` to `.git/info/exclude`, and it never changes `.gitignore`.
 
 ## The sync protocol
 
-1. `GET /v1/sync[?project=<id>&layer=repo|personal]` with `If-None-Match` answers `304` or a manifest (see [`src/manifest.ts`](src/manifest.ts)). Its ETag is the SHA-256 of the text. The global manifest names the newest script, and a project's lists its links to paths in the repo, which the script checks are there.
+1. `GET /v1/sync[?project=<id>&layer=repo|personal]` with `If-None-Match` answers `304` or a manifest (see [`src/manifest.ts`](src/manifest.ts)). Its ETag is the SHA-256 of the text. The global manifest names the newest script, and a project's lists its pointers to paths in the repo, which the script checks are there.
 2. `POST /v1/sync/notes` with `Context-Locker-Target` sends a note's file changed in the notes folder, or a new `.md` file there, before anything is written. Context Locker saves it at once, or refuses it with a message naming every gap. An edit to a note that changed meanwhile is refused as `version_conflict`.
 3. `POST /v1/sync/blobs` with the hashes it needs, one per line, answers one tar archive: a file per block or note, a folder per skill, each named by its hash.
 4. `POST /v1/sync/edits` with `Context-Locker-Target` sends an edit found in a synced file: a block's text, or a skill folder as a bundle (see [`src/bundle.ts`](src/bundle.ts)). The answer is `accepted` (it applied straight away), `pending` (it waits for the owner's approval, so keep it), `rejected` (put the synced version back), `same` or `gone`.
-5. `POST /v1/sync/done` reports what was applied, and in a project, the links whose path isn't in the folder.
+5. `POST /v1/sync/done` reports what was applied, and in a project, the pointers whose path isn't in the folder.
 
 Around a sync, `POST /v1/sync/remote` with a git remote answers the project that has it, and `POST /v1/sync/map?project=<id>` answers the project's map as plain text. The script sends only the remote, without a user name, password, query or fragment, and never a path on the computer.
 
@@ -104,7 +104,7 @@ For the other modes:
 - `GET /v1/sync/caps` answers a `PASS`, `WARN` or `FAIL` line for each of the playbook's limits, which the doctor prints as they are.
 - `POST /v1/gather` takes the plan `gather-submit` sends, checks it whole, and brings it in in one go.
 - `GET /v1/export` answers everything the token can read as a `.tar.gz`.
-- `GET /v1/sync/move-out?project=<id>` answers a tar of the project's own notes, as the repo will keep them, and an index. Once every file is written, `POST /v1/sync/move-out?project=<id>` says what was written, and in one transaction Context Locker retires each note still at the version written, adds a link to the folder or uses the one there, and makes it the docs home.
+- `GET /v1/sync/move-out?project=<id>` answers a tar of the project's own notes, as the repo will keep them, and an index. Once every file is written, `POST /v1/sync/move-out?project=<id>` says what was written, and in one transaction Context Locker turns each note still at the version written into a pointer to its file, keeping its id, and makes the folder the docs home. A script before version 6 is asked to update before it writes anything.
 
 ## Tests
 

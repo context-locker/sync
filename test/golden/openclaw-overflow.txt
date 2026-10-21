@@ -35,5 +35,5 @@ When you finish a task, ask yourself: did a preference or skill mislead you or f
 <!-- context-locker:end -->
 
 == skill {agents}/skills/context-locker-gather
-item: c0de0000-6a7e-4e00-8000-000000000001@1
+item: c0de0000-6a7e-4e00-8000-000000000001@2
 files: SKILL.md, references/plan.md
