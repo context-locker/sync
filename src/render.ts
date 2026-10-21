@@ -2,7 +2,10 @@
 // stay short and plain, and none of them may look like prompt injection.
 import { BLOCK_END, BLOCK_START } from "./blocks.js";
 import { injectionMatches } from "./threats.js";
-import type { ItemRef, PreferenceInput } from "./types.js";
+import type { DocsHome, ItemRef, LinkInput, PreferenceInput } from "./types.js";
+
+/** The most Start here links a project's block or session-start output lists. */
+export const START_HERE_MOST = 10;
 
 export const TEXT = {
   globalTitle: "## Context Locker",
@@ -34,7 +37,212 @@ export const TEXT = {
     count === 1
       ? "1 preference was left out of this file because some AI apps refuse to load files with wording like it. It's in Context Locker."
       : `${count} preferences were left out of this file because some AI apps refuse to load files with wording like theirs. They're in Context Locker.`,
+  /** A project's map: the links a new agent opens first */
+  startHereHeading: "### Start here",
+  /**
+   * After the Start here links: what to do with them, and where the rest of
+   * the map is. An app that only reads its files may not have the tool
+   */
+  onboarding:
+    "Start each session with a three-line startup brief for the user: the project, the sources you'll use, and your first step. These links are from the project's map in Context Locker. When the task needs more of it, call Context Locker's project_map tool if you have it.",
+  startHereOverflow: (count: number) =>
+    count === 1
+      ? "1 more Start here link didn't fit here. It's in Context Locker."
+      : `${count} more Start here links didn't fit here. They're in Context Locker.`,
+  startHereLeftOut: (count: number) =>
+    count === 1
+      ? "1 Start here link was left out here because some AI apps refuse to load files with wording like it. It's in Context Locker."
+      : `${count} Start here links were left out here because some AI apps refuse to load files with wording like theirs. They're in Context Locker.`,
+  /**
+   * Where a project's lasting docs go, once a docs home is recorded. With
+   * none, a file says nothing: an app that only reads its files couldn't
+   * record the answer, so it would ask the user every session
+   */
+  docsHomeHeading: "### Docs home",
+  docsHomeIn: (link: string) =>
+    `Keep lasting docs in ${link}, this project's docs home.`,
+  docsHomeNotes:
+    "Keep lasting docs in Context Locker Notes, this project's docs home.",
+  /**
+   * After docsHomeNotes in a project's files, where the sync mirrors its
+   * notes: how an app that only reads its files saves a lasting doc
+   */
+  notesFolder:
+    "Save each as a Markdown file in .context-locker/notes, with the front matter its README shows; the next sync saves it.",
+  /** When the docs home's own link has wording some apps refuse */
+  docsHomeLeftOut:
+    "Keep lasting docs in this project's docs home. Its link is left out here because some AI apps refuse to load files with wording like it. It's in Context Locker.",
 } as const;
+
+// Control characters, and Unicode's line and paragraph separators
+const LINE_BREAKS = /[\p{Cc}\p{Zl}\p{Zp}]+/gu;
+
+/**
+ * Text beside a Markdown link, on one line, with the characters that could
+ * start another link, an autolink or a tag escaped.
+ */
+export function plainMarkdown(text: string): string {
+  return text
+    .replace(LINE_BREAKS, " ")
+    .trim()
+    .replace(/[\\[\]<>]/g, (character) => `\\${character}`);
+}
+
+const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/;
+const WEB_ADDRESS = /^https?:\/\/[^/?#\s]+\S*$/i;
+const UP_A_FOLDER = /(?:^|\/)\.\.(?:[/?#]|$)/;
+
+/**
+ * Where a link goes, as a Markdown link's destination: an http or https
+ * address, or a path in the repo that stays inside it. Spaces and brackets
+ * are percent-encoded so the destination reads as one. Anything else, such
+ * as another scheme or an absolute path, is null.
+ */
+export function linkDestination(url: string): string | null {
+  if (url.length === 0 || url.length > 2048 || /[\p{Cc}<>\\]/u.test(url)) {
+    return null;
+  }
+  const web = WEB_ADDRESS.test(url);
+  const inRepo =
+    !web &&
+    !SCHEME.test(url) &&
+    !url.startsWith("/") &&
+    !url.startsWith("~") &&
+    !UP_A_FOLDER.test(url);
+  if (!web && !inRepo) return null;
+  return url.replace(
+    /[ ()]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+/**
+ * A link as Start here lists it: its title linked to where it points, its
+ * role, then its description. Null when it points somewhere a block can't
+ * link to.
+ */
+export function startHereLine(link: LinkInput): string | null {
+  const destination = linkDestination(link.url);
+  if (destination === null) return null;
+  return `- [${plainMarkdown(link.title)}](${destination}) (${plainMarkdown(link.role)}): ${plainMarkdown(link.description)}`;
+}
+
+/**
+ * The docs-home rule for a project: where to keep lasting docs, or null when
+ * no docs home is recorded. A link that points somewhere a block can't link
+ * to, or whose wording looks like prompt injection, is left out and the rule
+ * says so.
+ */
+export function docsHomeRule(home: DocsHome): {
+  rule: string | null;
+  items: ItemRef[];
+  leftOut: LinkInput | null;
+} {
+  if (home === null) {
+    return { rule: null, items: [], leftOut: null };
+  }
+  if (home.kind === "notes") {
+    return { rule: TEXT.docsHomeNotes, items: [], leftOut: null };
+  }
+  const destination = linkDestination(home.link.url);
+  const rule =
+    destination === null
+      ? null
+      : TEXT.docsHomeIn(`[${plainMarkdown(home.link.title)}](${destination})`);
+  if (rule === null || injectionMatches(rule).length > 0) {
+    return { rule: TEXT.docsHomeLeftOut, items: [], leftOut: home.link };
+  }
+  return {
+    rule,
+    items: [{ id: home.link.id, version: home.link.version }],
+    leftOut: null,
+  };
+}
+
+/** A project's Start here links and docs home, to compile into its block. */
+export interface MapPlan {
+  startHere: LinkInput[];
+  docsHome: DocsHome;
+  /** Most bytes the Start here section may take, so preferences keep most of the room */
+  startHereBudget: number;
+  /** Whether the sync mirrors the project's notes into its notes folder for this app */
+  notesFolder?: boolean;
+}
+
+/** What the map adds to a block, built before the preferences are fitted. */
+interface RenderedMap {
+  /** The Start here section and the onboarding line, or nothing */
+  startHere: string[];
+  /** The docs-home rule, or nothing when none is recorded */
+  docsHome: string[];
+  items: ItemRef[];
+  links: RenderedBlock["links"];
+}
+
+const NO_MAP: RenderedMap = {
+  startHere: [],
+  docsHome: [],
+  items: [],
+  links: { overflow: [], leftOut: [], docsHomeLeftOut: null },
+};
+
+/**
+ * The map's parts of a block. Every link line goes through the same filter
+ * that keeps wording like prompt injection out of a shared AGENTS.md, as an
+ * AI app may have written it. Links that fit go in order, up to 10, until the
+ * section's budget runs out; the rest are counted in a line.
+ */
+function renderMap(map: MapPlan | undefined): RenderedMap {
+  if (!map) return NO_MAP;
+  const listed = map.startHere.slice(0, START_HERE_MOST);
+  const extra = map.startHere.slice(START_HERE_MOST);
+  const lines = new Map(listed.map((link) => [link, startHereLine(link)]));
+  const leftOut = listed.filter((link) => {
+    const line = lines.get(link);
+    return !line || injectionMatches(line).length > 0;
+  });
+  const candidates = listed.filter((link) => !leftOut.includes(link));
+
+  const section = (kept: LinkInput[], overflowCount: number) => {
+    const notes = [
+      ...(overflowCount > 0 ? [TEXT.startHereOverflow(overflowCount)] : []),
+      ...(leftOut.length > 0 ? [TEXT.startHereLeftOut(leftOut.length)] : []),
+    ];
+    return [
+      TEXT.startHereHeading,
+      ...(kept.length > 0
+        ? [kept.map((link) => lines.get(link) ?? "").join("\n")]
+        : []),
+      ...(notes.length > 0 ? [notes.join("\n")] : []),
+    ].join("\n\n");
+  };
+
+  const kept: LinkInput[] = [];
+  for (const [index, link] of candidates.entries()) {
+    const remaining = candidates.length - index - 1 + extra.length;
+    if (bytes(section([...kept, link], remaining)) > map.startHereBudget) {
+      break;
+    }
+    kept.push(link);
+  }
+  const overflow = [...candidates.slice(kept.length), ...extra];
+  const home = docsHomeRule(map.docsHome);
+  // With Notes as the docs home, an app that only reads its files saves a
+  // lasting doc as a file in the notes folder, when the sync mirrors one
+  const rule =
+    home.rule !== null && map.docsHome?.kind === "notes" && map.notesFolder
+      ? `${home.rule} ${TEXT.notesFolder}`
+      : home.rule;
+  return {
+    startHere:
+      map.startHere.length > 0
+        ? [section(kept, overflow.length), TEXT.onboarding]
+        : [],
+    docsHome: rule === null ? [] : [`${TEXT.docsHomeHeading}\n\n${rule}`],
+    items: [...kept.map(({ id, version }) => ({ id, version })), ...home.items],
+    links: { overflow, leftOut, docsHomeLeftOut: home.leftOut },
+  };
+}
 
 /**
  * Intros the compilers wrote before. A file edited from an older copy of its
@@ -64,19 +272,23 @@ function aboutFirst(preferences: PreferenceInput[]): PreferenceInput[] {
 
 /**
  * The preference lines, under About and Preferences headings when some are
- * in About, and as a plain list when none are, as before About existed.
+ * in About or a section comes before them, and as a plain list otherwise, as
+ * before About existed.
  */
 function preferenceSections(
   preferences: PreferenceInput[],
   aboutHeading: string,
+  headed = false,
 ): string[] {
   const about = preferences.filter((preference) => preference.about);
   const rest = preferences.filter((preference) => !preference.about);
-  if (about.length === 0) {
+  if (about.length === 0 && !headed) {
     return rest.length > 0 ? [rest.map(preferenceLine).join("\n")] : [];
   }
   return [
-    `${aboutHeading}\n\n${about.map(preferenceLine).join("\n")}`,
+    ...(about.length > 0
+      ? [`${aboutHeading}\n\n${about.map(preferenceLine).join("\n")}`]
+      : []),
     ...(rest.length > 0
       ? [`${TEXT.preferencesHeading}\n\n${rest.map(preferenceLine).join("\n")}`]
       : []),
@@ -98,6 +310,8 @@ export interface BlockPlan {
   footer?: string;
   /** The heading over About, when some preferences are in it. About the user, unless set. */
   aboutHeading?: string;
+  /** A project's map, whose Start here links and docs home join its block */
+  map?: MapPlan;
 }
 
 export interface RenderedBlock {
@@ -106,6 +320,12 @@ export interface RenderedBlock {
   /** Preferences that didn't fit, in order. */
   overflow: PreferenceInput[];
   leftOut: PreferenceInput[];
+  /** Start here links that didn't fit or were left out, and a docs-home link left out */
+  links: {
+    overflow: LinkInput[];
+    leftOut: LinkInput[];
+    docsHomeLeftOut: LinkInput | null;
+  };
 }
 
 const bytes = (text: string) => Buffer.byteLength(text, "utf8");
@@ -115,11 +335,19 @@ function assemble(
   kept: PreferenceInput[],
   overflowCount: number,
   leftOutCount: number,
+  map: RenderedMap,
 ): string {
-  const sections: string[] = [`${plan.title}\n\n${plan.intro}`];
+  const sections: string[] = [
+    `${plan.title}\n\n${plan.intro}`,
+    ...map.startHere,
+  ];
   if (kept.length > 0) {
     sections.push(
-      ...preferenceSections(kept, plan.aboutHeading ?? TEXT.aboutUser),
+      ...preferenceSections(
+        kept,
+        plan.aboutHeading ?? TEXT.aboutUser,
+        map.startHere.length > 0,
+      ),
     );
   } else if (plan.empty && overflowCount === 0 && leftOutCount === 0) {
     sections.push(plan.empty);
@@ -130,16 +358,19 @@ function assemble(
   }
   if (leftOutCount > 0) notes.push(TEXT.leftOut(leftOutCount));
   if (notes.length > 0) sections.push(notes.join("\n"));
+  sections.push(...map.docsHome);
   if (plan.footer) sections.push(plan.footer);
   return `${BLOCK_START}\n${sections.join("\n\n")}\n${BLOCK_END}\n`;
 }
 
 /**
- * Builds a managed block within its byte budget. Preferences go in order,
- * About first, until the next one wouldn't fit; the rest are counted in a
- * line that says where they are, so nothing is cut without saying so.
+ * Builds a managed block within its byte budget. A project's Start here
+ * links and docs home go in first, then preferences in order, About first,
+ * until the next one wouldn't fit; the rest are counted in a line that says
+ * where they are, so nothing is cut without saying so.
  */
 export function renderBlock(plan: BlockPlan): RenderedBlock {
+  const map = renderMap(plan.map);
   const leftOut = plan.shared
     ? plan.preferences.filter(
         (preference) => injectionMatches(preferenceLine(preference)).length > 0,
@@ -157,18 +388,20 @@ export function renderBlock(plan: BlockPlan): RenderedBlock {
       [...kept, preference],
       remaining,
       leftOut.length,
+      map,
     );
     if (bytes(trial) > plan.budget) break;
     kept.push(preference);
   }
 
   const overflow = candidates.slice(kept.length);
-  const text = assemble(plan, kept, overflow.length, leftOut.length);
+  const text = assemble(plan, kept, overflow.length, leftOut.length, map);
   return {
     text,
-    items: kept.map(({ id, version }) => ({ id, version })),
+    items: [...map.items, ...kept.map(({ id, version }) => ({ id, version }))],
     overflow,
     leftOut,
+    links: map.links,
   };
 }
 
@@ -177,18 +410,32 @@ export function renderContext(
   projectName: string,
   preferences: PreferenceInput[],
   budget: number,
+  plan?: MapPlan,
 ): RenderedBlock {
+  const map = renderMap(plan);
   const kept: PreferenceInput[] = [];
   const intro = TEXT.personalIntro(projectName);
   const ordered = aboutFirst(preferences);
+  const headed = map.startHere.length > 0;
+  const mapped = headed || map.docsHome.length > 0;
   // Sections under headings get a blank line between them; a plain list
-  // stays as compact as it always was
-  const build = (list: PreferenceInput[], overflowCount: number) =>
-    [
-      intro,
-      ...preferenceSections(list, TEXT.aboutProject),
-      ...(overflowCount > 0 ? [TEXT.overflow(overflowCount, null)] : []),
-    ].join(list.some((preference) => preference.about) ? "\n\n" : "\n") + "\n";
+  // with nothing else stays as compact as it always was
+  const build = (list: PreferenceInput[], overflowCount: number) => {
+    const spaced = mapped || list.some((preference) => preference.about);
+    return (
+      [
+        intro,
+        ...map.startHere,
+        ...(list.length > 0
+          ? preferenceSections(list, TEXT.aboutProject, headed)
+          : mapped && overflowCount === 0
+            ? [TEXT.noPreferences]
+            : []),
+        ...(overflowCount > 0 ? [TEXT.overflow(overflowCount, null)] : []),
+        ...map.docsHome,
+      ].join(spaced ? "\n\n" : "\n") + "\n"
+    );
+  };
 
   for (const [index, preference] of ordered.entries()) {
     const remaining = ordered.length - index - 1;
@@ -198,8 +445,9 @@ export function renderContext(
   const overflow = ordered.slice(kept.length);
   return {
     text: build(kept, overflow.length),
-    items: kept.map(({ id, version }) => ({ id, version })),
+    items: [...map.items, ...kept.map(({ id, version }) => ({ id, version }))],
     overflow,
     leftOut: [],
+    links: map.links,
   };
 }

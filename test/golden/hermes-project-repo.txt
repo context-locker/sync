@@ -8,5 +8,7 @@ Preferences for this project, kept in sync by Context Locker. Where one has the 
 - short-sentences: Steps in the docs may use longer sentences when they need to.
 <!-- context-locker:end -->
 
+== file {project}/.context-locker/notes/README.md
+
 == notes
 - Context Locker doesn't write project skills for Hermes yet, so these stay out: docs-style.

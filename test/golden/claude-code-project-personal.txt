@@ -3,5 +3,7 @@ items: 66666666-6666-4666-8666-666666666666@1
 Context Locker preferences for Docs site. Where one has the same name as a general preference, it replaces that one here. To change one, ask your user to edit it in Context Locker.
 - short-sentences: Steps in the docs may use longer sentences when they need to.
 
+== file {project}/.context-locker/notes/README.md
+
 == notes
 - Docs site's own skills load only in repos linked with a .contextlocker.json: docs-style.

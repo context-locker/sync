@@ -1,0 +1,62 @@
+== {project}/.context-locker/notes/con-d4444444.md
+---
+title: "Con"
+kind: "research"
+status: "current"
+summary: "What a conference talk taught us."
+tags: ["research"]
+applies_to: "Docs site"
+id: "d4444444-4444-4444-8444-444444444444"
+version: 1
+---
+
+Notes from the talk.
+
+== {project}/.context-locker/notes/everywhere/writing-voice.md
+---
+title: "Writing voice"
+kind: "profile"
+status: "current"
+summary: "How Nova writes: plain words, short sentences, dates with the year."
+tags: ["writing"]
+applies_to: "everywhere"
+id: "d3333333-3333-4333-8333-333333333333"
+version: 2
+---
+
+Plain words. Short sentences. Dates such as 21 Oct 2026.
+
+== {project}/.context-locker/notes/hosting-choice.md
+---
+title: "Hosting: \"Vercel\" over Netlify"
+kind: "decision"
+status: "superseded"
+summary: "Why we picked Vercel: previews per branch, and C:\\ paths in builds."
+tags: ["hosting"]
+applies_to: "Docs site"
+id: "d2222222-2222-4222-8222-222222222222"
+version: 1
+---
+
+We picked Vercel for previews.
+
+---
+
+See the newer decision for what changed.
+
+== {project}/.context-locker/notes/release-plan.md
+---
+title: "Release plan"
+kind: "plan"
+status: "current"
+summary: "What ships in the Q4 release of the docs site, and when."
+tags: ["release", "q4"]
+applies_to: "Docs site"
+id: "d1111111-1111-4111-8111-111111111111"
+version: 3
+---
+
+# Release plan
+
+- Search ships on 4 Nov 2026.
+- The new theme follows on 18 Nov 2026.
