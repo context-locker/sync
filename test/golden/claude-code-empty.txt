@@ -9,3 +9,7 @@ No preferences saved yet.
 
 When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line here or the skill's files, and say why in your reply. The next sync saves the fix in Context Locker, unless it needs approval first.
 <!-- context-locker:end -->
+
+== skill {claude}/skills/context-locker-gather
+item: c0de0000-6a7e-4e00-8000-000000000001@1
+files: SKILL.md, references/plan.md

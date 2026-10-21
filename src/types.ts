@@ -39,6 +39,50 @@ export interface SkillInput extends ItemRef {
 }
 
 /**
+ * A link from a project's map, such as its agent guide or its runbook, as a
+ * project's block lists it under Start here or names it as the docs home.
+ * Its title and description may come from an AI app.
+ */
+export interface LinkInput extends ItemRef {
+  title: string;
+  /** An http or https address, or a path in the repo */
+  url: string;
+  /** What it holds, in one line */
+  description: string;
+  /** What it's for, such as onboarding or runbook */
+  role: string;
+}
+
+/**
+ * A note as a project's notes folder holds it: a Markdown document and its
+ * front matter, in a file named after the note. Links have no text, so they
+ * have no files.
+ */
+export interface NoteInput extends ItemRef {
+  /** The note's name, such as release-plan, which its file is named after */
+  name: string;
+  title: string;
+  /** plan, spec, decision, research, idea, log or profile */
+  kind: string;
+  /** current, or superseded once a newer note takes its place */
+  status: string;
+  /** What it holds, in one line */
+  summary: string;
+  tags: string[];
+  /** The note, in Markdown */
+  text: string;
+  /** Whether it applies everywhere, rather than to the project being synced */
+  everywhere: boolean;
+}
+
+/**
+ * Where a project's lasting docs go: one of its links, Context Locker Notes,
+ * or null when the owner hasn't said yet.
+ */
+export type DocsHome =
+  { kind: "notes" } | { kind: "link"; link: LinkInput } | null;
+
+/**
  * Where a project's compiled files go. "repo": into the repo's own files,
  * because the repo is linked to this workspace with a .contextlocker.json.
  * "personal": nowhere in the repo; the session-start output carries them.
@@ -56,6 +100,21 @@ export interface CompileInput {
   preferences: PreferenceInput[];
   /** The skills for this sync, scoped the same way. */
   skills: SkillInput[];
+  /**
+   * For a project sync: its Start here links, in the order they're listed.
+   * A block lists 10 at most.
+   */
+  startHere?: LinkInput[];
+  /** For a project sync: its docs home. Left out, none is recorded. */
+  docsHome?: DocsHome;
+  /**
+   * For a project sync: its live notes and the ones that apply everywhere,
+   * current and superseded, which its notes folder mirrors. Links are left
+   * out.
+   */
+  notes?: NoteInput[];
+  /** For a project sync: the workspace's tag list, which the notes folder's README gives. */
+  tags?: string[];
 }
 
 /**
@@ -84,6 +143,20 @@ export type Output =
       /** Printed at the start of each session instead of written to a file. */
       text: string;
       items: ItemRef[];
+    }
+  | {
+      kind: "note";
+      /** A note's file in a project's notes folder. */
+      target: string;
+      /** The whole file: its front matter, then the note. */
+      text: string;
+      item: ItemRef;
+    }
+  | {
+      kind: "file";
+      /** A whole file Context Locker writes, such as the notes folder's README. */
+      target: string;
+      text: string;
     };
 
 export interface Compiled {

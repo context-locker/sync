@@ -1,0 +1,24 @@
+== block {project}/.claude/rules/context-locker.md
+items: b1111111-1111-4111-8111-111111111111@1, 66666666-6666-4666-8666-666666666666@1
+<!-- context-locker:start v1 -->
+## Context Locker: Docs site
+
+Preferences for this project, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.
+
+### Start here
+
+- [Agent guide](AGENTS.md) (onboarding): How to build, test and ship the docs site.
+
+2 Start here links were left out here because some AI apps refuse to load files with wording like theirs. They're in Context Locker.
+
+Start each session with a three-line startup brief for the user: the project, the sources you'll use, and your first step. These links are from the project's map in Context Locker. When the task needs more of it, call Context Locker's project_map tool if you have it.
+
+### Preferences
+
+- short-sentences: Steps in the docs may use longer sentences when they need to.
+<!-- context-locker:end -->
+
+== file {project}/.context-locker/notes/README.md
+
+== notes
+- 2 Start here links were left out of {project}/.claude/rules/context-locker.md for wording or an address some apps refuse: Ops channel, Status page.

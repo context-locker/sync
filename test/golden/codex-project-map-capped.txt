@@ -1,0 +1,33 @@
+== block {project}/AGENTS.md
+items: c0000000-0000-4000-8000-000000000001@1, c0000000-0000-4000-8000-000000000002@1, c0000000-0000-4000-8000-000000000003@1, c0000000-0000-4000-8000-000000000004@1, c0000000-0000-4000-8000-000000000005@1, c0000000-0000-4000-8000-000000000006@1, c0000000-0000-4000-8000-000000000007@1, c0000000-0000-4000-8000-000000000008@1, c0000000-0000-4000-8000-000000000009@1, c0000000-0000-4000-8000-000000000010@1, 66666666-6666-4666-8666-666666666666@1
+<!-- context-locker:start v1 -->
+## Context Locker: Docs site
+
+Preferences for this project, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.
+
+### Start here
+
+- [Guide 1](https://docs.example.com/guides/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/1) (onboarding): Guide 1, for one part of the work.
+- [Guide 2](https://docs.example.com/guides/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/2) (onboarding): Guide 2, for one part of the work.
+- [Guide 3](https://docs.example.com/guides/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/3) (onboarding): Guide 3, for one part of the work.
+- [Guide 4](https://docs.example.com/guides/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/4) (onboarding): Guide 4, for one part of the work.
+- [Guide 5](https://docs.example.com/guides/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/5) (onboarding): Guide 5, for one part of the work.
+- [Guide 6](https://docs.example.com/guides/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/6) (onboarding): Guide 6, for one part of the work.
+- [Guide 7](https://docs.example.com/guides/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/7) (onboarding): Guide 7, for one part of the work.
+- [Guide 8](https://docs.example.com/guides/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/8) (onboarding): Guide 8, for one part of the work.
+- [Guide 9](https://docs.example.com/guides/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/9) (onboarding): Guide 9, for one part of the work.
+- [Guide 10](https://docs.example.com/guides/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/section/10) (onboarding): Guide 10, for one part of the work.
+
+2 more Start here links didn't fit here. They're in Context Locker.
+
+Start each session with a three-line startup brief for the user: the project, the sources you'll use, and your first step. These links are from the project's map in Context Locker. When the task needs more of it, call Context Locker's project_map tool if you have it.
+
+### Preferences
+
+- short-sentences: Steps in the docs may use longer sentences when they need to.
+<!-- context-locker:end -->
+
+== file {project}/.context-locker/notes/README.md
+
+== notes
+- 2 Start here links didn't fit in {project}/AGENTS.md: Guide 11, Guide 12.

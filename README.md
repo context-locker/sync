@@ -2,13 +2,13 @@
 
 The open source parts of [Context Locker](https://context.locker): the setup steps an AI app follows, the scripts that keep each app's files in step with your playbook, and the compilers that decide what those files hold. MIT licence.
 
-Context Locker keeps your preferences, skills and projects in one place, and every AI app you use reads the same ones. Apps that read files on your computer, such as Claude Code and Codex, get them from the script here, so you can see exactly what lands in them.
+Context Locker keeps your preferences, skills, projects and notes in one place, and every AI app you use reads the same ones. Apps that read files on your computer, such as Claude Code and Codex, get them from the script here, so you can see exactly what lands in them.
 
 This repository is a published copy of the code Context Locker runs. It's updated with each release.
 
 ## Setting up an app
 
-Ask your AI app to follow the steps at `https://context.locker/setup/v3/SKILL.md`. The steps download the script, check its hash, sign the app in with a link and a code you approve, show what a sync would write, and add a hook so the app syncs at the start of each session. The same files are in [`setup/v3`](setup/v3). An app that can't run commands, such as Claude or ChatGPT in a browser, connects over MCP instead, at `https://mcp.context.locker`.
+Ask your AI app to follow the steps at `https://context.locker/setup/v6/SKILL.md`. The steps download the script, check its hash, sign the app in with a link and a code you approve, show what a sync would write, run Gather once to bring in what your AI apps already know, and add a hook so the app syncs at the start of each session. The same files are in [`setup/v6`](setup/v6). An app that can't run commands, such as Claude or ChatGPT in a browser, connects over MCP instead, at `https://mcp.context.locker`.
 
 A published version never changes. When a script changes, it's published as a new version, with the hashes of its files in its `SKILL.md`. The tests fail until the newest version matches the scripts in [`scripts`](scripts).
 
@@ -20,7 +20,11 @@ A published version never changes. When a script changes, it's published as a ne
 sh ~/.contextlocker/sync.sh codex             # at session start
 sh ~/.contextlocker/sync.sh hermes --daily    # from a scheduled job
 sh ~/.contextlocker/sync.sh codex --project <id>
+sh ~/.contextlocker/sync.sh map codex         # the project's map, for the folder it runs in
+sh ~/.contextlocker/sync.sh map codex --all   # the whole map
 ```
+
+The script finds a folder's project in this order: the one `--project` names, the one a `.contextlocker.json` in the repo names, a folder linked on this computer, and then the project whose git remote is the repo's origin. A clone found by its remote is linked on the computer, as `--project` links it. A daily run also syncs the projects linked on the computer, as far as the app works in projects: OpenClaw doesn't, and Hermes only in repos with a `.contextlocker.json`.
 
 Setup uses four more modes:
 
@@ -28,13 +32,35 @@ Setup uses four more modes:
 sh ~/.contextlocker/sync.sh signin codex      # prints a link and a code to approve, exit 3
 sh ~/.contextlocker/sync.sh signin codex      # again: waits up to 50 s, exit 0 once connected
 sh ~/.contextlocker/sync.sh plan codex        # what a sync would write, and the hook to add
-sh ~/.contextlocker/sync.sh doctor codex      # PASS, WARN or FAIL for each part
+sh ~/.contextlocker/sync.sh doctor codex      # PASS, WARN or FAIL for each check, exit 1 if one fails
 sh ~/.contextlocker/sync.sh readback codex    # what the app's files now hold
 ```
 
 The first `signin` returns at once, because an AI app usually shows a command's output only when it ends. Polling never runs faster than the server asks, even across runs. In PowerShell the same modes are `sync.ps1 signin codex` and so on, and sync.sh's spellings of the options work too.
 
-When changes wait for your approval, the script says so at the start of a Claude Code or Codex session, with a link to your inbox.
+The doctor checks the script, the connection and the hook or daily job. It also says how full each of the playbook's limits is, which instruction and memory files hold lines outside Context Locker's blocks (Gather can bring them in), and what has drifted since the last sync: edits not yet saved, files a sync wrote that are gone, and a last sync more than 7 days ago. It ends with a line that sums it up.
+
+Gather brings in what your AI apps already know:
+
+```sh
+sh ~/.contextlocker/sync.sh gather codex                     # copies every AI app's sources into a private working set
+sh ~/.contextlocker/sync.sh gather-submit codex <plan.json>  # sends the plan you approved
+```
+
+`gather` only reads. It copies each app's instructions, skills and memories, and the project's own, into a folder only this account can read, and lists every source with its app, kind, path, date and hash. It follows no links, and it never copies a file that looks like it holds a secret: every file it leaves out is listed with the reason. Your agent merges the sources into one plan with the `context-locker-gather` skill, you approve the plan once, and `gather-submit` sends it. The working sets are deleted once the plan is in.
+
+Two more modes take things out:
+
+```sh
+sh ~/.contextlocker/sync.sh export codex [--to <folder>]                                # the whole playbook as plain files
+sh ~/.contextlocker/sync.sh notes-move-out codex --to docs/decisions [--title <title>] # a project's notes into its repo
+```
+
+`export` unpacks everything in the playbook, with its history as JSON Lines, into a new folder that only this account can read: `Context Locker export <date>` in the current folder, or the one `--to` names. It never writes into a folder that holds anything.
+
+`notes-move-out` writes a project's notes into a folder in its repo, never over a file, never through a link, and never into `.git` or `.context-locker`. Only then does it ask Context Locker to retire them and make a link to that folder the project's docs home. Notes that changed meanwhile stay in Context Locker. The notes that apply everywhere never move.
+
+When changes wait for your approval, the script says so at the start of a Claude Code or Codex session, with a link to your inbox. When a newer script is out, the session start and the doctor say so, and nothing changes on its own.
 
 The scripts only write where an app reads its files, and refuse anything else the server sends.
 
@@ -51,18 +77,34 @@ The scripts only write where an app reads its files, and refuse anything else th
 
 Roots in braces are worked out on the computer: `{claude}` is `CLAUDE_CONFIG_DIR` or `~/.claude`, `{codex}` is `CODEX_HOME` or `~/.codex`, `{hermes}` is `HERMES_HOME` or `~/.hermes`, `{agents}` is `~/.agents`, `{openclaw}` is the configured workspace, and `{project}` is the repo.
 
-Project files go into a repo only when it holds a `.contextlocker.json` naming the same workspace. Otherwise the session-start output carries the project's preferences and nothing is written to the repo.
+Project files go into a repo only when it holds a `.contextlocker.json` naming the same workspace. Otherwise the session-start output carries the project's preferences, and only the notes folder, which git leaves out, is written there.
 
 Facts in About come first, under `### About the user` in an app's own files and `### About this project` in a project's block, then the rest under `### Preferences`. A preference can run over several lines, each further line indented under its first, and an edit to it reads back the same way.
 
 A managed block sits between `<!-- context-locker:start v1 -->` and `<!-- context-locker:end -->`, and nothing outside the markers changes. Each block has a size limit for its app (see `BUDGETS`). Preferences that don't fit are counted in a line saying where they are, and a repo's `AGENTS.md` block leaves out wording that Hermes would refuse, saying so in the block.
 
+A project's block also carries its map: up to 10 Start here links, and once the project has a docs home, where its lasting docs go. Every link goes through the same filter as the rest of the block, as an AI app may have written it.
+
+Every app's sync also writes Context Locker's own skill, `context-locker-gather` (see [`src/gather.ts`](src/gather.ts)), with the steps for Gather. Skill names that start with `context-locker-` are kept for Context Locker's own.
+
+A project's sync mirrors its notes into `{project}/.context-locker/notes`, one Markdown file per note with YAML front matter, and the notes that apply everywhere in `everywhere/`, with a README on how to edit and add notes (see [`src/notes.ts`](src/notes.ts)). An edited or new file there goes to Context Locker at the next sync, and a deleted one comes back, as only Context Locker retires a note. The first time a sync writes there in a git work tree, it adds `.context-locker/` to `.git/info/exclude`, and it never changes `.gitignore`.
+
 ## The sync protocol
 
-1. `GET /v1/sync[?project=<id>&layer=repo|personal]` with `If-None-Match` answers `304` or a manifest (see [`src/manifest.ts`](src/manifest.ts)). Its ETag is the SHA-256 of the text.
-2. `POST /v1/sync/blobs` with the hashes it needs, one per line, answers one tar archive: a file per block, a folder per skill, each named by its hash.
-3. `POST /v1/sync/edits` with `Context-Locker-Target` sends an edit found in a synced file: a block's text, or a skill folder as a bundle (see [`src/bundle.ts`](src/bundle.ts)). The answer is `accepted` (it applied straight away), `pending` (it waits for the owner's approval, so keep it), `rejected` (put the synced version back), `same` or `gone`.
-4. `POST /v1/sync/done` reports what was applied.
+1. `GET /v1/sync[?project=<id>&layer=repo|personal]` with `If-None-Match` answers `304` or a manifest (see [`src/manifest.ts`](src/manifest.ts)). Its ETag is the SHA-256 of the text. The global manifest names the newest script, and a project's lists its links to paths in the repo, which the script checks are there.
+2. `POST /v1/sync/notes` with `Context-Locker-Target` sends a note's file changed in the notes folder, or a new `.md` file there, before anything is written. Context Locker saves it at once, or refuses it with a message naming every gap. An edit to a note that changed meanwhile is refused as `version_conflict`.
+3. `POST /v1/sync/blobs` with the hashes it needs, one per line, answers one tar archive: a file per block or note, a folder per skill, each named by its hash.
+4. `POST /v1/sync/edits` with `Context-Locker-Target` sends an edit found in a synced file: a block's text, or a skill folder as a bundle (see [`src/bundle.ts`](src/bundle.ts)). The answer is `accepted` (it applied straight away), `pending` (it waits for the owner's approval, so keep it), `rejected` (put the synced version back), `same` or `gone`.
+5. `POST /v1/sync/done` reports what was applied, and in a project, the links whose path isn't in the folder.
+
+Around a sync, `POST /v1/sync/remote` with a git remote answers the project that has it, and `POST /v1/sync/map?project=<id>` answers the project's map as plain text. The script sends only the remote, without a user name, password, query or fragment, and never a path on the computer.
+
+For the other modes:
+
+- `GET /v1/sync/caps` answers a `PASS`, `WARN` or `FAIL` line for each of the playbook's limits, which the doctor prints as they are.
+- `POST /v1/gather` takes the plan `gather-submit` sends, checks it whole, and brings it in in one go.
+- `GET /v1/export` answers everything the token can read as a `.tar.gz`.
+- `GET /v1/sync/move-out?project=<id>` answers a tar of the project's own notes, as the repo will keep them, and an index. Once every file is written, `POST /v1/sync/move-out?project=<id>` says what was written, and in one transaction Context Locker retires each note still at the version written, adds a link to the folder or uses the one there, and makes it the docs home.
 
 ## Tests
 
@@ -74,7 +116,7 @@ npm run typecheck
 npm test
 ```
 
-`npm test` checks the compilers against the expected files in `test/golden` (`UPDATE_GOLDEN=1` rewrites them), runs the scripts against a fake API to check they refuse anything they may not write, and checks the published setup files.
+`npm test` checks the compilers against the expected files in `test/golden` (`UPDATE_GOLDEN=1` rewrites them), runs the scripts against a fake API to check they refuse anything they may not write, runs `gather` against a fake home folder with every app's files, runs the doctor, `export` and `notes-move-out` against a fake API, and checks the published setup files. When `pwsh` and PSScriptAnalyzer are installed, it also checks `sync.ps1` against Windows PowerShell 5.1's syntax and commands.
 
 ## Licence
 

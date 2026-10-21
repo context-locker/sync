@@ -47,5 +47,7 @@ Preferences for this project, kept in sync by Context Locker. Where one has the 
 22 more preferences didn't fit in this file. They're in Context Locker.
 <!-- context-locker:end -->
 
+== file {project}/.context-locker/notes/README.md
+
 == notes
 - 22 preferences didn't fit in {project}/AGENTS.md: rule-039, rule-040, rule-041, rule-042, rule-043, rule-044, rule-045, rule-046, rule-047, rule-048, rule-049, rule-050, rule-051, rule-052, rule-053, rule-054, rule-055, rule-056, rule-057, rule-058, rule-059, rule-060.

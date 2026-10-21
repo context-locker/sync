@@ -1,7 +1,8 @@
-// A small tar writer, for sending blobs to the sync script in one response.
-// The script unpacks it with the tar that ships with macOS, Linux and
-// Windows 10 and later. Paths longer than the ustar header holds get a pax
-// header, which GNU tar and bsdtar both read.
+// A small tar writer, for sending blobs to the sync script in one response,
+// and for an export, which is written as a stream an entry at a time. The
+// script unpacks it with the tar that ships with macOS, Linux and Windows 10
+// and later. Paths longer than the ustar header holds get a pax header, which
+// GNU tar and bsdtar both read.
 import { fileBytes } from "./hash.js";
 import type { Blob } from "./manifest.js";
 
@@ -64,29 +65,75 @@ function paxRecord(key: string, value: string): string {
   return `${length}${body}`;
 }
 
+/**
+ * The header blocks for one entry: a pax header first when its path is
+ * longer than the ustar header holds, then its own. For an archive written
+ * as a stream, an entry is its header, then `size` bytes of data, then
+ * {@link tarPadding} for that size.
+ */
+export function tarHeader(
+  entry: {
+    path: string;
+    /** Bytes of data that follow; 0 for a directory */
+    size: number;
+    directory?: boolean;
+    mode?: number;
+  },
+  mtime: number,
+): Buffer {
+  const isDir = entry.directory === true;
+  const name =
+    isDir && !entry.path.endsWith("/") ? `${entry.path}/` : entry.path;
+  const mode = entry.mode ?? (isDir ? 0o755 : 0o644);
+  const chunks: Buffer[] = [];
+  if (Buffer.byteLength(name, "utf8") > 100) {
+    const pax = Buffer.from(paxRecord("path", name), "utf8");
+    chunks.push(
+      header("PaxHeader", pax.length, 0o644, "x", mtime),
+      padded(pax),
+    );
+  }
+  // The ustar name field holds 100 bytes; the pax record holds the whole path
+  chunks.push(
+    header(
+      name.slice(0, 100),
+      isDir ? 0 : entry.size,
+      mode,
+      isDir ? "5" : "0",
+      mtime,
+    ),
+  );
+  return Buffer.concat(chunks);
+}
+
+/** The zero bytes that fill an entry's data out to the archive's next block. */
+export function tarPadding(size: number): Buffer {
+  const rest = size % BLOCK;
+  return Buffer.alloc(rest === 0 ? 0 : BLOCK - rest, 0);
+}
+
+/** The two empty blocks that end an archive. */
+export const TAR_END: Buffer = Buffer.alloc(BLOCK * 2, 0);
+
 export function writeTar(entries: readonly TarEntry[], mtime: number): Buffer {
   const chunks: Buffer[] = [];
   for (const entry of entries) {
     const isDir = entry.bytes === null;
-    const name =
-      isDir && !entry.path.endsWith("/") ? `${entry.path}/` : entry.path;
     const bytes = entry.bytes ?? Buffer.alloc(0);
-    const mode = entry.mode ?? (isDir ? 0o755 : 0o644);
-
-    if (Buffer.byteLength(name, "utf8") > 100) {
-      const pax = Buffer.from(paxRecord("path", name), "utf8");
-      chunks.push(
-        header("PaxHeader", pax.length, 0o644, "x", mtime),
-        padded(pax),
-      );
-    }
     chunks.push(
-      header(name.slice(0, 100), bytes.length, mode, isDir ? "5" : "0", mtime),
+      tarHeader(
+        {
+          path: entry.path,
+          size: bytes.length,
+          directory: isDir,
+          ...(entry.mode === undefined ? {} : { mode: entry.mode }),
+        },
+        mtime,
+      ),
     );
     if (bytes.length > 0) chunks.push(padded(bytes));
   }
-  // Two empty blocks end the archive
-  chunks.push(Buffer.alloc(BLOCK * 2, 0));
+  chunks.push(TAR_END);
   return Buffer.concat(chunks);
 }
 

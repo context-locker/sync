@@ -9,3 +9,5 @@ Context Locker preferences for Docs site. Where one has the same name as a gener
 ### Preferences
 
 - short-sentences: Steps in the docs may use longer sentences when they need to.
+
+== file {project}/.context-locker/notes/README.md
