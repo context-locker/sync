@@ -1,5 +1,5 @@
 #!/bin/sh
-# Context Locker sync, version 6. MIT licence.
+# Context Locker sync, version 7. MIT licence.
 #
 #   sh sync.sh <app> [--project <id>] [--daily]
 #   sh sync.sh map <app> [--all]
@@ -7,6 +7,8 @@
 #   sh sync.sh gather-submit <app> <plan.json>
 #   sh sync.sh export <app> [--to <folder>]
 #   sh sync.sh notes-move-out <app> --to <folder>
+#   sh sync.sh fix <app> [--all]
+#   sh sync.sh fix <app> --done <id> | --skip <id> --reason <text>
 #   sh sync.sh signin|plan|doctor|readback <app>
 #
 # Keeps one AI app's files in step with your playbook at context.locker. <app>
@@ -60,6 +62,13 @@
 # .context-locker, and reached through no link. The notes that apply
 # everywhere stay.
 #
+# fix prints Tidy-up, the upkeep the playbook needs, such as a preference
+# nobody has touched in 90 days, each item with its id, the evidence, a fix
+# and its risk: the project's and the ones that apply everywhere, or the
+# whole playbook's with --all or outside a project. Once an item is fixed,
+# --done <id> marks it done, and Context Locker checks it again at once.
+# --skip <id> --reason <text> leaves it for the person, with the reason.
+#
 # For setup (see context.locker/setup):
 #   signin    connects the app with a code you approve in your browser. The
 #             first run prints the link and the code and exits 3. Run it again
@@ -78,10 +87,10 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=6
+SCRIPT_VERSION=7
 MODE=sync
 case ${1:-} in
-  signin | plan | doctor | readback | map | gather | gather-submit | export | notes-move-out)
+  signin | plan | doctor | readback | map | gather | gather-submit | export | notes-move-out | fix)
     MODE=$1
     shift
     ;;
@@ -95,6 +104,11 @@ PLAN_FILE=
 WAIT=50
 TO=
 TO_SET=0
+FIX_AS=
+FIX_ID=
+FIX_MARKS=0
+REASON=
+REASON_SET=0
 # gather-submit's plan comes before any option
 if [ "$MODE" = gather-submit ] && [ $# -gt 0 ]; then
   case $1 in
@@ -122,6 +136,21 @@ while [ $# -gt 0 ]; do
       TO_SET=1
       [ $# -gt 1 ] && shift
       ;;
+    --done)
+      FIX_AS=done FIX_ID=${2:-}
+      FIX_MARKS=$((FIX_MARKS + 1))
+      [ $# -gt 1 ] && shift
+      ;;
+    --skip)
+      FIX_AS=skipped FIX_ID=${2:-}
+      FIX_MARKS=$((FIX_MARKS + 1))
+      [ $# -gt 1 ] && shift
+      ;;
+    --reason)
+      REASON=${2:-}
+      REASON_SET=1
+      [ $# -gt 1 ] && shift
+      ;;
     *)
       printf 'Context Locker: unknown option %s\n' "$1" >&2
       exit 2
@@ -131,7 +160,7 @@ while [ $# -gt 0 ]; do
 done
 
 usage() {
-  printf 'Usage: sh sync.sh <app> [--project <id>] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh gather <app>\n       sh sync.sh gather-submit <app> <plan.json>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder>\n       sh sync.sh signin|plan|doctor|readback <app>\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
+  printf 'Usage: sh sync.sh <app> [--project <id>] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh gather <app>\n       sh sync.sh gather-submit <app> <plan.json>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder>\n       sh sync.sh fix <app> [--all]\n       sh sync.sh fix <app> --done <id> | --skip <id> --reason <text>\n       sh sync.sh signin|plan|doctor|readback <app>\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
   exit 2
 }
 case $HARNESS in
@@ -146,6 +175,28 @@ case $MODE in
   notes-move-out) [ -n "$TO" ] || usage ;;
   *) [ "$TO_SET" = 1 ] && usage ;;
 esac
+# --done and --skip are for fix, one at a time, with an item's id; a skip
+# needs its reason, and only a skip has one
+if [ "$MODE" = fix ]; then
+  case $FIX_MARKS in
+    0) [ "$REASON_SET" = 1 ] && usage ;;
+    1)
+      [ "$ALL" = 1 ] && usage
+      case $FIX_ID in
+        [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+        *) usage ;;
+      esac
+      if [ "$FIX_AS" = skipped ]; then
+        [ -n "$(printf '%s' "$REASON" | tr -d '[:space:]')" ] || usage
+      else
+        [ "$REASON_SET" = 1 ] && usage
+      fi
+      ;;
+    *) usage ;;
+  esac
+elif [ "$FIX_MARKS" -gt 0 ] || [ "$REASON_SET" = 1 ]; then
+  usage
+fi
 
 case $HARNESS in
   claude-code) APP_NAME='Claude Code' ;;
@@ -224,7 +275,7 @@ token_problem() {
   return 1
 }
 case $MODE in
-  sync | plan | map | gather | gather-submit | export | notes-move-out) problem=$(token_problem) && finish_early "$problem" ;;
+  sync | plan | map | gather | gather-submit | export | notes-move-out | fix) problem=$(token_problem) && finish_early "$problem" ;;
 esac
 
 # The global manifest names the newest sync script. A newer one than this
@@ -2602,6 +2653,50 @@ GATHER_MARK='context-locker-gather 1'
 G_LINK="it's a link, and Gather doesn't follow links"
 
 # A path as people read it, with ~ for the home folder
+# --- Tidy-up ---------------------------------------------------------------
+
+# fix prints Tidy-up, as Context Locker words it for this app: the project's
+# items and the ones that apply everywhere, or the whole playbook's with --all
+# or outside a project. --done and --skip mark one item, and print what
+# Context Locker said.
+fix_mode() {
+  if [ -n "$FIX_AS" ]; then
+    if [ "$FIX_AS" = done ]; then
+      printf 'done\n' >"$TMP/fix-body"
+    else
+      printf 'skipped\n%s\n' "$REASON" >"$TMP/fix-body"
+    fi
+    code=$(status_of "$(http POST "/v1/sync/fixes/$FIX_ID" "$TMP/fix" "$TMP/fix-body" 'text/plain; charset=utf-8' '' '' '')")
+  else
+    fx_query=
+    if [ "$ALL" = 0 ]; then
+      WORKSPACE_ID=$(sed -n "s/^entry workspace \\($UUID\\)\$/\\1/p" "$APP_DIR/global.lock" 2>/dev/null | head -n 1)
+      find_project ask && fx_query="?project=$PROJECT_ID"
+    fi
+    code=$(status_of "$(http GET "/v1/sync/fixes$fx_query" "$TMP/fix" '' '' '' '' '')")
+  fi
+  case $code in
+    200)
+      # Tabs and line breaks stay; other control characters never show
+      tr -d '\000-\010\013-\037\177' <"$TMP/fix"
+      return 0
+      ;;
+    401) printf "Context Locker: this computer's connection for %s was revoked or has expired. Set it up again at context.locker/setup.\n" "$APP_NAME" >&2 ;;
+    403) printf "Context Locker: %s may only read your playbook, so it can't mark Tidy-up items. The person can deal with them in Context Locker.\n" "$APP_NAME" >&2 ;;
+    000) printf "Context Locker: can't reach %s, so there's no Tidy-up to show.\n" "$API" >&2 ;;
+    4??)
+      fx_message=$(reply_field message "$TMP/fix" | clean)
+      if [ -n "$fx_message" ]; then
+        printf 'Context Locker: %s\n' "$fx_message" >&2
+      else
+        printf 'Context Locker answered %s. Try again in a minute.\n' "$code" >&2
+      fi
+      ;;
+    *) printf 'Context Locker answered %s. Try again in a minute.\n' "$code" >&2 ;;
+  esac
+  return 1
+}
+
 home_path() {
   case $1 in
     "$HOME") printf '~' ;;
@@ -3671,6 +3766,7 @@ if [ "$MODE" != sync ]; then
     gather-submit) gather_submit ;;
     export) export_mode ;;
     notes-move-out) notes_move_out ;;
+    fix) fix_mode ;;
   esac
   exit $?
 fi

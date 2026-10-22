@@ -1,4 +1,4 @@
-# Context Locker sync, version 6. MIT licence.
+# Context Locker sync, version 7. MIT licence.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 <app> [-Project <id>] [-Daily]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 map <app> [-All]
@@ -6,6 +6,8 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 gather-submit <app> <plan.json>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 export <app> [-To <folder>]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 notes-move-out <app> -To <folder>
+#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 fix <app> [-All]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 signin|plan|doctor|readback <app>
 #
 # Keeps one AI app's files in step with your playbook at context.locker. <app>
@@ -59,6 +61,13 @@
 # .context-locker, and reached through no link. The notes that apply
 # everywhere stay.
 #
+# fix prints Tidy-up, the upkeep the playbook needs, such as a preference
+# nobody has touched in 90 days, each item with its id, the evidence, a fix
+# and its risk: the project's and the ones that apply everywhere, or the
+# whole playbook's with -All or outside a project. Once an item is fixed,
+# -Done <id> marks it done, and Context Locker checks it again at once.
+# -Skip <id> -Reason <text> leaves it for the person, with the reason.
+#
 # For setup (see context.locker/setup):
 #   signin    connects the app with a code you approve in your browser. The
 #             first run prints the link and the code and exits 3. Run it again
@@ -73,8 +82,8 @@
 #   readback  prints what Context Locker has put in the app's files
 #
 # The same steps as sync.sh, for Windows PowerShell 5.1 and PowerShell 7.
-# sync.sh's spellings of the options (--daily, --project, --wait, --all and
-# --to) work too.
+# sync.sh's spellings of the options (--daily, --project, --wait, --all,
+# --to, --done, --skip and --reason) work too.
 param(
   [Parameter(Position = 0)][string]$First = '',
   [Parameter(Position = 1)][string]$Second = '',
@@ -83,6 +92,9 @@ param(
   [switch]$All,
   [int]$Wait = 50,
   [string]$To = '',
+  [string]$Done = '',
+  [string]$Skip = '',
+  [string]$Reason = '',
   [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest = @()
 )
 
@@ -90,7 +102,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 6
+$ScriptVersion = 7
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -104,7 +116,7 @@ if ($Second.StartsWith('-')) {
 }
 $Mode = 'sync'
 $Harness = $First
-if (@('signin', 'plan', 'doctor', 'readback', 'map', 'gather', 'gather-submit', 'export', 'notes-move-out') -contains $First) {
+if (@('signin', 'plan', 'doctor', 'readback', 'map', 'gather', 'gather-submit', 'export', 'notes-move-out', 'fix') -contains $First) {
   $Mode = $First
   $Harness = $Second
 } elseif ($Second) {
@@ -118,6 +130,13 @@ if ($Mode -eq 'gather-submit' -and $extra.Count -gt 0 -and -not $extra[0].Starts
 }
 $badOption = $false
 $ToSet = $PSBoundParameters.ContainsKey('To')
+# fix's -Done or -Skip, with the item's id, and a skip's reason
+$FixAs = ''
+$FixId = ''
+$FixMarks = 0
+$ReasonSet = $PSBoundParameters.ContainsKey('Reason')
+if ($PSBoundParameters.ContainsKey('Done')) { $FixAs = 'done'; $FixId = $Done; $FixMarks++ }
+if ($PSBoundParameters.ContainsKey('Skip')) { $FixAs = 'skipped'; $FixId = $Skip; $FixMarks++ }
 for ($i = 0; $i -lt $extra.Count; $i++) {
   $option = $extra[$i]
   $value = if ($i + 1 -lt $extra.Count) { $extra[$i + 1] } else { '' }
@@ -126,12 +145,22 @@ for ($i = 0; $i -lt $extra.Count; $i++) {
   elseif ($option -eq '--project' -and $value) { $Project = $value; $i++ }
   elseif ($option -eq '--wait' -and $value -match '^\d+$') { $Wait = [int]$value; $i++ }
   elseif ($option -eq '--to' -and $value) { $To = $value; $ToSet = $true; $i++ }
+  elseif ($option -eq '--done' -and $value) { $FixAs = 'done'; $FixId = $value; $FixMarks++; $i++ }
+  elseif ($option -eq '--skip' -and $value) { $FixAs = 'skipped'; $FixId = $value; $FixMarks++; $i++ }
+  elseif ($option -eq '--reason' -and $value) { $Reason = $value; $ReasonSet = $true; $i++ }
   else { $badOption = $true }
 }
 # -To is for export and notes-move-out, which needs it
 $badTo = if ($Mode -eq 'export') { $ToSet -and -not $To } elseif ($Mode -eq 'notes-move-out') { -not $To } else { $ToSet }
-if ($badOption -or $badTo -or (@('claude-code', 'codex', 'hermes', 'openclaw') -notcontains $Harness) -or $Wait -lt 0 -or ($Mode -eq 'gather-submit' -and -not $PlanFile)) {
-  [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 gather <app>`n       sync.ps1 gather-submit <app> <plan.json>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder>`n       sync.ps1 signin|plan|doctor|readback <app>`n<app> is claude-code, codex, hermes or openclaw.")
+# -Done and -Skip are for fix, one at a time, with an item's id; a skip needs
+# its reason, and only a skip has one
+$badFix = if ($Mode -ne 'fix') { ($FixMarks -gt 0) -or $ReasonSet }
+elseif ($FixMarks -eq 0) { $ReasonSet }
+elseif ($FixMarks -gt 1 -or $All -or $FixId -cnotmatch $Uuid) { $true }
+elseif ($FixAs -eq 'skipped') { -not $Reason.Trim() }
+else { $ReasonSet }
+if ($badOption -or $badTo -or $badFix -or (@('claude-code', 'codex', 'hermes', 'openclaw') -notcontains $Harness) -or $Wait -lt 0 -or ($Mode -eq 'gather-submit' -and -not $PlanFile)) {
+  [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 gather <app>`n       sync.ps1 gather-submit <app> <plan.json>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder>`n       sync.ps1 fix <app> [-All]`n       sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text>`n       sync.ps1 signin|plan|doctor|readback <app>`n<app> is claude-code, codex, hermes or openclaw.")
   exit 2
 }
 $AppName = @{ 'claude-code' = 'Claude Code'; 'codex' = 'Codex'; 'hermes' = 'Hermes'; 'openclaw' = 'OpenClaw' }[$Harness]
@@ -208,7 +237,7 @@ function Get-TokenProblem {
   }
   return ''
 }
-if (@('sync', 'plan', 'map', 'gather', 'gather-submit', 'export', 'notes-move-out') -contains $Mode) {
+if (@('sync', 'plan', 'map', 'gather', 'gather-submit', 'export', 'notes-move-out', 'fix') -contains $Mode) {
   $problem = Get-TokenProblem
   if ($problem) { Stop-Early $problem }
 }
@@ -1701,7 +1730,7 @@ function Sync-DailyProjects {
   if (-not (Test-Path -LiteralPath $map -PathType Leaf)) { return }
   # Read the list first, as a sync can unlink a project that's gone
   $linked = @([IO.File]::ReadAllLines($map))
-  $done = @{}
+  $synced = @{}
   $gone = 0
   foreach ($line in $linked) {
     $space = $line.IndexOf(' ')
@@ -1713,8 +1742,8 @@ function Sync-DailyProjects {
     if (-not (Find-LocalProject $folder)) { continue }
     if ($Harness -eq 'hermes' -and $Script:Layer -ne 'repo') { continue }
     $key = "$($Script:ProjectId) $($Script:ProjectRoot)"
-    if ($done.ContainsKey($key)) { continue }
-    $done[$key] = $true
+    if ($synced.ContainsKey($key)) { continue }
+    $synced[$key] = $true
     $Script:Scope = 'project'
     $Script:Excluded = $false
     $result = Sync-Scope "?project=$($Script:ProjectId)&layer=$($Script:Layer)" (Join-Path (Join-Path $AppDir 'projects') $Script:ProjectId)
@@ -2655,6 +2684,48 @@ function Invoke-Map {
     404 { [Console]::Error.WriteLine("Context Locker: that project isn't in your playbook any more.") }
     0 { [Console]::Error.WriteLine("Context Locker: can't reach $Api, so there's no map to show.") }
     default { [Console]::Error.WriteLine("Context Locker answered $($reply.Status), so there is no map to show. Try again in a minute.") }
+  }
+  return 1
+}
+
+# --- Tidy-up ---------------------------------------------------------------
+
+# fix prints Tidy-up, as Context Locker words it for this app: the project's
+# items and the ones that apply everywhere, or the whole playbook's with -All
+# or outside a project. -Done and -Skip mark one item, and print what Context
+# Locker said.
+function Invoke-Fix {
+  if ($FixAs) {
+    $body = if ($FixAs -eq 'done') { "done`n" } else { "skipped`n$Reason`n" }
+    $reply = Invoke-Api 'POST' "/v1/sync/fixes/$FixId" ($Utf8.GetBytes($body)) 'text/plain; charset=utf-8' @{}
+  } else {
+    $query = ''
+    if (-not $All) {
+      $globalLock = Join-Path $AppDir 'global.lock'
+      if (Test-Path -LiteralPath $globalLock -PathType Leaf) {
+        foreach ($line in [IO.File]::ReadAllLines($globalLock)) {
+          if ($line -match '^entry workspace ([0-9a-f-]{36})$') { $Script:WorkspaceId = $Matches[1] }
+        }
+      }
+      if (Find-Project 'ask') { $query = "?project=$($Script:ProjectId)" }
+    }
+    $reply = Invoke-Api 'GET' "/v1/sync/fixes$query" $null '' @{}
+  }
+  switch ($reply.Status) {
+    200 {
+      # Tabs and line breaks stay; other control characters never show
+      Write-Out ($Utf8.GetString($reply.Body) -replace '[\x00-\x08\x0b-\x1f\x7f]', '')
+      return 0
+    }
+    401 { [Console]::Error.WriteLine("Context Locker: this computer's connection for $AppName was revoked or has expired. Set it up again at context.locker/setup.") }
+    403 { [Console]::Error.WriteLine("Context Locker: $AppName may only read your playbook, so it can't mark Tidy-up items. The person can deal with them in Context Locker.") }
+    0 { [Console]::Error.WriteLine("Context Locker: can't reach $Api, so there's no Tidy-up to show.") }
+    default {
+      $message = ''
+      if ($reply.Status -ge 400 -and $reply.Status -lt 500) { $message = Get-Clean (Get-ReplyField $reply.Body 'message') }
+      if ($message) { [Console]::Error.WriteLine("Context Locker: $message") }
+      else { [Console]::Error.WriteLine("Context Locker answered $($reply.Status). Try again in a minute.") }
+    }
   }
   return 1
 }
@@ -3806,6 +3877,7 @@ if ($Mode -ne 'sync') {
       'gather-submit' { $exitCode = Invoke-GatherSubmit }
       'export' { $exitCode = Invoke-Export }
       'notes-move-out' { $exitCode = Invoke-NotesMoveOut }
+      'fix' { $exitCode = Invoke-Fix }
     }
   } catch {
     [Console]::Error.WriteLine("Context Locker: $($_.Exception.Message)")

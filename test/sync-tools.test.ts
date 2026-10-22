@@ -1,6 +1,7 @@
 // The sync scripts' tools: the doctor's checks of the playbook's limits, the
 // files Context Locker doesn't manage and what has drifted since the last
-// sync; export; and moving a project's notes out into its repo. These run
+// sync; export; moving a project's notes out into its repo; and Tidy-up,
+// with fix. These run
 // the real scripts against a fake API, which can answer in ways the real one
 // rarely does: a note that changes between the two steps of a move, an
 // answer that never comes, or an archive that tries to write somewhere else.
@@ -155,6 +156,14 @@ class FakeLocker {
   posted: Array<{ body: string; files: string[] }> = [];
   /** The folder whose files each POST lists */
   watch = "";
+  /** How GET /v1/sync/fixes answers */
+  fixes = { status: 200, text: "Nothing needs fixing right now.\n" };
+  /** How POST /v1/sync/fixes/<id> answers, and what it was sent */
+  marked = {
+    status: 200,
+    text: "Done. The check no longer finds the problem, so it's gone from Tidy-up.\n",
+  };
+  marks: Array<{ id: string; body: string; type: string }> = [];
   /** How POST /v1/sync/move-out answers: a status and text, or "drop" */
   answer: (body: string) => { status: number; text: string } | "drop" = (
     body,
@@ -281,6 +290,26 @@ describe("the sync scripts' tools", () => {
               : "application/json",
             fake.exported.body,
           );
+        } else if (route === "GET /v1/sync/fixes") {
+          send(
+            fake.fixes.status,
+            fake.fixes.status === 200 ? "text/plain" : "application/json",
+            fake.fixes.text,
+          );
+        } else if (
+          request.method === "POST" &&
+          url.pathname.startsWith("/v1/sync/fixes/")
+        ) {
+          fake.marks.push({
+            id: url.pathname.slice("/v1/sync/fixes/".length),
+            body,
+            type: String(request.headers["content-type"] ?? ""),
+          });
+          send(
+            fake.marked.status,
+            fake.marked.status === 200 ? "text/plain" : "application/json",
+            fake.marked.text,
+          );
         } else if (route === "GET /v1/sync/move-out") {
           send(200, "application/x-tar", fake.moveOutTar());
         } else if (route === "POST /v1/sync/move-out") {
@@ -349,7 +378,14 @@ describe("the sync scripts' tools", () => {
     const start = options.mode ? [options.mode, "codex"] : ["codex"];
     const spelled = (options.args ?? []).map((arg) =>
       shell === "pwsh"
-        ? (({ "--to": "-To" } as Record<string, string>)[arg] ?? arg)
+        ? ((
+            {
+              "--to": "-To",
+              "--done": "-Done",
+              "--skip": "-Skip",
+              "--reason": "-Reason",
+            } as Record<string, string>
+          )[arg] ?? arg)
         : arg,
     );
     const args = options.command
@@ -453,6 +489,120 @@ describe("the sync scripts' tools", () => {
 
   for (const shell of SHELLS) {
     describe(`in ${shell}`, () => {
+      it("prints Tidy-up with fix, for the project, and marks an item done or skipped", async () => {
+        const machine = computer(shell);
+        const id = randomUUID();
+        fake.fixes.text = `1 thing needs looking after in the user's playbook.\n1. A problem.\x1b[31m Its evidence.\n   Id: ${id}\n`;
+        const listed = await run(shell, machine, { mode: "fix" });
+        assert.equal(listed.status, 0, listed.stderr);
+        // Control characters never show
+        assert.equal(
+          listed.stdout,
+          `1 thing needs looking after in the user's playbook.\n1. A problem.[31m Its evidence.\n   Id: ${id}\n`,
+        );
+        assert.ok(
+          fake.requests.includes("GET /v1/sync/fixes"),
+          fake.requests.join("\n"),
+        );
+
+        // In a project, it asks for the project's items, unless --all
+        const repo = project(machine.home);
+        await run(shell, machine, { mode: "fix", cwd: repo });
+        assert.ok(
+          fake.requests.includes(`GET /v1/sync/fixes?project=${PROJECT}`),
+          fake.requests.join("\n"),
+        );
+        fake.requests = [];
+        await run(shell, machine, { mode: "fix", cwd: repo, args: ["--all"] });
+        assert.deepEqual(
+          fake.requests.filter((line) => line.includes("/fixes")),
+          ["GET /v1/sync/fixes"],
+        );
+
+        const done = await run(shell, machine, {
+          mode: "fix",
+          args: ["--done", id],
+        });
+        assert.equal(done.status, 0, done.stderr);
+        assert.equal(
+          done.stdout,
+          "Done. The check no longer finds the problem, so it's gone from Tidy-up.\n",
+        );
+        fake.marked.text =
+          "Skipped. It stays in Tidy-up for the user, with your reason.\n";
+        const skipped = await run(shell, machine, {
+          mode: "fix",
+          args: ["--skip", id, "--reason", "It still holds, says the user."],
+        });
+        assert.equal(skipped.status, 0, skipped.stderr);
+        assert.deepEqual(
+          fake.marks.map(({ id: marked, body }) => [marked, body]),
+          [
+            [id, "done\n"],
+            [id, "skipped\nIt still holds, says the user.\n"],
+          ],
+        );
+        assert.match(fake.marks[0]?.type ?? "", /^text\/plain/);
+
+        // What Context Locker says when it refuses, and when it can't be reached
+        fake.marked = {
+          status: 409,
+          text: '{"error":"already_closed","message":"This Tidy-up item is already done with."}',
+        };
+        const closed = await run(shell, machine, {
+          mode: "fix",
+          args: ["--done", id],
+        });
+        assert.equal(closed.status, 1);
+        assert.equal(
+          closed.stderr,
+          "Context Locker: This Tidy-up item is already done with.\n",
+        );
+        fake.marked = { status: 403, text: '{"error":"forbidden"}' };
+        const reader = await run(shell, machine, {
+          mode: "fix",
+          args: ["--done", id],
+        });
+        assert.equal(reader.status, 1);
+        assert.match(
+          reader.stderr,
+          /Codex may only read your playbook, so it can't mark Tidy-up items\./,
+        );
+        fake.fixes = { status: 500, text: '{"error":"internal"}' };
+        const down = await run(shell, machine, { mode: "fix" });
+        assert.equal(down.status, 1);
+        assert.equal(
+          down.stderr,
+          "Context Locker answered 500. Try again in a minute.\n",
+        );
+      });
+
+      it("takes fix's options only for fix, one mark at a time, with a reason to skip", async () => {
+        const machine = computer(shell);
+        const id = randomUUID();
+        for (const [mode, args] of [
+          ["fix", ["--done", "not-an-id"]],
+          ["fix", ["--done", id.toUpperCase()]],
+          ["fix", ["--skip", id]],
+          ["fix", ["--skip", id, "--reason", "   "]],
+          ["fix", ["--done", id, "--reason", "Fixed."]],
+          ["fix", ["--done", id, "--skip", id, "--reason", "Both."]],
+          ["fix", ["--all", "--done", id]],
+          ["fix", ["--reason", "Nothing to mark."]],
+          ["map", ["--done", id]],
+          ["doctor", ["--reason", "No."]],
+        ] as const) {
+          const refused = await run(shell, machine, { mode, args: [...args] });
+          assert.equal(
+            refused.status,
+            2,
+            `${mode} ${args.join(" ")}: ${refused.stdout}${refused.stderr}`,
+          );
+          assert.match(refused.stderr, /fix <app> (?:--done|-Done) <id>/);
+        }
+        assert.deepEqual(fake.marks, []);
+      });
+
       it("passes a doctor with nothing wrong, and sums it up in one line", async () => {
         const machine = computer(shell);
         assert.equal((await run(shell, machine)).status, 0);
