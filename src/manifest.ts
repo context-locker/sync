@@ -28,7 +28,7 @@ export const MANIFEST_HEADER = "context-locker-sync 1";
  * The newest version of the sync scripts, as their SCRIPT_VERSION says. The
  * global manifest names it, so an older script can say a newer one is out.
  */
-export const SYNC_SCRIPT_VERSION = 7;
+export const SYNC_SCRIPT_VERSION = 8;
 
 export type ManifestEntry =
   | { kind: "block"; hash: string; target: string }

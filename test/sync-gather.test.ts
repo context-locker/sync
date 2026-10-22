@@ -81,6 +81,10 @@ const SECRET_VALUES = [
   "ctxl_at_0123456789abcdefghijKLMNOP",
 ];
 
+const SECRET_EXAMPLES = JSON.parse(
+  readFileSync(new URL("./secret-examples.json", import.meta.url), "utf8"),
+) as Array<{ name: string; text: string; kind: string | null }>;
+
 /** Writes a file, making its folders */
 function put(path: string, content: string | Buffer) {
   mkdirSync(dirname(path), { recursive: true });
@@ -523,6 +527,11 @@ describe("gather, and gather-submit", () => {
         const { home, repo } = computer();
         const result = await run(shell, home, ["gather", "claude-code"], repo);
         assert.equal(result.status, 0, result.stderr);
+        assert.equal(
+          result.stderr,
+          "",
+          "The exclusion summary must work in this shell's awk.",
+        );
         const set = workingSet(home);
         const everything = filesIn(set)
           .map((path) => readFileSync(join(set, path), "utf8"))
@@ -574,6 +583,35 @@ describe("gather, and gather-submit", () => {
           result.stdout,
           /^- 1 file that holds only Context Locker's own block\.$/m,
         );
+      });
+
+      it("keeps environment references and types, but still refuses literal credentials", async () => {
+        const { home, repo, codex } = computer();
+        for (const [index, example] of SECRET_EXAMPLES.entries()) {
+          put(join(codex, "memories", `example-${index}.md`), example.text);
+        }
+        const result = await run(shell, home, ["gather", "claude-code"], repo);
+        assert.equal(result.status, 0, result.stderr);
+        const set = workingSet(home);
+        const sources = rows(join(set, "sources.tsv"));
+        const out = rows(join(set, "left-out.tsv"));
+        for (const [index, example] of SECRET_EXAMPLES.entries()) {
+          const path = `~/.codex/memories/example-${index}.md`;
+          if (example.kind === null) {
+            assert.ok(
+              sources.some((row) => row.path === path),
+              example.name,
+            );
+            assert.ok(!out.some((row) => row.path === path), example.name);
+          } else {
+            assert.ok(!sources.some((row) => row.path === path), example.name);
+            assert.equal(
+              out.find((row) => row.path === path)?.why,
+              `it seems to hold ${example.kind}, so it wasn't copied. Secrets belong in ScopeHold`,
+              example.name,
+            );
+          }
+        }
       });
 
       it("leaves out what looks like a secret, and never copies it", async () => {

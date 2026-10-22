@@ -102,7 +102,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 7
+$ScriptVersion = 8
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -2769,8 +2769,7 @@ $SecretPatterns = @(
   @('s', 'a Google API key', '(?<![A-Za-z0-9_])AIza[0-9A-Za-z_-]{35}'),
   @('s', 'a Context Locker token', '(?<![A-Za-z0-9_])ctxl_(?:at|dc|mat|mrt|ac|cs)_[A-Za-z0-9_-]{20}'),
   @('s', 'a JSON web token', '(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10}'),
-  @('i', 'a password in an address', '[A-Za-z][A-Za-z0-9+.-]+://[^ \t\n\r\f\v:@/]+:[^ \t\n\r\f\v@/]{6,}@'),
-  @('i', 'a password or key', '(?<![A-Za-z0-9_])(?:password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)[ \t\n\r\f\v]*[:=][ \t\n\r\f\v]*["'']?[^ \t\n\r\f\v"''<>$\{\[][^ \t\n\r\f\v"''<>]{7}')
+  @('i', 'a password in an address', '[A-Za-z][A-Za-z0-9+.-]+://[^ \t\n\r\f\v:@/]+:[^ \t\n\r\f\v@/]{6,}@')
 )
 $SecretRegexes = @(foreach ($entry in $SecretPatterns) {
     $options = [Text.RegularExpressions.RegexOptions]::CultureInvariant
@@ -2814,6 +2813,35 @@ function Remove-Blocks([string]$Text) {
   return $kept.ToString()
 }
 
+# The generic assignment check, matching the API and g_assignment_secret.
+# Credential shapes are checked first, even beside an allowed placeholder.
+function Test-AssignmentSecret([string]$Text) {
+  $names = '(?i)\b(?:password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)["'']?\s*[:=]\s*'
+  foreach ($match in [regex]::Matches($Text, $names)) {
+    $rest = $Text.Substring($match.Index + $match.Length)
+    $quoted = $rest -cmatch '^["''\x60]'
+    $quote = if ($quoted) { $rest.Substring(0, 1) } else { '' }
+    $start = $rest.Substring([int]$quoted)
+    if ($start.Length -gt 512) { $start = $start.Substring(0, 512) }
+    if ($quoted) {
+      $stop = $start.IndexOf($quote)
+      $value = if ($stop -lt 0) { $start } else { $start.Substring(0, $stop) }
+      $value = ($value -split '[\r\n]', 2)[0]
+    } else {
+      $value = [regex]::Match($start, '^[^\s"''\x60,;)}<>]+').Value
+    }
+    if ($value.Length -lt 8 -or '<$[{'.Contains($value.Substring(0, 1))) { continue }
+    if ($value -imatch '^(?:local-dev-key|your-api-key|your_api_key)$') { continue }
+    if (-not $quoted) {
+      if ($value -cmatch '^(?:string|number|boolean|unknown|undefined|never|any|void)(?:\[\])?$') { continue }
+      if ($value -cmatch '^(?:this\.)?(?:env|process\.env|import\.meta\.env)\.[A-Za-z_$][A-Za-z0-9_$]*$' -and
+          $rest.Substring($value.Length) -cmatch '^[ \t]*(?:[,;)}\]]|//|\r?\n|$)') { continue }
+    }
+    return $true
+  }
+  return $false
+}
+
 # What kind of secret some text seems to hold, or '' when it holds none.
 # Line breaks count as spaces, so a key on the line after its name counts.
 function Get-Secret([string]$Text) {
@@ -2821,6 +2849,7 @@ function Get-Secret([string]$Text) {
   foreach ($entry in $SecretRegexes) {
     if ($entry[1].IsMatch($flat)) { return $entry[0] }
   }
+  if (Test-AssignmentSecret $Text) { return 'a password or key' }
   return ''
 }
 
