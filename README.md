@@ -8,7 +8,7 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Ask your AI app to follow the steps at `https://context.locker/setup/v8/SKILL.md`. The steps download the script, check its hash, sign the app in with a link and a code you approve, show what a sync would write, run Gather once to bring in what your AI apps already know, and add a hook so the app syncs at the start of each session. The same files are in [`setup/v8`](setup/v8). An app that can't run commands, such as Claude or ChatGPT in a browser, connects over MCP instead, at `https://mcp.context.locker`.
+Ask your AI app to follow the steps at `https://context.locker/setup/v9/SKILL.md`. The steps download the script, check its hash, sign the app in with a link and a code you approve, show what a sync would write, run Gather once to bring in what your AI apps already know, and add a hook so the app syncs at the start of each session. The same files are in [`setup/v9`](setup/v9). An app that can't run commands, such as Claude or ChatGPT in a browser, connects over MCP instead, at `https://mcp.context.locker`.
 
 A published version never changes. When a script changes, it's published as a new version, with the hashes of its files in its `SKILL.md`. The tests fail until the newest version matches the scripts in [`scripts`](scripts).
 

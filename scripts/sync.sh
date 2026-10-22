@@ -87,7 +87,7 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=7
+SCRIPT_VERSION=8
 MODE=sync
 case ${1:-} in
   signin | plan | doctor | readback | map | gather | gather-submit | export | notes-move-out | fix)
@@ -2768,26 +2768,69 @@ s	a Google API key	(^|[^A-Za-z0-9_])AIza[0-9A-Za-z_-]{35}
 s	a Context Locker token	(^|[^A-Za-z0-9_])ctxl_(at|dc|mat|mrt|ac|cs)_[A-Za-z0-9_-]{20}
 s	a JSON web token	(^|[^A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10}
 i	a password in an address	[A-Za-z][A-Za-z0-9+.-]+://[^[:space:]:@/]+:[^[:space:]@/]{6,}@
-i	a password or key	(^|[^A-Za-z0-9_])(password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)[[:space:]]*[:=][[:space:]]*["']?[^[:space:]"'<>${[][^[:space:]"'<>]{7}
 EOF
   awk -F '\t' '$1 == "s" { print $3 }' "$TMP/g-secret-list" >"$TMP/g-secrets"
   awk -F '\t' '$1 == "i" { print $3 }' "$TMP/g-secret-list" >"$TMP/g-secrets-i"
+}
+
+# The generic assignment check from the API, kept separate from credential
+# shapes so an environment reference or an explicit placeholder cannot hide
+# a recognisable token elsewhere in the same file.
+g_assignment_secret() {
+  LC_ALL=C awk '
+    { text = text $0 "\n" }
+    END {
+      sq = sprintf("%c", 39); bt = sprintf("%c", 96)
+      names = "(^|[^A-Za-z0-9_])(password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)[\"" sq "]?[[:space:]]*[:=][[:space:]]*"
+      while (match(tolower(text), names)) {
+        rest = substr(text, RSTART + RLENGTH)
+        text = rest
+        quote = substr(rest, 1, 1)
+        quoted = quote == "\"" || quote == sq || quote == bt
+        start = substr(rest, quoted ? 2 : 1, 512)
+        if (quoted) {
+          stop = index(start, quote)
+          value = substr(start, 1, stop ? stop - 1 : 512)
+          sub(/[\r\n].*$/, "", value)
+        } else {
+          value = start
+          sub("[[:space:]\"" sq bt ",;)}<>].*$", "", value)
+        }
+        first = substr(value, 1, 1)
+        if (length(value) < 8 || index("<$[{", first)) continue
+        if (tolower(value) ~ /^(local-dev-key|your-api-key|your_api_key)$/) continue
+        if (!quoted) {
+          if (value ~ /^(string|number|boolean|unknown|undefined|never|any|void)(\[\])?$/) continue
+          tail = substr(rest, length(value) + 1)
+          sub(/^[ \t]*/, "", tail)
+          if (value ~ /^(this\.)?(env|process\.env|import\.meta\.env)\.[A-Za-z_$][A-Za-z0-9_$]*$/ &&
+              (tail == "" || tail ~ /^\r?\n/ || substr(tail, 1, 2) == "//" || index(",;)}]", substr(tail, 1, 1)))) continue
+        }
+        exit 0
+      }
+      exit 1
+    }' "$1"
 }
 
 # What kind of secret a file seems to hold, or failure when it holds none.
 # Line breaks count as spaces, so a key on the line after its name counts.
 g_secret() {
   tr '\n\r' '  ' <"$1" >"$TMP/g-flat"
-  LC_ALL=C grep -Eq -f "$TMP/g-secrets" "$TMP/g-flat" ||
-    LC_ALL=C grep -Eiq -f "$TMP/g-secrets-i" "$TMP/g-flat" || return 1
-  while IFS='	' read -r gs_case gs_kind gs_pattern; do
-    if [ "$gs_case" = i ]; then gs_flags=-Eiq; else gs_flags=-Eq; fi
-    if LC_ALL=C grep "$gs_flags" -e "$gs_pattern" "$TMP/g-flat"; then
-      printf '%s' "$gs_kind"
-      return 0
-    fi
-  done <"$TMP/g-secret-list"
-  printf 'a secret'
+  if LC_ALL=C grep -Eq -f "$TMP/g-secrets" "$TMP/g-flat" ||
+    LC_ALL=C grep -Eiq -f "$TMP/g-secrets-i" "$TMP/g-flat"; then
+    while IFS='	' read -r gs_case gs_kind gs_pattern; do
+      if [ "$gs_case" = i ]; then gs_flags=-Eiq; else gs_flags=-Eq; fi
+      if LC_ALL=C grep "$gs_flags" -e "$gs_pattern" "$TMP/g-flat"; then
+        printf '%s' "$gs_kind"
+        return 0
+      fi
+    done <"$TMP/g-secret-list"
+  fi
+  if g_assignment_secret "$1"; then
+    printf 'a password or key'
+    return 0
+  fi
+  return 1
 }
 
 # Copies one source, <root>/<rel>, into the working set as <prefix>/<rel>,
@@ -3235,10 +3278,10 @@ gather() {
     awk -F '\t' '
       NR > 1 { count[$4]++ }
       END {
-        if (count["managed"]) printf "- %s\n", count["managed"] == 1 ? "1 skill Context Locker manages, as it'"'"'s in the playbook already." : count["managed"] " skills Context Locker manages, as they'"'"'re in the playbook already."
-        if (count["bundled"]) printf "- %s that came with Hermes.\n", count["bundled"] == 1 ? "1 skill" : count["bundled"] " skills"
-        if (count["own"]) printf "- %s only Context Locker'"'"'s own block.\n", count["own"] == 1 ? "1 file that holds" : count["own"] " files that hold"
-        if (count["empty"]) printf "- %s.\n", count["empty"] == 1 ? "1 empty file" : count["empty"] " empty files"
+        if (count["managed"]) printf "- %s\n", (count["managed"] == 1 ? "1 skill Context Locker manages, as it'"'"'s in the playbook already." : count["managed"] " skills Context Locker manages, as they'"'"'re in the playbook already.")
+        if (count["bundled"]) printf "- %s that came with Hermes.\n", (count["bundled"] == 1 ? "1 skill" : count["bundled"] " skills")
+        if (count["own"]) printf "- %s only Context Locker'"'"'s own block.\n", (count["own"] == 1 ? "1 file that holds" : count["own"] " files that hold")
+        if (count["empty"]) printf "- %s.\n", (count["empty"] == 1 ? "1 empty file" : count["empty"] " empty files")
       }' "$G_WS/left-out.tsv"
   fi
   printf '\nNext: follow the Gather skill, context-locker-gather, from step 2 with this working set, and show the person one plan to approve.\n'
