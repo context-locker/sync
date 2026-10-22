@@ -8,7 +8,7 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Ask your AI app to follow the steps at `https://context.locker/setup/v7/SKILL.md`. The steps download the script, check its hash, sign the app in with a link and a code you approve, show what a sync would write, run Gather once to bring in what your AI apps already know, and add a hook so the app syncs at the start of each session. The same files are in [`setup/v7`](setup/v7). An app that can't run commands, such as Claude or ChatGPT in a browser, connects over MCP instead, at `https://mcp.context.locker`.
+Ask your AI app to follow the steps at `https://context.locker/setup/v8/SKILL.md`. The steps download the script, check its hash, sign the app in with a link and a code you approve, show what a sync would write, run Gather once to bring in what your AI apps already know, and add a hook so the app syncs at the start of each session. The same files are in [`setup/v8`](setup/v8). An app that can't run commands, such as Claude or ChatGPT in a browser, connects over MCP instead, at `https://mcp.context.locker`.
 
 A published version never changes. When a script changes, it's published as a new version, with the hashes of its files in its `SKILL.md`. The tests fail until the newest version matches the scripts in [`scripts`](scripts).
 
@@ -60,7 +60,18 @@ sh ~/.contextlocker/sync.sh notes-move-out codex --to docs/decisions # a project
 
 `notes-move-out` writes a project's notes into a folder in its repo, never over a file, never through a link, and never into `.git` or `.context-locker`. Only then does it ask Context Locker to turn each one into a pointer to its file, keeping its id, and to make that folder the project's docs home. Notes that changed meanwhile stay as they are. The notes that apply everywhere never move.
 
-When changes wait for your approval, the script says so at the start of a Claude Code or Codex session, with a link to your inbox. When a newer script is out, the session start and the doctor say so, and nothing changes on its own.
+Tidy-up lists what in your playbook may need a look, such as a preference nobody has touched in 90 days or a limit that's nearly full:
+
+```sh
+sh ~/.contextlocker/sync.sh fix codex                                # the project's items and the ones everywhere
+sh ~/.contextlocker/sync.sh fix codex --all                          # every item
+sh ~/.contextlocker/sync.sh fix codex --done <id>                    # once it's fixed
+sh ~/.contextlocker/sync.sh fix codex --skip <id> --reason "<why>"   # left for you to decide
+```
+
+`fix` prints the list as Context Locker words it, each item with its id, the evidence, a fix and its risk, and how the app makes a change: in the files the sync writes, which the next sync sends back. The app works through it with you. `--done` checks the item again at once, and `--skip` leaves it in Tidy-up with the app's reason.
+
+When changes wait for your approval, the script says so at the start of a Claude Code or Codex session, with a link to your inbox. When you ask the app to work through Tidy-up, the session start says so, with the `fix` command, for up to 24 hours. When a newer script is out, the session start and the doctor say so, and nothing changes on its own.
 
 The scripts only write where an app reads its files, and refuse anything else the server sends.
 
@@ -102,6 +113,7 @@ Around a sync, `POST /v1/sync/remote` with a git remote answers the project that
 For the other modes:
 
 - `GET /v1/sync/caps` answers a `PASS`, `WARN` or `FAIL` line for each of the playbook's limits, which the doctor prints as they are.
+- `GET /v1/sync/fixes[?project=<id>]` answers Tidy-up as text: the project's items and the ones that apply everywhere, or with no project every item. `POST /v1/sync/fixes/<id>` with `done`, or `skipped` and the reason on the next line, marks one.
 - `POST /v1/gather` takes the plan `gather-submit` sends, checks it whole, and brings it in in one go.
 - `GET /v1/export` answers everything the token can read as a `.tar.gz`.
 - `GET /v1/sync/move-out?project=<id>` answers a tar of the project's own notes, as the repo will keep them, and an index. Once every file is written, `POST /v1/sync/move-out?project=<id>` says what was written, and in one transaction Context Locker turns each note still at the version written into a pointer to its file, keeping its id, and makes the folder the docs home. A script before version 6 is asked to update before it writes anything.
@@ -116,7 +128,7 @@ npm run typecheck
 npm test
 ```
 
-`npm test` checks the compilers against the expected files in `test/golden` (`UPDATE_GOLDEN=1` rewrites them), runs the scripts against a fake API to check they refuse anything they may not write, runs `gather` against a fake home folder with every app's files, runs the doctor, `export` and `notes-move-out` against a fake API, and checks the published setup files. When `pwsh` and PSScriptAnalyzer are installed, it also checks `sync.ps1` against Windows PowerShell 5.1's syntax and commands.
+`npm test` checks the compilers against the expected files in `test/golden` (`UPDATE_GOLDEN=1` rewrites them), runs the scripts against a fake API to check they refuse anything they may not write, runs `gather` against a fake home folder with every app's files, runs the doctor, `export`, `notes-move-out` and `fix` against a fake API, and checks the published setup files. When `pwsh` and PSScriptAnalyzer are installed, it also checks `sync.ps1` against Windows PowerShell 5.1's syntax and commands.
 
 ## Licence
 
