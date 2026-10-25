@@ -59,12 +59,16 @@ export function parseBundle(
     const path = match[2] as string;
     total += size;
     if (files.length >= limits.files) {
-      throw new BundleError(`A skill can have at most ${limits.files} files.`);
+      throw new BundleError(
+        `A skill can have at most ${limits.files.toLocaleString("en-GB")} files.`,
+      );
     }
     if (total > limits.bytes) {
-      throw new BundleError(
-        `A skill can hold at most ${Math.floor(limits.bytes / 1024)} KB.`,
-      );
+      const most =
+        limits.bytes >= 1024 * 1024
+          ? `${Math.floor(limits.bytes / (1024 * 1024))} MB`
+          : `${Math.floor(limits.bytes / 1024)} KB`;
+      throw new BundleError(`A skill can hold at most ${most}.`);
     }
     if (next + size + 1 > data.length || data[next + size] !== NEWLINE) {
       throw new BundleError("The skill bundle is cut short or malformed.");

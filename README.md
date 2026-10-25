@@ -8,7 +8,7 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Ask your AI app to follow the steps at `https://context.locker/setup/v11/SKILL.md`. The steps download the script, check its hash, sign the app in with a link and a code you approve, or with a one-time code you made in Context Locker, show what a sync would write, run Gather once to bring in what your AI apps already know, and add hooks so the app syncs on its own events, such as the start of a session. The same files are in [`setup/v11`](setup/v11). An app that can't run commands, such as Claude or ChatGPT in a browser, connects over MCP instead, at `https://mcp.context.locker`.
+Ask your AI app to follow the steps at `https://context.locker/setup/v12/SKILL.md`. The steps download the script, check its hash, sign the app in with a link and a code you approve, or with a one-time code you made in Context Locker, show what a sync would write, run Gather once to bring in what your AI apps already know, and add hooks so the app syncs on its own events, such as the start of a session. The same files are in [`setup/v12`](setup/v12). An app that can't run commands, such as Claude or ChatGPT in a browser, connects over MCP instead, at `https://mcp.context.locker`.
 
 A published version never changes. When a script changes, it's published as a new version, with the hashes of its files in its `SKILL.md`. The tests fail until the newest version matches the scripts in [`scripts`](scripts).
 
@@ -51,7 +51,7 @@ sh ~/.contextlocker/sync.sh gather codex                     # copies every AI a
 sh ~/.contextlocker/sync.sh gather-submit codex <plan.json>  # sends the plan you approved
 ```
 
-`gather` only reads. It copies each app's instructions, skills and memories, and the project's own, into a folder only this account can read, and lists every source with its app, kind, path, date and hash. It follows no links, and it never copies a file that looks like it holds a secret: every file it leaves out is listed with the reason. Your agent merges the sources into one plan with the `context-locker-gather` skill, you approve the plan once, and `gather-submit` sends it. The working sets are deleted once the plan is in.
+`gather` only reads. It copies each app's instructions, skills and memories, and the project's own, into a folder only this account can read, and lists every source with its app, kind, path, date and hash. It follows no links, leaves out files over 4 MB and anything past 64 MB in all, as one plan holds, and never copies a file that looks like it holds a secret: every file it leaves out is listed with the reason. Your agent merges the sources into one plan with the `context-locker-gather` skill, you approve the plan once, and `gather-submit` sends it. The working sets are deleted once the plan is in.
 
 Two more modes take things out:
 
@@ -119,6 +119,7 @@ For the other modes:
 - `GET /v1/sync/caps` answers a `PASS`, `WARN` or `FAIL` line for each of the playbook's limits, which the doctor prints as they are.
 - `GET /v1/sync/fixes[?project=<id>]` answers Tidy-up as text: the project's items and the ones that apply everywhere, or with no project every item. `POST /v1/sync/fixes/<id>` with `done`, or `skipped` and the reason on the next line, marks one.
 - `POST /v1/gather` takes the plan `gather-submit` sends, checks it whole, and brings it in in one go.
+- One request to Context Locker holds at most 4.5 MB, so a body over 4 MB, a skill's bundle or a Gather plan, goes up in parts. `POST /v1/uploads` with its purpose (`sync-edit` or `gather`), size, SHA-256 and number of parts answers the upload's id, `PUT /v1/uploads/<id>/parts/<n>` sends each part of up to 4 MB, and the request that would have carried the body names the upload with `Context-Locker-Upload: <id>` instead. Context Locker checks the parts add up to the size and hash it was given, uses the upload once and deletes it. An upload runs out an hour after it starts.
 - `GET /v1/export` answers everything the token can read as a `.tar.gz`.
 - `GET /v1/sync/move-out?project=<id>` answers a tar of the project's own notes, as the repo will keep them, and an index. Once every file is written, `POST /v1/sync/move-out?project=<id>` says what was written, and in one transaction Context Locker turns each note still at the version written into a pointer to its file, keeping its id, and makes the folder the docs home. A script before version 6 is asked to update before it writes anything.
 

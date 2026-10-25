@@ -16,6 +16,7 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  truncateSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -42,6 +43,8 @@ const SHELLS = ["dash", "bash", "pwsh"].filter(
 
 const sha256 = (data: Buffer | string) =>
   createHash("sha256").update(data).digest("hex");
+
+const UPLOAD_ID = "0b5f6c2e-4a7d-4e8b-9f10-2c3d4e5f6a7b";
 
 const block = (text: string) => `${BLOCK_START}\n${text}\n${BLOCK_END}\n`;
 
@@ -107,6 +110,8 @@ describe("gather, and gather-submit", () => {
     type: "text/plain; charset=utf-8",
     body: "Brought in 2 items with Gather.\n",
   };
+  // When set, how Context Locker answers the start of an upload
+  let uploadAnswer: { status: number; body: string } | null = null;
   const work = mkdtempSync(join(tmpdir(), "ctx-gather-"));
 
   before(async () => {
@@ -120,6 +125,24 @@ describe("gather, and gather-submit", () => {
           headers: request.headers,
           body: Buffer.concat(chunks).toString("utf8"),
         });
+        // An upload starts with its id and takes each part, as the API does
+        if (request.url === "/v1/uploads" && request.method === "POST") {
+          if (uploadAnswer) {
+            response.writeHead(uploadAnswer.status, {
+              "content-type": "application/json",
+            });
+            response.end(uploadAnswer.body);
+            return;
+          }
+          response.writeHead(201, { "content-type": "text/plain" });
+          response.end(`${UPLOAD_ID}\n`);
+          return;
+        }
+        if (request.url?.startsWith(`/v1/uploads/${UPLOAD_ID}/parts/`)) {
+          response.writeHead(204);
+          response.end();
+          return;
+        }
         response.writeHead(answer.status, { "content-type": answer.type });
         response.end(answer.body);
       });
@@ -202,7 +225,7 @@ describe("gather, and gather-submit", () => {
     for (const [name, content] of Object.entries(SECRETS)) {
       put(join(codex, "memories", "secrets", name), content);
     }
-    put(join(codex, "memories", "big.md"), "x".repeat(1_100_000));
+    put(join(codex, "memories", "big.md"), "x".repeat(4_400_000));
     put(
       join(codex, "skills", ".system", "skill-creator", "SKILL.md"),
       "SYSTEM-SKILL\n",
@@ -286,6 +309,7 @@ describe("gather, and gather-submit", () => {
     home: string,
     args: string[],
     cwd: string,
+    env: Record<string, string> = {},
   ): Promise<{ status: number | null; stdout: string; stderr: string }> {
     const command =
       shell === "pwsh"
@@ -298,6 +322,7 @@ describe("gather, and gather-submit", () => {
           PATH: process.env.PATH ?? "",
           HOME: home,
           POWERSHELL_TELEMETRY_OPTOUT: "1",
+          ...env,
         },
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -428,9 +453,12 @@ describe("gather, and gather-submit", () => {
           const bytes = readFileSync(original);
           assert.equal(row.size, String(bytes.length), row.path);
           assert.equal(row.sha256, sha256(bytes), row.path);
+          // To the second below, as the scripts write it: Node rounds mtime
+          // to the nearest millisecond, which can be the next second
+          const seconds = Math.floor(statSync(original).mtimeMs / 1000);
           assert.equal(
             row.modified,
-            `${statSync(original).mtime.toISOString().slice(0, 19)}Z`,
+            `${new Date(seconds * 1000).toISOString().slice(0, 19)}Z`,
             row.path,
           );
           assert.ok(existsSync(join(set, row.copy as string)), row.copy);
@@ -644,7 +672,7 @@ describe("gather, and gather-submit", () => {
         );
       });
 
-      it("follows no link, and leaves out files that aren't text or are over 1 MB", async () => {
+      it("follows no link, and leaves out files that aren't text or are over 4 MB", async () => {
         const { home, repo } = computer();
         // Links of every sort: to folders, under any name, more than the
         // output names one by one, and a CLAUDE.md a dotfiles setup links
@@ -716,14 +744,14 @@ describe("gather, and gather-submit", () => {
         assert.equal(out["~/.codex/memories/big.md"]?.code, "size");
         assert.equal(
           out["~/.codex/memories/big.md"]?.why,
-          "it's 1075 KB, and Gather takes files of up to 1 MB",
+          "it's 4297 KB, and Gather takes files of up to 4 MB",
         );
         assert.ok(
           !existsSync(join(set, "claude-code/skills/my-skill/.DS_Store")),
         );
       });
 
-      it("stops copying at 20 MB in all", async () => {
+      it("stops copying once it holds what a plan can, here 20 MB", async () => {
         const { home, repo, codex } = computer();
         for (let at = 0; at < 22; at += 1) {
           put(
@@ -736,7 +764,10 @@ describe("gather, and gather-submit", () => {
             `${"line of a long memory file\n".repeat(37_000)}`,
           );
         }
-        const result = await run(shell, home, ["gather", "claude-code"], repo);
+        // A plan holds 64 MB, and a smaller total keeps the test quick
+        const result = await run(shell, home, ["gather", "claude-code"], repo, {
+          CONTEXT_LOCKER_GATHER_MOST: String(20 * 1024 * 1024),
+        });
         assert.equal(result.status, 0, result.stderr);
         const set = workingSet(home);
         const copied = filesIn(set).reduce(
@@ -939,9 +970,11 @@ describe("gather, and gather-submit", () => {
         assert.equal(revoked.status, 1);
         assert.match(revoked.stderr, /was revoked or has expired/);
 
-        // Too big to send, and no plan at all, never reach Context Locker
+        // Too big for one plan, and no plan at all, never reach Context
+        // Locker. The big one is sparse, so it takes no time to write
         seen.length = 0;
-        writeFileSync(plan, `{"pad":"${"x".repeat(2_100_000)}"}`);
+        writeFileSync(plan, "");
+        truncateSync(plan, 65 * 1024 * 1024);
         const big = await run(
           shell,
           home,
@@ -949,7 +982,10 @@ describe("gather, and gather-submit", () => {
           repo,
         );
         assert.equal(big.status, 1);
-        assert.match(big.stderr, /takes at most 2 MB at once/);
+        assert.match(
+          big.stderr,
+          /the plan is 65 MB, and one plan holds at most 64 MB\. Split it into two plans/,
+        );
         const missing = await run(
           shell,
           home,
@@ -968,6 +1004,80 @@ describe("gather, and gather-submit", () => {
         );
         assert.equal(usage.status, 2);
         assert.match(usage.stderr, /gather-submit <app> <plan\.json>/);
+      });
+
+      it("gather-submit sends a plan over 4 MB in parts, then names the upload", async () => {
+        const { home, repo } = computer();
+        const plan = join(home, "plan.json");
+        const body = `{"plan_id":"big","pad":"${"x".repeat(9 * 1024 * 1024)}"}`;
+        writeFileSync(plan, body);
+        answer = {
+          status: 200,
+          type: "text/plain; charset=utf-8",
+          body: "Brought in 1 item with Gather.\n",
+        };
+        seen.length = 0;
+        const result = await run(
+          shell,
+          home,
+          ["gather-submit", "claude-code", plan],
+          repo,
+        );
+        assert.equal(result.status, 0, result.stderr);
+        assert.match(result.stdout, /Brought in 1 item with Gather\./);
+        const [start, ...rest] = seen;
+        assert.equal(start?.method, "POST");
+        assert.equal(start?.path, "/v1/uploads");
+        assert.deepEqual(JSON.parse(start?.body ?? "{}"), {
+          purpose: "gather",
+          parts: 3,
+          bytes: Buffer.byteLength(body),
+          sha256: sha256(body),
+        });
+        const parts = rest.filter((request) => request.method === "PUT");
+        assert.deepEqual(
+          parts.map((request) => request.path),
+          [1, 2, 3].map((part) => `/v1/uploads/${UPLOAD_ID}/parts/${part}`),
+        );
+        assert.equal(parts.map((request) => request.body).join(""), body);
+        const sent = rest.at(-1);
+        assert.equal(sent?.path, "/v1/gather");
+        assert.equal(sent?.headers["context-locker-upload"], UPLOAD_ID);
+        assert.equal(sent?.body, "");
+
+        // What Context Locker says to an upload it refuses is the answer,
+        // and the plan isn't sent
+        try {
+          for (const [status, body, said] of [
+            [
+              401,
+              '{"error":"agent_token_invalid","message":"This token was revoked."}',
+              /was revoked or has expired/,
+            ],
+            [
+              413,
+              '{"error":"too_large","message":"That\'s 70 MB, and a plan can be at most 64 MB. Nothing changed."}',
+              /^Context Locker: That's 70 MB, and a plan can be at most 64 MB\. Nothing changed\.$/m,
+            ],
+          ] as const) {
+            uploadAnswer = { status, body };
+            seen.length = 0;
+            const refused = await run(
+              shell,
+              home,
+              ["gather-submit", "claude-code", plan],
+              repo,
+            );
+            assert.equal(refused.status, 1);
+            assert.match(refused.stderr, said);
+            assert.deepEqual(
+              seen.map((request) => request.path),
+              ["/v1/uploads"],
+            );
+          }
+        } finally {
+          uploadAnswer = null;
+        }
       });
     });
   }

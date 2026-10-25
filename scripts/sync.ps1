@@ -118,7 +118,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 10
+$ScriptVersion = 11
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -1060,6 +1060,37 @@ function Invoke-Api([string]$Method, [string]$Path, [byte[]]$Body, [string]$Type
   }
 }
 
+# One request to Context Locker holds at most 4.5 MB, so a body bigger than a
+# part goes up in parts, as an upload: a plan, or a skill's edit
+$PartBytes = 4194304
+
+# Sends a body in parts of up to 4 MB, as an upload for $Purpose, gather or
+# sync-edit. Returns the upload's id, which the request that would have
+# carried the body names instead. When Context Locker refuses a step or can't
+# be reached, it returns '', with the step's HTTP status in
+# $Script:UploadStatus and Context Locker's answer in $Script:UploadReply.
+function Send-Upload([string]$Purpose, [byte[]]$Body) {
+  $parts = [int][Math]::Ceiling($Body.Length / $PartBytes)
+  $start = $Utf8.GetBytes("{`"purpose`":`"$Purpose`",`"parts`":$parts,`"bytes`":$($Body.Length),`"sha256`":`"$(Get-Sha256Bytes $Body)`"}")
+  $reply = Invoke-Api 'POST' '/v1/uploads' $start 'application/json' @{ 'Accept' = 'text/plain' }
+  $Script:UploadStatus = $reply.Status
+  $Script:UploadReply = $reply.Body
+  if ($reply.Status -ne 201) { return '' }
+  $id = $Utf8.GetString($reply.Body).Trim()
+  if ($id -notmatch '^[0-9a-f-]+$') { return '' }
+  for ($part = 1; $part -le $parts; $part++) {
+    $offset = ($part - 1) * $PartBytes
+    $length = [Math]::Min($PartBytes, $Body.Length - $offset)
+    $chunk = New-Object byte[] $length
+    [Array]::Copy($Body, $offset, $chunk, 0, $length)
+    $sent = Invoke-Api 'PUT' "/v1/uploads/$id/parts/$part" $chunk 'application/octet-stream' $null
+    $Script:UploadStatus = $sent.Status
+    $Script:UploadReply = $sent.Body
+    if ($sent.Status -ne 204) { return '' }
+  }
+  return $id
+}
+
 function Get-ReplyField([byte[]]$Body, [string]$Name) {
   try {
     $value = ($Utf8.GetString($Body) | ConvertFrom-Json).$Name
@@ -1080,6 +1111,20 @@ function Send-Edit([string]$Target, [string]$Kind, [string]$Path, [string]$Recor
   }
   $headers = @{ 'Context-Locker-Target' = $Target }
   if ($Recorded -ne '-') { $headers['Context-Locker-Base'] = $Recorded }
+  # A skill too big for one request goes up in parts first. When Context
+  # Locker refuses a part, that's its answer to the edit; when it can't take
+  # one just now, the edit waits for the next sync
+  if ($body.Length -gt $PartBytes) {
+    $upload = Send-Upload 'sync-edit' $body
+    if (-not $upload) {
+      $Script:EditReply = $Script:UploadReply
+      if ($Script:UploadStatus -eq 0) { return 'offline' }
+      if (@(400, 401, 403, 413) -contains $Script:UploadStatus) { return 'refused' }
+      return 'error'
+    }
+    $headers['Context-Locker-Upload'] = $upload
+    $body = [byte[]]@()
+  }
   $reply = Invoke-Api 'POST' "/v1/sync/edits$Query" $body $type $headers
   $Script:EditReply = $reply.Body
   if ($reply.Status -eq 200) { return (Get-ReplyField $reply.Body 'status') }
@@ -3105,14 +3150,16 @@ function Invoke-Fix {
 # link, as a dotfiles setup may make ~/.claude, is read where it points, as the
 # app reads it. It cuts Context Locker's own blocks from the copies, skips its
 # skills and the notes folders, and leaves out what isn't text, files over
-# 1 MB, everything past 20 MB in all, and anything that looks like a secret,
+# 4 MB, everything past 64 MB in all, and anything that looks like a secret,
 # which is never copied. Each is listed with why, every link it didn't follow
 # among them. Nothing leaves the computer: gather-submit sends the plan once
 # the person approves it, and then deletes Gather's working sets, as they hold
 # copies of the apps' memories. Each gather also deletes its working sets older
 # than 7 days, and keeps at most its newest 3. Only Gather's own are deleted.
-$GatherFileMost = 1048576
-$GatherMost = 20971520
+$GatherFileMost = 4194304
+# What one plan holds, so a working set fits in one. A test sets a smaller one
+$GatherMost = 67108864
+if ("$env:CONTEXT_LOCKER_GATHER_MOST" -match '^[0-9]+$') { $GatherMost = [long]$env:CONTEXT_LOCKER_GATHER_MOST }
 $GatherKeep = 3
 # Days a working set is kept, at most
 $GatherDays = 7
@@ -3235,10 +3282,10 @@ function Copy-GatherFile([string]$App, [string]$Kind, [string]$Root, [string]$Re
     if (Test-ReparsePoint $item) { Add-LeftOut $App $Kind $cur 'link' $GatherLink; return }
   }
   if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return }
-  if ($Script:GatherFull) { Add-LeftOut $App $Kind $path 'total' 'Gather takes at most 20 MB in all, and it had that much'; return }
+  if ($Script:GatherFull) { Add-LeftOut $App $Kind $path 'total' "Gather takes at most $([Math]::Floor($GatherMost / 1048576)) MB in all, and it had that much"; return }
   try { $size = (Get-Item -LiteralPath $path -Force).Length } catch { Add-LeftOut $App $Kind $path 'unreadable' "it couldn't be read"; return }
   if ($size -gt $GatherFileMost) {
-    Add-LeftOut $App $Kind $path 'size' "it's $([Math]::Ceiling($size / 1024)) KB, and Gather takes files of up to 1 MB"
+    Add-LeftOut $App $Kind $path 'size' "it's $([Math]::Ceiling($size / 1024)) KB, and Gather takes files of up to 4 MB"
     return
   }
   try { $bytes = [IO.File]::ReadAllBytes($path) } catch { Add-LeftOut $App $Kind $path 'unreadable' "it couldn't be read"; return }
@@ -3265,12 +3312,12 @@ function Copy-GatherFile([string]$App, [string]$Kind, [string]$Root, [string]$Re
     return
   }
   if ($copy.Length -gt $GatherFileMost) {
-    Add-LeftOut $App $Kind $path 'size' "it's over 1 MB, and Gather takes files of up to 1 MB"
+    Add-LeftOut $App $Kind $path 'size' "it's over 4 MB, and Gather takes files of up to 4 MB"
     return
   }
   if ($Script:GatherTotal + $copy.Length -gt $GatherMost) {
     $Script:GatherFull = $true
-    Add-LeftOut $App $Kind $path 'total' 'Gather takes at most 20 MB in all, and it had that much'
+    Add-LeftOut $App $Kind $path 'total' "Gather takes at most $([Math]::Floor($GatherMost / 1048576)) MB in all, and it had that much"
     return
   }
   $copyRel = "$Prefix/$Rel"
@@ -3717,11 +3764,28 @@ function Invoke-GatherSubmit {
     return 1
   }
   $size = (Get-Item -LiteralPath $plan -Force).Length
-  if ($size -gt 2097152) {
-    [Console]::Error.WriteLine("Context Locker: the plan is $([Math]::Ceiling($size / 1024)) KB, and Context Locker takes at most 2 MB at once. Split it into two plans, each with its own plan_id.")
+  if ($size -gt 67108864) {
+    [Console]::Error.WriteLine("Context Locker: the plan is $([Math]::Ceiling($size / 1048576)) MB, and one plan holds at most 64 MB. Split it into two plans, each with its own plan_id.")
     return 1
   }
-  $reply = Invoke-Api 'POST' '/v1/gather' ([IO.File]::ReadAllBytes($plan)) 'application/json' @{ 'Accept' = 'text/plain' }
+  $body = [IO.File]::ReadAllBytes($plan)
+  $headers = @{ 'Accept' = 'text/plain' }
+  $reply = $null
+  # A plan too big for one request goes up in parts first. What Context
+  # Locker says to a part that fails is its answer to the plan
+  if ($body.Length -gt $PartBytes) {
+    $upload = Send-Upload 'gather' $body
+    if ($upload) {
+      $headers['Context-Locker-Upload'] = $upload
+      $body = [byte[]]@()
+    } elseif ($Script:UploadStatus -eq 0 -or $Script:UploadStatus -ge 400) {
+      $reply = @{ Status = $Script:UploadStatus; Body = $Script:UploadReply }
+    } else {
+      [Console]::Error.WriteLine("Context Locker: the plan couldn't be sent in parts, so nothing was brought in. Try again in a minute.")
+      return 1
+    }
+  }
+  if ($null -eq $reply) { $reply = Invoke-Api 'POST' '/v1/gather' $body 'application/json' $headers }
   # Tabs and line breaks stay; other control characters never show
   $text = $Utf8.GetString($reply.Body) -replace '[\x00-\x08\x0b-\x1f\x7f]', ''
   switch ($reply.Status) {
