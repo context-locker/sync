@@ -69,8 +69,8 @@ export interface NoteInput extends ItemRef {
   title: string;
   /** plan, spec, decision, research, idea, log, profile, design, runbook or onboarding */
   kind: string;
-  /** current, or superseded once a newer note takes its place */
-  status: string;
+  /** How AI apps should use it: source-of-truth, reference or historic */
+  useAs: string;
   /** What it holds, in one line */
   summary: string;
   tags: string[];
@@ -114,8 +114,7 @@ export interface CompileInput {
   docsHome?: DocsHome;
   /**
    * For a project sync: its live notes and the ones that apply everywhere,
-   * current and superseded, which its notes folder mirrors. Pointers are left
-   * out.
+   * historic ones too, which its notes folder mirrors. Pointers are left out.
    */
   notes?: NoteInput[];
   /** For a project sync: the workspace's tag list, which the notes folder's README gives. */

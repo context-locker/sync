@@ -5,6 +5,8 @@
 //
 //   context-locker-sync 1
 //   workspace <workspace id>
+//   auto-sync off                                    only when it's off: a check that finds changes
+//                                                    says so, and leaves the files as they are
 //   script <version>                                 the newest sync script, in the global manifest
 //   block <sha256> <target>                          a managed block
 //   skill <tree hash> <target> <item id> <version>   a skill folder
@@ -28,7 +30,7 @@ export const MANIFEST_HEADER = "context-locker-sync 1";
  * The newest version of the sync scripts, as their SCRIPT_VERSION says. The
  * global manifest names it, so an older script can say a newer one is out.
  */
-export const SYNC_SCRIPT_VERSION = 8;
+export const SYNC_SCRIPT_VERSION = 10;
 
 export type ManifestEntry =
   | { kind: "block"; hash: string; target: string }
@@ -111,6 +113,8 @@ export function buildManifest(input: {
   script?: number;
   /** A project's pointers to paths in its repo */
   links?: readonly RepoLink[];
+  /** Whether a check that finds changes brings them in at once, which is the default */
+  autoSync?: boolean;
 }): Manifest {
   if (!UUID.test(input.workspaceId)) {
     throw new Error("The workspace id must be a UUID");
@@ -182,7 +186,7 @@ export function buildManifest(input: {
 
   const links = [...(input.links ?? [])]
     .map((link) => {
-      if (!UUID.test(link.id)) throw new Error("A pointer's id must be a UUID");
+      if (!UUID.test(link.id)) throw new Error("A link's id must be a UUID");
       return {
         kind: "link" as const,
         id: link.id,
@@ -207,6 +211,7 @@ export function buildManifest(input: {
   ];
 
   const lines = [MANIFEST_HEADER, `workspace ${input.workspaceId}`];
+  if (input.autoSync === false) lines.push("auto-sync off");
   for (const entry of entries) {
     switch (entry.kind) {
       case "script":
@@ -246,6 +251,7 @@ export function buildManifest(input: {
 /** Reads a manifest back, skipping kinds it doesn't know, as the scripts do. */
 export function parseManifest(text: string): {
   workspaceId: string | null;
+  autoSync: boolean;
   entries: ManifestEntry[];
 } {
   const [header, ...lines] = text.split("\n");
@@ -253,11 +259,13 @@ export function parseManifest(text: string): {
     throw new Error("Not a Context Locker sync manifest");
   }
   let workspaceId: string | null = null;
+  let autoSync = true;
   const entries: ManifestEntry[] = [];
   for (const line of lines) {
     const fields = line.split(" ");
     const [kind, hash, target, id, version] = fields;
     if (kind === "workspace" && hash) workspaceId = hash;
+    else if (line === "auto-sync off") autoSync = false;
     else if (kind === "block" && hash && target) {
       entries.push({ kind, hash, target });
     } else if (
@@ -289,5 +297,5 @@ export function parseManifest(text: string): {
       entries.push({ kind, hash, target });
     }
   }
-  return { workspaceId, entries };
+  return { workspaceId, autoSync, entries };
 }

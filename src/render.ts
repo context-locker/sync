@@ -71,7 +71,7 @@ export const TEXT = {
    */
   docsHomeHeading: "### Docs home",
   docsHomePlace: (place: string) =>
-    `Keep lasting docs in ${place}, this project's docs home, and add a pointer for each new one with write_note, if you have it.`,
+    `Keep lasting docs in ${place}, this project's docs home, and add a link for each new one with write_note, if you have it.`,
   docsHomeNotes:
     "Keep lasting docs in Context Locker Notes, this project's docs home.",
   /**
@@ -82,7 +82,7 @@ export const TEXT = {
     "Save each as a Markdown file in .context-locker/notes, with the front matter its README shows; the next sync saves it.",
   /** When the docs home's place has wording or an address some apps refuse */
   docsHomeLeftOut:
-    "Keep lasting docs in this project's docs home, and add a pointer for each new one with write_note, if you have it. The place is left out here because some AI apps refuse to load files with wording like it. It's in Context Locker.",
+    "Keep lasting docs in this project's docs home, and add a link for each new one with write_note, if you have it. The place is left out here because some AI apps refuse to load files with wording like it. It's in Context Locker.",
 } as const;
 
 const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/;

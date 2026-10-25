@@ -530,7 +530,7 @@ describe("a project's map in its block", () => {
     assert.ok(!none.includes(TEXT.startHereHeading));
     assert.ok(
       none.includes(
-        "Keep lasting docs in [docs/decisions](docs/decisions), this project's docs home, and add a pointer for each new one with write_note, if you have it.",
+        "Keep lasting docs in [docs/decisions](docs/decisions), this project's docs home, and add a link for each new one with write_note, if you have it.",
       ),
     );
   });

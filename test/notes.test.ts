@@ -336,12 +336,9 @@ describe("the notes folder's README", () => {
         "kind is plan, spec, decision, research, idea, log, profile, design, runbook or onboarding.",
       ),
     );
-    // Pointers are the map's, and have no files here
-    assert.match(
-      readme,
-      /^Pointers aren't here\. A pointer stands in for a note/m,
-    );
-    assert.doesNotMatch(readme, /\blinks?\b/);
+    // Links are the map's, and have no files here. People know a pointer as a link
+    assert.match(readme, /^Links aren't here\. A link stands in for a note/m);
+    assert.doesNotMatch(readme, /\bpointers?\b/i);
     assert.ok(readme.includes(`at most ${NOTE_FILE_RULES.bytes / 1024} KB`));
     assert.match(
       readme,
