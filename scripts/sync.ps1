@@ -118,7 +118,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 11
+$ScriptVersion = 12
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -3225,8 +3225,67 @@ function Remove-Blocks([string]$Text) {
   return $kept.ToString()
 }
 
+# Values that say outright they're placeholders, as the API reads them: nothing
+# but masking characters, such as xxxx-xxxx or ********, or nothing but
+# placeholder words, such as your-api-key-here, with at least one that says
+# it's a placeholder
+$PlaceholderWords = New-Object 'Collections.Generic.HashSet[string]'
+foreach ($word in ('your my our the an api key keys secret secrets token tokens password passwords passwd pass passphrase pwd access auth client private public here goes example examples sample samples dummy fake placeholder changeme change replace insert put enter me this with value redacted todo tbd sk pk rk live prod dev staging app service account bot webhook signing id own real actual new' -split ' ')) { [void]$PlaceholderWords.Add($word) }
+$PlaceholderMarkers = New-Object 'Collections.Generic.HashSet[string]'
+foreach ($word in ('your my here example examples sample samples dummy fake placeholder changeme replace insert enter redacted todo tbd' -split ' ')) { [void]$PlaceholderMarkers.Add($word) }
+$LongestPlaceholderWord = 0
+foreach ($word in $PlaceholderWords) { if ($word.Length -gt $LongestPlaceholderWord) { $LongestPlaceholderWord = $word.Length } }
+
+# A run of letters and digits as placeholder words, as the API splits it, or
+# $null when it isn't made of them
+function Get-PlaceholderWords([string]$Token) {
+  if ($Token -cmatch '^x{2,}$') { return ,@('xxx') }
+  $ends = New-Object 'object[]' ($Token.Length + 1)
+  $ends[0] = [string[]]@()
+  for ($end = 1; $end -le $Token.Length; $end++) {
+    for ($start = [Math]::Max(0, $end - $LongestPlaceholderWord); $start -lt $end; $start++) {
+      $word = $Token.Substring($start, $end - $start)
+      if ($null -ne $ends[$start] -and $PlaceholderWords.Contains($word)) {
+        $ends[$end] = [string[]](@($ends[$start]) + $word)
+        break
+      }
+    }
+  }
+  return ,$ends[$Token.Length]
+}
+
+function Test-Placeholder([string]$Value) {
+  if ($Value -cmatch '^(?:[xX]+|\*+|\u2022+|0+)(?:[-_.: ](?:[xX]+|\*+|\u2022+|0+))*$') { return $true }
+  if ($Value.Length -gt 100) { return $false }
+  $tokens = @($Value.ToLowerInvariant() -csplit '[^a-z0-9]+' | Where-Object { $_ })
+  if ($tokens.Count -eq 0) { return $false }
+  $marked = $false
+  foreach ($token in $tokens) {
+    $found = Get-PlaceholderWords $token
+    if ($null -eq $found) { return $false }
+    foreach ($word in $found) { if ($word -eq 'xxx' -or $PlaceholderMarkers.Contains($word)) { $marked = $true } }
+  }
+  return $marked
+}
+
+# Whether a value is cut short or masked, as the API reads it, with no more
+# than 16 letters and digits of it left: too little of it to work
+$CutShort = '(?i)\.{3,}|\u2026|\[\s*(?:\.{3}|\u2026|truncated|cut|snip)\s*\]|\(\s*(?:truncated|cut|snip)\s*\)'
+$MaskRun = '[xX*\u2022]{4,}'
+function Get-Showing([string]$Value, [string]$Taken) {
+  return ([regex]::Replace([regex]::Replace($Value, $Taken, ''), '[^A-Za-z0-9]', '')).Length
+}
+function Test-CutOrMasked([string]$Value) {
+  if ([regex]::IsMatch($Value, $CutShort) -and (Get-Showing $Value $CutShort) -le 16) { return $true }
+  if ([regex]::IsMatch($Value, $MaskRun) -and (Get-Showing $Value $MaskRun) -le 16) { return $true }
+  return $false
+}
+
 # The generic assignment check, matching the API and g_assignment_secret.
-# Credential shapes are checked first, even beside an allowed placeholder.
+# Credential shapes are checked first, even beside an allowed placeholder. A
+# placeholder that says so isn't a secret, and a value cut short or masked is
+# copied, for Context Locker to check, with the value hidden, when the plan
+# comes in.
 function Test-AssignmentSecret([string]$Text) {
   $names = '(?i)\b(?:password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)["'']?\s*[:=]\s*'
   foreach ($match in [regex]::Matches($Text, $names)) {
@@ -3249,6 +3308,7 @@ function Test-AssignmentSecret([string]$Text) {
       if ($value -cmatch '^(?:this\.)?(?:env|process\.env|import\.meta\.env)\.[A-Za-z_$][A-Za-z0-9_$]*$' -and
           $rest.Substring($value.Length) -cmatch '^[ \t]*(?:[,;)}\]]|//|\r?\n|$)') { continue }
     }
+    if ((Test-Placeholder $value) -or (Test-CutOrMasked $value)) { continue }
     return $true
   }
   return $false
