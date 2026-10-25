@@ -97,6 +97,7 @@ export type { ParsedTarget } from "./targets.js";
 export {
   TAR_END,
   blobArchive,
+  blobArchiveParts,
   tarHeader,
   tarPadding,
   writeTar,

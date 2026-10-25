@@ -115,44 +115,50 @@ export function tarPadding(size: number): Buffer {
 /** The two empty blocks that end an archive. */
 export const TAR_END: Buffer = Buffer.alloc(BLOCK * 2, 0);
 
-export function writeTar(entries: readonly TarEntry[], mtime: number): Buffer {
-  const chunks: Buffer[] = [];
+/** An archive's entries in pieces, each header then its data, then the end. */
+function* tarParts(
+  entries: Iterable<TarEntry>,
+  mtime: number,
+): Generator<Buffer> {
   for (const entry of entries) {
     const isDir = entry.bytes === null;
     const bytes = entry.bytes ?? Buffer.alloc(0);
-    chunks.push(
-      tarHeader(
-        {
-          path: entry.path,
-          size: bytes.length,
-          directory: isDir,
-          ...(entry.mode === undefined ? {} : { mode: entry.mode }),
-        },
-        mtime,
-      ),
+    yield tarHeader(
+      {
+        path: entry.path,
+        size: bytes.length,
+        directory: isDir,
+        ...(entry.mode === undefined ? {} : { mode: entry.mode }),
+      },
+      mtime,
     );
-    if (bytes.length > 0) chunks.push(padded(bytes));
+    if (bytes.length > 0) {
+      yield bytes;
+      const padding = tarPadding(bytes.length);
+      if (padding.length > 0) yield padding;
+    }
   }
-  chunks.push(TAR_END);
-  return Buffer.concat(chunks);
+  yield TAR_END;
+}
+
+export function writeTar(entries: readonly TarEntry[], mtime: number): Buffer {
+  return Buffer.concat([...tarParts(entries, mtime)]);
 }
 
 /**
- * The blobs the script asked for, as one archive. A file blob is a file named
+ * The entries of the blobs the script asked for. A file blob is a file named
  * by its hash; a skill blob is a folder named by its hash. Files that start
  * with #! are made executable.
  */
-export function blobArchive(
+function* blobEntries(
   blobs: ReadonlyArray<readonly [string, Blob]>,
-  mtime: number,
-): Buffer {
-  const entries: TarEntry[] = [];
+): Generator<TarEntry> {
   for (const [hash, blob] of blobs) {
     if (blob.kind === "file") {
-      entries.push({ path: hash, bytes: blob.bytes });
+      yield { path: hash, bytes: blob.bytes };
       continue;
     }
-    entries.push({ path: hash, bytes: null });
+    yield { path: hash, bytes: null };
     const folders = new Set<string>();
     const files = [...blob.files].sort((a, b) =>
       a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
@@ -163,17 +169,36 @@ export function blobArchive(
         const folder = parts.slice(0, depth).join("/");
         if (!folders.has(folder)) {
           folders.add(folder);
-          entries.push({ path: `${hash}/${folder}`, bytes: null });
+          yield { path: `${hash}/${folder}`, bytes: null };
         }
       }
       const bytes = fileBytes(file);
       const executable = bytes.subarray(0, 2).toString("latin1") === "#!";
-      entries.push({
+      yield {
         path: `${hash}/${file.path}`,
         bytes,
         mode: executable ? 0o755 : 0o644,
-      });
+      };
     }
   }
-  return writeTar(entries, mtime);
+}
+
+/** The blobs the script asked for, as one archive. */
+export function blobArchive(
+  blobs: ReadonlyArray<readonly [string, Blob]>,
+  mtime: number,
+): Buffer {
+  return Buffer.concat([...tarParts(blobEntries(blobs), mtime)]);
+}
+
+/**
+ * The same archive in pieces, so a big one can go out a piece at a time
+ * rather than as one buffer: one response holds at most 4.5 MB unless it
+ * streams.
+ */
+export function blobArchiveParts(
+  blobs: ReadonlyArray<readonly [string, Blob]>,
+  mtime: number,
+): Generator<Buffer> {
+  return tarParts(blobEntries(blobs), mtime);
 }

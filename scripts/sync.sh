@@ -100,7 +100,7 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=10
+SCRIPT_VERSION=11
 MODE=sync
 case ${1:-} in
   signin | plan | doctor | readback | map | gather | gather-submit | export | notes-move-out | fix)
@@ -997,7 +997,7 @@ check_links() {
 # a minute, or HTTP_MAX_TIME seconds, as an export can take longer.
 HTTP_MAX_TIME=60
 http() {
-  method=$1 path=$2 out=$3 body=$4 type=$5 etag=$6 target=$7 base=$8 accept=${9:-}
+  method=$1 path=$2 out=$3 body=${4:-} type=${5:-} etag=${6:-} target=${7:-} base=${8:-} accept=${9:-} upload=${10:-}
   set -- -K - -sS --connect-timeout 5 --max-time "$HTTP_MAX_TIME" -o "$out" -w '%{http_code}' \
     -A "context-locker-sync/$SCRIPT_VERSION ($HARNESS; sh)" -X "$method"
   [ -n "$etag" ] && set -- "$@" -H "If-None-Match: \"$etag\""
@@ -1005,6 +1005,7 @@ http() {
   [ -n "$target" ] && set -- "$@" -H "Context-Locker-Target: $target"
   [ -n "$base" ] && set -- "$@" -H "Context-Locker-Base: $base"
   [ -n "$accept" ] && set -- "$@" -H "Accept: $accept"
+  [ -n "$upload" ] && set -- "$@" -H "Context-Locker-Upload: $upload"
   [ -n "$body" ] && set -- "$@" --data-binary "@$body"
   { [ -z "$TOKEN" ] || printf 'header = "Authorization: Bearer %s"\n' "$TOKEN"; } |
     curl "$@" "$API$path" 2>>"$TMP/curl-errors" || printf '000'
@@ -1016,6 +1017,38 @@ status_of() {
     *000) printf '000' ;;
     *) printf '%s' "$code" ;;
   esac
+}
+
+# One request to Context Locker holds at most 4.5 MB, so a body bigger than a
+# part goes up in parts, as an upload: a plan, or a skill's edit
+PART_BYTES=4194304
+
+# Sends a file in parts of up to 4 MB, as an upload for $1, gather or
+# sync-edit, and prints the upload's id, which the request that would have
+# carried the file names instead. When Context Locker refuses a step or
+# can't be reached, it fails, with the step's HTTP status in
+# $TMP/upload-status and Context Locker's answer in $TMP/upload-reply.
+upload_parts() {
+  up_purpose=$1 up_file=$2
+  up_bytes=$(wc -c <"$up_file" | tr -d ' ')
+  up_parts=$(((up_bytes + PART_BYTES - 1) / PART_BYTES))
+  : >"$TMP/upload-reply"
+  printf '{"purpose":"%s","parts":%s,"bytes":%s,"sha256":"%s"}' \
+    "$up_purpose" "$up_parts" "$up_bytes" "$(sha_file "$up_file")" >"$TMP/upload-start"
+  up_code=$(status_of "$(http POST /v1/uploads "$TMP/upload-reply" "$TMP/upload-start" application/json '' '' '' text/plain)")
+  printf '%s' "$up_code" >"$TMP/upload-status"
+  [ "$up_code" = 201 ] || return 1
+  up_id=$(tr -d ' \r\n' <"$TMP/upload-reply")
+  case $up_id in '' | *[!0-9a-f-]*) return 1 ;; esac
+  up_part=1
+  while [ "$up_part" -le "$up_parts" ]; do
+    dd if="$up_file" of="$TMP/upload-part" bs=$PART_BYTES skip=$((up_part - 1)) count=1 2>/dev/null || return 1
+    up_code=$(status_of "$(http PUT "/v1/uploads/$up_id/parts/$up_part" "$TMP/upload-reply" "$TMP/upload-part" application/octet-stream)")
+    printf '%s' "$up_code" >"$TMP/upload-status"
+    [ "$up_code" = 204 ] || return 1
+    up_part=$((up_part + 1))
+  done
+  printf '%s' "$up_id"
 }
 
 reply_field() {
@@ -1034,7 +1067,23 @@ send_edit() {
     make_bundle "$file" "$TMP/edit"
     type=application/octet-stream
   fi
-  code=$(status_of "$(http POST "/v1/sync/edits$query" "$TMP/edit-reply" "$TMP/edit" "$type" '' "$t" "$recorded")")
+  # A skill too big for one request goes up in parts first. When Context
+  # Locker refuses a part, that's its answer to the edit; when it can't take
+  # one just now, the edit waits for the next sync
+  upload=
+  if [ "$(wc -c <"$TMP/edit" | tr -d ' ')" -gt "$PART_BYTES" ]; then
+    if ! upload=$(upload_parts sync-edit "$TMP/edit"); then
+      cp "$TMP/upload-reply" "$TMP/edit-reply" 2>/dev/null
+      case $(cat "$TMP/upload-status" 2>/dev/null) in
+        000) printf 'offline' ;;
+        400 | 401 | 403 | 413) printf 'refused' ;;
+        *) printf 'error' ;;
+      esac
+      return 0
+    fi
+    : >"$TMP/edit"
+  fi
+  code=$(status_of "$(http POST "/v1/sync/edits$query" "$TMP/edit-reply" "$TMP/edit" "$type" '' "$t" "$recorded" '' "$upload")")
   case $code in
     200) reply_field status "$TMP/edit-reply" ;;
     000) printf 'offline' ;;
@@ -3024,14 +3073,19 @@ map() {
 # link, as a dotfiles setup may make ~/.claude, is read where it points, as the
 # app reads it. It cuts Context Locker's own blocks from the copies, skips its
 # skills and the notes folders, and leaves out what isn't text, files over
-# 1 MB, everything past 20 MB in all, and anything that looks like a secret,
+# 4 MB, everything past 64 MB in all, and anything that looks like a secret,
 # which is never copied. Each is listed with why, every link it didn't follow
 # among them. Nothing leaves the computer: gather-submit sends the plan once
 # the person approves it, and then deletes Gather's working sets, as they hold
 # copies of the apps' memories. Each gather also deletes its working sets older
 # than 7 days, and keeps at most its newest 3. Only Gather's own are deleted.
-GATHER_FILE_MOST=1048576
-GATHER_MOST=20971520
+GATHER_FILE_MOST=4194304
+# What one plan holds, so a working set fits in one. A test sets a smaller one
+GATHER_MOST=67108864
+case ${CONTEXT_LOCKER_GATHER_MOST:-} in
+  '' | *[!0-9]*) ;;
+  *) GATHER_MOST=$CONTEXT_LOCKER_GATHER_MOST ;;
+esac
 GATHER_KEEP=3
 # Days a working set is kept, at most
 GATHER_DAYS=7
@@ -3162,16 +3216,33 @@ EOF
 
 # The generic assignment check from the API, kept separate from credential
 # shapes so an environment reference or an explicit placeholder cannot hide
-# a recognisable token elsewhere in the same file.
+# a recognisable token elsewhere in the same file. It reads a line at a
+# time, so a big file takes no longer than its size: a name whose = or :, or
+# whose value, is on a later line carries over to the next line. Each text
+# it checks starts with a line break, so a name counts at the start of a
+# line too, without the ^ that macOS's awk can't match inside a group. And
+# match() is given a variable, as macOS's awk places a match in what a
+# function returned at -1.
 g_assignment_secret() {
   LC_ALL=C awk '
-    { text = text $0 "\n" }
-    END {
+    BEGIN {
       sq = sprintf("%c", 39); bt = sprintf("%c", 96)
-      names = "(^|[^A-Za-z0-9_])(password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)[\"" sq "]?[[:space:]]*[:=][[:space:]]*"
-      while (match(tolower(text), names)) {
+      key = "[^A-Za-z0-9_](password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)[\"" sq "]?[[:space:]]*"
+      names = key "[:=][[:space:]]*"
+      ends = key "$"
+    }
+    {
+      line = (carry == "" ? "" : carry "\n") $0
+      carry = ""
+      text = "\n" line "\n"
+      while (match(lower = tolower(text), names)) {
         rest = substr(text, RSTART + RLENGTH)
-        text = rest
+        text = "\n" rest
+        # The value is on a later line
+        if (rest == "") {
+          carry = "password="
+          break
+        }
         quote = substr(rest, 1, 1)
         quoted = quote == "\"" || quote == sq || quote == bt
         start = substr(rest, quoted ? 2 : 1, 512)
@@ -3193,10 +3264,16 @@ g_assignment_secret() {
           if (value ~ /^(this\.)?(env|process\.env|import\.meta\.env)\.[A-Za-z_$][A-Za-z0-9_$]*$/ &&
               (tail == "" || tail ~ /^\r?\n/ || substr(tail, 1, 2) == "//" || index(",;)}]", substr(tail, 1, 1)))) continue
         }
-        exit 0
+        found = 1
+        exit
       }
-      exit 1
-    }' "$1"
+      # A name at the end of the line, with its = or : on a later line
+      if (carry == "" && match(lower = tolower("\n" line), ends)) {
+        carry = substr("\n" line, RSTART)
+        sub(/[[:space:]]+$/, "", carry)
+      }
+    }
+    END { exit !found }' "$1"
 }
 
 # What kind of secret a file seems to hold, or failure when it holds none.
@@ -3240,7 +3317,7 @@ g_file() {
   done
   [ -f "$gf_path" ] || return 0
   if [ "$G_FULL" = 1 ]; then
-    g_out "$gf_app" "$gf_kind" "$gf_path" total "Gather takes at most 20 MB in all, and it had that much"
+    g_out "$gf_app" "$gf_kind" "$gf_path" total "Gather takes at most $((GATHER_MOST / 1048576)) MB in all, and it had that much"
     return 0
   fi
   gf_size=$(wc -c <"$gf_path" 2>/dev/null | tr -d ' ')
@@ -3251,7 +3328,7 @@ g_file() {
       ;;
   esac
   if [ "$gf_size" -gt "$GATHER_FILE_MOST" ]; then
-    g_out "$gf_app" "$gf_kind" "$gf_path" size "it's $(((gf_size + 1023) / 1024)) KB, and Gather takes files of up to 1 MB"
+    g_out "$gf_app" "$gf_kind" "$gf_path" size "it's $(((gf_size + 1023) / 1024)) KB, and Gather takes files of up to 4 MB"
     return 0
   fi
   if g_binary "$gf_path"; then
@@ -3282,12 +3359,12 @@ g_file() {
   fi
   gf_bytes=$(wc -c <"$TMP/g-copy" | tr -d ' ')
   if [ "$gf_bytes" -gt "$GATHER_FILE_MOST" ]; then
-    g_out "$gf_app" "$gf_kind" "$gf_path" size "it's over 1 MB, and Gather takes files of up to 1 MB"
+    g_out "$gf_app" "$gf_kind" "$gf_path" size "it's over 4 MB, and Gather takes files of up to 4 MB"
     return 0
   fi
   if [ $((G_TOTAL + gf_bytes)) -gt "$GATHER_MOST" ]; then
     G_FULL=1
-    g_out "$gf_app" "$gf_kind" "$gf_path" total "Gather takes at most 20 MB in all, and it had that much"
+    g_out "$gf_app" "$gf_kind" "$gf_path" total "Gather takes at most $((GATHER_MOST / 1048576)) MB in all, and it had that much"
     return 0
   fi
   mkdir -p "$G_WS/${gf_copy%/*}" && cat "$TMP/g-copy" >"$G_WS/$gf_copy" || {
@@ -3684,12 +3761,33 @@ gather_submit() {
   fi
   gs_size=$(wc -c <"$PLAN_FILE" | tr -d ' ')
   case $gs_size in '' | *[!0-9]*) gs_size=0 ;; esac
-  if [ "$gs_size" -gt 2097152 ]; then
-    printf 'Context Locker: the plan is %s KB, and Context Locker takes at most 2 MB at once. Split it into two plans, each with its own plan_id.\n' \
-      $(((gs_size + 1023) / 1024)) >&2
+  if [ "$gs_size" -gt 67108864 ]; then
+    printf 'Context Locker: the plan is %s MB, and one plan holds at most 64 MB. Split it into two plans, each with its own plan_id.\n' \
+      $(((gs_size + 1048575) / 1048576)) >&2
     return 1
   fi
-  gs_code=$(status_of "$(http POST /v1/gather "$TMP/gather-reply" "$PLAN_FILE" application/json '' '' '' text/plain)")
+  # A plan too big for one request goes up in parts first. What Context
+  # Locker says to a part that fails is its answer to the plan
+  gs_body=$PLAN_FILE
+  gs_upload=
+  gs_code=
+  if [ "$gs_size" -gt "$PART_BYTES" ]; then
+    if gs_upload=$(upload_parts gather "$PLAN_FILE"); then
+      : >"$TMP/gather-empty"
+      gs_body=$TMP/gather-empty
+    else
+      gs_code=$(cat "$TMP/upload-status" 2>/dev/null)
+      case $gs_code in
+        000 | 4?? | 5??) cp "$TMP/upload-reply" "$TMP/gather-reply" ;;
+        *)
+          printf "Context Locker: the plan couldn't be sent in parts, so nothing was brought in. Try again in a minute.\n" >&2
+          return 1
+          ;;
+      esac
+    fi
+  fi
+  [ -n "$gs_code" ] ||
+    gs_code=$(status_of "$(http POST /v1/gather "$TMP/gather-reply" "$gs_body" application/json '' '' '' text/plain "$gs_upload")")
   # Tabs and line breaks stay; other control characters never show
   case $gs_code in
     200)
