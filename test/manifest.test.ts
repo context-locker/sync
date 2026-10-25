@@ -157,6 +157,37 @@ describe("the sync manifest", () => {
     assert.deepEqual(parsed.entries, manifest.entries);
   });
 
+  it("says when auto sync is off, and only then, so other manifests stay the same", () => {
+    const on = buildManifest({ workspaceId: WORKSPACE_ID, outputs, holds: [] });
+    assert.deepEqual(
+      buildManifest({
+        workspaceId: WORKSPACE_ID,
+        outputs,
+        holds: [],
+        autoSync: true,
+      }),
+      on,
+    );
+    assert.equal(parseManifest(on.text).autoSync, true);
+
+    const off = buildManifest({
+      workspaceId: WORKSPACE_ID,
+      outputs,
+      holds: [],
+      autoSync: false,
+    });
+    const lines = off.text.split("\n");
+    assert.deepEqual(lines.slice(0, 3), [
+      MANIFEST_HEADER,
+      `workspace ${WORKSPACE_ID}`,
+      "auto-sync off",
+    ]);
+    assert.notEqual(off.etag, on.etag);
+    const parsed = parseManifest(off.text);
+    assert.equal(parsed.autoSync, false);
+    assert.deepEqual(parsed.entries, on.entries);
+  });
+
   it("refuses targets that could reach outside their root", () => {
     for (const target of [
       "{codex}/../AGENTS.md",

@@ -484,7 +484,7 @@ describe("the sync scripts' tools", () => {
     id: randomUUID(),
     version,
     file,
-    text: `---\ntitle: "${file}"\nkind: "plan"\nstatus: "current"\nsummary: "About ${file}."\ntags: ["release"]\napplies_to: "Docs site"\n---\n\nThe note ${file}.\n`,
+    text: `---\ntitle: "${file}"\nkind: "plan"\nuse_as: "source-of-truth"\nsummary: "About ${file}."\ntags: ["release"]\napplies_to: "Docs site"\n---\n\nThe note ${file}.\n`,
   });
 
   for (const shell of SHELLS) {
@@ -856,7 +856,7 @@ describe("the sync scripts' tools", () => {
         assert.match(
           late.stdout,
           new RegExp(
-            `^WARN {2}The last sync was on ${dayOf(old)} at \\d{2}:\\d{2} UTC, 10 days ago\\. Check that the session-start hook runs, or sync now: ${escape(runLine(shell))} codex$`,
+            `^WARN {2}The last sync was on ${dayOf(old)} at \\d{2}:\\d{2} UTC, 10 days ago\\. Check that the session-start hook runs, or sync now: ${escape(runLine(shell))} codex ${shell === "pwsh" ? "-Now" : "--now"}$`,
             "m",
           ),
         );

@@ -8,7 +8,7 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Ask your AI app to follow the steps at `https://context.locker/setup/v9/SKILL.md`. The steps download the script, check its hash, sign the app in with a link and a code you approve, show what a sync would write, run Gather once to bring in what your AI apps already know, and add a hook so the app syncs at the start of each session. The same files are in [`setup/v9`](setup/v9). An app that can't run commands, such as Claude or ChatGPT in a browser, connects over MCP instead, at `https://mcp.context.locker`.
+Ask your AI app to follow the steps at `https://context.locker/setup/v11/SKILL.md`. The steps download the script, check its hash, sign the app in with a link and a code you approve, or with a one-time code you made in Context Locker, show what a sync would write, run Gather once to bring in what your AI apps already know, and add hooks so the app syncs on its own events, such as the start of a session. The same files are in [`setup/v11`](setup/v11). An app that can't run commands, such as Claude or ChatGPT in a browser, connects over MCP instead, at `https://mcp.context.locker`.
 
 A published version never changes. When a script changes, it's published as a new version, with the hashes of its files in its `SKILL.md`. The tests fail until the newest version matches the scripts in [`scripts`](scripts).
 
@@ -17,28 +17,32 @@ A published version never changes. When a script changes, it's published as a ne
 [`scripts/sync.sh`](scripts/sync.sh) (POSIX sh, for macOS and Linux) and [`scripts/sync.ps1`](scripts/sync.ps1) (Windows PowerShell 5.1 and PowerShell 7) do the same steps. State lives in `~/.contextlocker`: the API address in `config`, this computer's random id in `machine-id`, each app's token in `<app>/token`, a sign-in that's still waiting in `<app>/device`, what each sync wrote in `<app>/global.lock` and `<app>/projects/<id>.lock`, and copies of anything replaced in `backups/`.
 
 ```sh
-sh ~/.contextlocker/sync.sh codex             # at session start
-sh ~/.contextlocker/sync.sh hermes --daily    # from a scheduled job
+sh ~/.contextlocker/sync.sh codex             # from the app's hooks, such as at session start
+sh ~/.contextlocker/sync.sh codex --now       # brings changes in while auto sync is off
+sh ~/.contextlocker/sync.sh hermes --hook     # from an app's hook: prints only what the hook reads
 sh ~/.contextlocker/sync.sh codex --project <id>
 sh ~/.contextlocker/sync.sh map codex         # the project's map, for the folder it runs in
 sh ~/.contextlocker/sync.sh map codex --all   # the whole map
 ```
 
-The script finds a folder's project in this order: the one `--project` names, the one a `.contextlocker.json` in the repo names, a folder linked on this computer, and then the project whose git remote is the repo's origin. A clone found by its remote is linked on the computer, as `--project` links it. A daily run also syncs the projects linked on the computer, as far as the app works in projects: OpenClaw doesn't, and Hermes only in repos with a `.contextlocker.json`.
+Each app runs the sync on its own events: Claude Code and Codex when a session starts, resumes or clears, and after compaction; Hermes when a session starts and after compaction, from hooks in its `config.yaml`; and OpenClaw when its gateway starts, when a session starts or resets, and before compaction, from a hook in `~/.openclaw/hooks`. With auto sync on, the default, a sync brings in what changed and says so in a line. With it off, for every playbook or for one project, a sync that would change the app's files says once that changes are waiting, and leaves them as they are until the app syncs with `--now`. A computer's first sync writes the files either way.
+
+The script finds a folder's project in this order: the one `--project` names, the one a `.contextlocker.json` in the repo names, a folder linked on this computer, and then the project whose git remote is the repo's origin. A clone found by its remote is linked on the computer, as `--project` links it. Hermes's hooks sync the project of the folder Hermes runs in. A run with `--daily`, from an earlier setup's scheduled job, also syncs the projects linked on the computer, as far as the app works in projects: OpenClaw doesn't, and Hermes only in repos with a `.contextlocker.json`.
 
 Setup uses four more modes:
 
 ```sh
 sh ~/.contextlocker/sync.sh signin codex      # prints a link and a code to approve, exit 3
 sh ~/.contextlocker/sync.sh signin codex      # again: waits up to 50 s, exit 0 once connected
-sh ~/.contextlocker/sync.sh plan codex        # what a sync would write, and the hook to add
+sh ~/.contextlocker/sync.sh signin codex --code <code>  # with a one-time code from Context Locker
+sh ~/.contextlocker/sync.sh plan codex        # what a sync would write, and the hooks to add
 sh ~/.contextlocker/sync.sh doctor codex      # PASS, WARN or FAIL for each check, exit 1 if one fails
-sh ~/.contextlocker/sync.sh readback codex    # what the app's files now hold
+sh ~/.contextlocker/sync.sh readback codex    # what the app's files now hold, with each skill's version
 ```
 
-The first `signin` returns at once, because an AI app usually shows a command's output only when it ends. Polling never runs faster than the server asks, even across runs. In PowerShell the same modes are `sync.ps1 signin codex` and so on, and sync.sh's spellings of the options work too.
+The first `signin` returns at once, because an AI app usually shows a command's output only when it ends. A one-time code works once, for 15 minutes, and the connection takes the name the person gave it. Polling never runs faster than the server asks, even across runs. In PowerShell the same modes are `sync.ps1 signin codex` and so on, and sync.sh's spellings of the options work too.
 
-The doctor checks the script, the connection and the hook or daily job. It also says how full each of the playbook's limits is, which instruction and memory files hold lines outside Context Locker's blocks (Gather can bring them in), and what has drifted since the last sync: edits not yet saved, files a sync wrote that are gone, and a last sync more than 7 days ago. It ends with a line that sums it up.
+The doctor checks the script, the connection and the app's hooks: it says when Hermes hasn't approved them or OpenClaw's is turned off, and gives the command that removes a daily job an earlier setup added. It also says how full each of the playbook's limits is, which instruction and memory files hold lines outside Context Locker's blocks (Gather can bring them in), and what has drifted since the last sync: edits not yet saved, files a sync wrote that are gone, and a last sync more than 7 days ago. It ends with a line that sums it up.
 
 Gather brings in what your AI apps already know:
 
@@ -71,7 +75,7 @@ sh ~/.contextlocker/sync.sh fix codex --skip <id> --reason "<why>"   # left for 
 
 `fix` prints the list as Context Locker words it, each item with its id, the evidence, a fix and its risk, and how the app makes a change: in the files the sync writes, which the next sync sends back. The app works through it with you. `--done` checks the item again at once, and `--skip` leaves it in Tidy-up with the app's reason.
 
-When changes wait for your approval, the script says so at the start of a Claude Code or Codex session, with a link to your inbox. When you ask the app to work through Tidy-up, the session start says so, with the `fix` command, for up to 24 hours. When a newer script is out, the session start and the doctor say so, and nothing changes on its own.
+When changes wait for your approval, the script says so once at the start of a Claude Code or Codex session, with a link to your inbox, and again only when a newer one comes in. `map` and `fix` end with a line when the playbook changed since the app last synced, once for each change. When you ask the app to work through Tidy-up, the session start says so, with the `fix` command, for up to 24 hours. When a newer script is out, the session start and the doctor say so, and nothing changes on its own.
 
 The scripts only write where an app reads its files, and refuse anything else the server sends.
 
@@ -98,14 +102,14 @@ A project's block also carries its map: up to 10 Start here entries, notes or po
 
 Every app's sync also writes Context Locker's own skill, `context-locker-gather` (see [`src/gather.ts`](src/gather.ts)), with the steps for Gather. Skill names that start with `context-locker-` are kept for Context Locker's own.
 
-A project's sync mirrors its notes into `{project}/.context-locker/notes`, one Markdown file per note with YAML front matter, and never a pointer, which has no text of its own, and the notes that apply everywhere in `everywhere/`, with a README on how to edit and add notes (see [`src/notes.ts`](src/notes.ts)). An edited or new file there goes to Context Locker at the next sync, and a deleted one comes back, as only Context Locker retires a note. The first time a sync writes there in a git work tree, it adds `.context-locker/` to `.git/info/exclude`, and it never changes `.gitignore`.
+A project's sync mirrors its notes into `{project}/.context-locker/notes`, one Markdown file per note with YAML front matter, whose `use_as` says how to use it (source-of-truth, reference or historic), and never a pointer, which has no text of its own, and the notes that apply everywhere in `everywhere/`, with a README on how to edit and add notes (see [`src/notes.ts`](src/notes.ts)). An edited or new file there goes to Context Locker at the next sync, and a deleted one comes back, as only Context Locker retires a note. An edit merges with what changed in Context Locker since. Where both changed the same part, the sync writes the newer version in the note's place, keeps the edit beside it as `<name>.md.conflict`, which it never sends, and the session start says so. The first time a sync writes there in a git work tree, it adds `.context-locker/` to `.git/info/exclude`, and it never changes `.gitignore`.
 
 ## The sync protocol
 
-1. `GET /v1/sync[?project=<id>&layer=repo|personal]` with `If-None-Match` answers `304` or a manifest (see [`src/manifest.ts`](src/manifest.ts)). Its ETag is the SHA-256 of the text. The global manifest names the newest script, and a project's lists its pointers to paths in the repo, which the script checks are there.
-2. `POST /v1/sync/notes` with `Context-Locker-Target` sends a note's file changed in the notes folder, or a new `.md` file there, before anything is written. Context Locker saves it at once, or refuses it with a message naming every gap. An edit to a note that changed meanwhile is refused as `version_conflict`.
+1. `GET /v1/sync[?project=<id>&layer=repo|personal]` with `If-None-Match` answers `304` or a manifest (see [`src/manifest.ts`](src/manifest.ts)). Its ETag is the SHA-256 of the text. The global manifest names the newest script, and a project's lists its pointers to paths in the repo, which the script checks are there. A manifest says `auto-sync off` when auto sync is off for it.
+2. `POST /v1/sync/notes` with `Context-Locker-Target` sends a note's file changed in the notes folder, or a new `.md` file there, before anything is written. Context Locker saves it at once, or refuses it with a message naming every gap. An edit names the version the file started from in `Context-Locker-Base` and merges with what changed since; where both changed the same part, it's refused as `version_conflict`, naming each place.
 3. `POST /v1/sync/blobs` with the hashes it needs, one per line, answers one tar archive: a file per block or note, a folder per skill, each named by its hash.
-4. `POST /v1/sync/edits` with `Context-Locker-Target` sends an edit found in a synced file: a block's text, or a skill folder as a bundle (see [`src/bundle.ts`](src/bundle.ts)). The answer is `accepted` (it applied straight away), `pending` (it waits for the owner's approval, so keep it), `rejected` (put the synced version back), `same` or `gone`.
+4. `POST /v1/sync/edits` with `Context-Locker-Target` sends an edit found in a synced file: a block's text, or a skill folder as a bundle (see [`src/bundle.ts`](src/bundle.ts)). It merges with what changed in Context Locker since the file was written: a skill file by file, and by lines where both changed a file, and a block preference by preference. The answer is `accepted` (it applied straight away), `pending` (it waits for the owner's approval, so keep it), `rejected` (put the synced version back), `same` or `gone`.
 5. `POST /v1/sync/done` reports what was applied, and in a project, the pointers whose path isn't in the folder.
 
 Around a sync, `POST /v1/sync/remote` with a git remote answers the project that has it, and `POST /v1/sync/map?project=<id>` answers the project's map as plain text. The script sends only the remote, without a user name, password, query or fragment, and never a path on the computer.

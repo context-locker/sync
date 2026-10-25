@@ -214,7 +214,7 @@ export const unsafeStartHere: StartHereInput[] = [
 export const docsPlace = "docs/decisions";
 
 /**
- * A project's notes and one that applies everywhere: a plan, a superseded
+ * A project's notes and one that applies everywhere: a plan, a historic
  * decision whose title and summary hold colons, quotes and a backslash, and
  * a note whose name Windows keeps for a device.
  */
@@ -225,7 +225,7 @@ export const projectNotes: NoteInput[] = [
     name: "release-plan",
     title: "Release plan",
     kind: "plan",
-    status: "current",
+    useAs: "source-of-truth",
     summary: "What ships in the Q4 release of the docs site, and when.",
     tags: ["release", "q4"],
     text: "# Release plan\n\n- Search ships on 4 Nov 2026.\n- The new theme follows on 18 Nov 2026.",
@@ -237,7 +237,7 @@ export const projectNotes: NoteInput[] = [
     name: "hosting-choice",
     title: 'Hosting: "Vercel" over Netlify',
     kind: "decision",
-    status: "superseded",
+    useAs: "historic",
     summary:
       "Why we picked Vercel: previews per branch, and C:\\ paths in builds.",
     tags: ["hosting"],
@@ -250,7 +250,7 @@ export const projectNotes: NoteInput[] = [
     name: "writing-voice",
     title: "Writing voice",
     kind: "profile",
-    status: "current",
+    useAs: "source-of-truth",
     summary:
       "How Nova writes: plain words, short sentences, dates with the year.",
     tags: ["writing"],
@@ -263,7 +263,7 @@ export const projectNotes: NoteInput[] = [
     name: "con",
     title: "Con",
     kind: "research",
-    status: "current",
+    useAs: "source-of-truth",
     summary: "What a conference talk taught us.",
     tags: ["research"],
     text: "Notes from the talk.",

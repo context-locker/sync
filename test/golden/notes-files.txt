@@ -2,7 +2,7 @@
 ---
 title: "Con"
 kind: "research"
-status: "current"
+use_as: "source-of-truth"
 summary: "What a conference talk taught us."
 tags: ["research"]
 applies_to: "Docs site"
@@ -16,7 +16,7 @@ Notes from the talk.
 ---
 title: "Writing voice"
 kind: "profile"
-status: "current"
+use_as: "source-of-truth"
 summary: "How Nova writes: plain words, short sentences, dates with the year."
 tags: ["writing"]
 applies_to: "everywhere"
@@ -30,7 +30,7 @@ Plain words. Short sentences. Dates such as 21 Oct 2026.
 ---
 title: "Hosting: \"Vercel\" over Netlify"
 kind: "decision"
-status: "superseded"
+use_as: "historic"
 summary: "Why we picked Vercel: previews per branch, and C:\\ paths in builds."
 tags: ["hosting"]
 applies_to: "Docs site"
@@ -48,7 +48,7 @@ See the newer decision for what changed.
 ---
 title: "Release plan"
 kind: "plan"
-status: "current"
+use_as: "source-of-truth"
 summary: "What ships in the Q4 release of the docs site, and when."
 tags: ["release", "q4"]
 applies_to: "Docs site"

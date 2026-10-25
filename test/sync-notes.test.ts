@@ -109,7 +109,7 @@ class FakeLocker {
       version: 1,
       title: note.name,
       kind: "plan",
-      status: "current",
+      useAs: "source-of-truth",
       summary: `About ${note.name}.`,
       tags: ["release"],
       text: `# ${note.name}\n\nWhat it says.`,
@@ -186,7 +186,8 @@ class FakeLocker {
         ...current,
         title: String(front.title),
         kind: String(front.kind),
-        status: String(front.status),
+        useAs:
+          front.use_as === undefined ? current.useAs : String(front.use_as),
         summary: String(front.summary),
         tags: front.tags as string[],
         text,
@@ -211,7 +212,7 @@ class FakeLocker {
         name: target.name,
         title: String(front.title),
         kind: String(front.kind),
-        status: String(front.status),
+        useAs: String(front.use_as ?? "source-of-truth"),
         summary: String(front.summary),
         tags: front.tags as string[],
         text,
@@ -536,7 +537,7 @@ describe("a project's notes folder", () => {
         writeFileSync(path, edited);
         writeFileSync(
           join(notes, "new-idea.md"),
-          '---\ntitle: "New idea"\nkind: "idea"\nstatus: "current"\nsummary: "An idea."\ntags: ["release"]\napplies_to: "Docs site"\n---\n\nAn idea.\n',
+          '---\ntitle: "New idea"\nkind: "idea"\nuse_as: "source-of-truth"\nsummary: "An idea."\ntags: ["release"]\napplies_to: "Docs site"\n---\n\nAn idea.\n',
         );
         writeFileSync(join(notes, "My idea.md"), "mine\n");
         const snapshot = () =>
@@ -645,7 +646,7 @@ describe("a project's notes folder", () => {
           "---",
           'title: "Q4 launch"',
           'kind: "plan"',
-          'status: "current"',
+          'use_as: "source-of-truth"',
           'summary: "What launches in Q4."',
           'tags: ["release"]',
           'applies_to: "Docs site"',
@@ -706,14 +707,14 @@ describe("a project's notes folder", () => {
         fake.refuse.set(`{project}/${NOTES}/half-done.md`, {
           status: 400,
           error: "invalid_note",
-          message: "kind, status, summary, tags and applies_to are missing.",
+          message: "kind, summary, tags and applies_to are missing.",
         });
 
         const first = await run(shell, machine);
         assert.equal(first.status, 0);
         assert.equal(
           first.stderr,
-          `Context Locker: couldn't save ${NOTES}/half-done.md: kind, status, summary, tags and applies_to are missing.\n`,
+          `Context Locker: couldn't save ${NOTES}/half-done.md: kind, summary, tags and applies_to are missing.\n`,
         );
         assert.equal(
           read(path),
@@ -724,7 +725,7 @@ describe("a project's notes folder", () => {
         assert.equal(fake.uploads.length, 2);
         assert.match(
           second.stderr,
-          /couldn't save .+half-done\.md: kind, status/,
+          /couldn't save .+half-done\.md: kind, summary/,
         );
         assert.equal(
           read(path),
@@ -732,7 +733,7 @@ describe("a project's notes folder", () => {
         );
       });
 
-      it("leaves an edit alone when the note changed in Context Locker too", async () => {
+      it("keeps an edit beside the note when the note changed in Context Locker too, in the same part", async () => {
         const machine = computer();
         const plan = fake.add({ name: "release-plan", version: 2 });
         assert.equal((await run(shell, machine)).status, 0);
@@ -749,16 +750,30 @@ describe("a project's notes folder", () => {
         assert.equal(result.status, 0);
         assert.equal(
           result.stderr,
-          `Context Locker: ${NOTES}/release-plan.md changed in Context Locker too, so your edit wasn't saved. Copy your edit, delete the file to get the latest at the next sync, then make the edit again.\n`,
+          `Context Locker: ${NOTES}/release-plan.md changed in Context Locker too, in the same part as your edit, so the note has the newer version now. Your edit is kept in ${NOTES}/release-plan.md.conflict.\n`,
         );
-        // Not written over by the newer version
-        assert.equal(read(path), edited);
+        // The newer version takes the note's place, and the edit is kept
+        // beside it, and in the backups
+        assert.match(read(path), /Changed in Context Locker\./);
+        assert.equal(read(`${path}.conflict`), edited);
+        const context = JSON.parse(result.stdout).hookSpecificOutput
+          .additionalContext as string;
+        assert.ok(
+          context
+            .trimEnd()
+            .endsWith(
+              `\nContext Locker: your edit to ${NOTES}/release-plan.md and a change made in Context Locker since touch the same part, so the note has the newer version now, and your edit is kept beside it in ${NOTES}/release-plan.md.conflict. Put the two together in the note, and the next sync saves it.`,
+            ),
+          context,
+        );
 
-        // Deleted, it comes back as Context Locker has it now
-        rmSync(path);
+        // The copy never goes up, and stays until it's dealt with
+        const sent = fake.uploads.length;
         const after = await run(shell, machine);
         assert.equal(after.status, 0, after.stderr);
         assert.equal(after.stderr, "");
+        assert.equal(fake.uploads.length, sent);
+        assert.equal(read(`${path}.conflict`), edited);
         assert.match(read(path), /Changed in Context Locker\./);
       });
 
@@ -786,7 +801,7 @@ describe("a project's notes folder", () => {
         for (let index = 1; index <= 23; index += 1) {
           writeFileSync(
             join(machine.notes, `note-${String(index).padStart(2, "0")}.md`),
-            `---\ntitle: "Note ${index}"\nkind: "idea"\nstatus: "current"\nsummary: "Idea ${index}."\ntags: ["release"]\napplies_to: "Docs site"\n---\n\nIdea ${index}.\n`,
+            `---\ntitle: "Note ${index}"\nkind: "idea"\nuse_as: "source-of-truth"\nsummary: "Idea ${index}."\ntags: ["release"]\napplies_to: "Docs site"\n---\n\nIdea ${index}.\n`,
           );
         }
         const first = await run(shell, machine);

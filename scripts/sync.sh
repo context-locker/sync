@@ -1,7 +1,7 @@
 #!/bin/sh
-# Context Locker sync, version 7. MIT licence.
+# Context Locker sync, version 10. MIT licence.
 #
-#   sh sync.sh <app> [--project <id>] [--daily]
+#   sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]
 #   sh sync.sh map <app> [--all]
 #   sh sync.sh gather <app>
 #   sh sync.sh gather-submit <app> <plan.json>
@@ -9,7 +9,8 @@
 #   sh sync.sh notes-move-out <app> --to <folder>
 #   sh sync.sh fix <app> [--all]
 #   sh sync.sh fix <app> --done <id> | --skip <id> --reason <text>
-#   sh sync.sh signin|plan|doctor|readback <app>
+#   sh sync.sh signin <app> [--code <code>]
+#   sh sync.sh plan|doctor|readback <app>
 #
 # Keeps one AI app's files in step with your playbook at context.locker. <app>
 # is claude-code, codex, hermes or openclaw. The script asks for a manifest of
@@ -30,11 +31,21 @@
 # in the repo names; else a folder linked on this computer; else the project
 # whose git remote is the repo's origin, which links the folder.
 #
+# Each app runs the sync on its own events, such as the start of a session
+# and compaction, as the table under "When each app syncs" lists. With auto
+# sync on, the default, a sync brings in what changed and says so in a line.
+# With it off, a sync that finds changes says so and leaves the files as they
+# are until the app syncs with --now. A project can have its own setting.
+#
 # --project <id> links the current folder to a project, for this computer
 #                only, and records the repo's origin remote on the project
 #                when it has none.
-# --daily        is for scheduled runs: silent when all is well, exit 1 when
-#                not. It syncs the projects linked on this computer too.
+# --now          syncs even when auto sync is off.
+# --hook         is for an app's hook, and prints only what that app's hook
+#                reads.
+# --daily        is for scheduled runs, from before syncs ran on the apps'
+#                events: silent when all is well, exit 1 when not. It syncs
+#                the projects linked on this computer too.
 #
 # map prints the project's map: its docs home, its Start here entries, the
 # notes and pointers that matter in the current folder (every one with --all)
@@ -73,10 +84,12 @@
 #   signin    connects the app with a code you approve in your browser. The
 #             first run prints the link and the code and exits 3. Run it again
 #             to wait up to --wait seconds (50) for the approval: it exits 0
-#             once connected, and 3 while still waiting.
-#   plan      shows what a sync would write, and the hook or daily job to add.
-#             It changes nothing.
-#   doctor    checks the connection, the files and the hook or daily job, how
+#             once connected, and 3 while still waiting. With --code, it
+#             connects with a one-time code the person made in Context Locker
+#             instead, with nothing to approve, and exits 0 once connected.
+#   plan      shows what a sync would write, and the hooks to add. It changes
+#             nothing.
+#   doctor    checks the connection, the files and the hooks, how
 #             full the playbook's limits are, instruction files Context Locker
 #             doesn't manage, and anything that has drifted since the last
 #             sync. It exits 1 when a check fails.
@@ -87,7 +100,7 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=8
+SCRIPT_VERSION=10
 MODE=sync
 case ${1:-} in
   signin | plan | doctor | readback | map | gather | gather-submit | export | notes-move-out | fix)
@@ -98,6 +111,8 @@ esac
 HARNESS=${1:-}
 [ $# -gt 0 ] && shift
 DAILY=0
+NOW=0
+HOOK=0
 ALL=0
 PROJECT_FLAG=
 PLAN_FILE=
@@ -109,6 +124,7 @@ FIX_ID=
 FIX_MARKS=0
 REASON=
 REASON_SET=0
+CODE=
 # gather-submit's plan comes before any option
 if [ "$MODE" = gather-submit ] && [ $# -gt 0 ]; then
   case $1 in
@@ -122,6 +138,8 @@ fi
 while [ $# -gt 0 ]; do
   case $1 in
     --daily) DAILY=1 ;;
+    --now) NOW=1 ;;
+    --hook) HOOK=1 ;;
     --all) ALL=1 ;;
     --project)
       PROJECT_FLAG=${2:-}
@@ -151,6 +169,10 @@ while [ $# -gt 0 ]; do
       REASON_SET=1
       [ $# -gt 1 ] && shift
       ;;
+    --code)
+      CODE=${2:-}
+      [ $# -gt 1 ] && shift
+      ;;
     *)
       printf 'Context Locker: unknown option %s\n' "$1" >&2
       exit 2
@@ -160,7 +182,7 @@ while [ $# -gt 0 ]; do
 done
 
 usage() {
-  printf 'Usage: sh sync.sh <app> [--project <id>] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh gather <app>\n       sh sync.sh gather-submit <app> <plan.json>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder>\n       sh sync.sh fix <app> [--all]\n       sh sync.sh fix <app> --done <id> | --skip <id> --reason <text>\n       sh sync.sh signin|plan|doctor|readback <app>\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
+  printf 'Usage: sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh gather <app>\n       sh sync.sh gather-submit <app> <plan.json>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder>\n       sh sync.sh fix <app> [--all]\n       sh sync.sh fix <app> --done <id> | --skip <id> --reason <text>\n       sh sync.sh signin <app> [--code <code>]\n       sh sync.sh plan|doctor|readback <app>\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
   exit 2
 }
 case $HARNESS in
@@ -168,7 +190,19 @@ case $HARNESS in
   *) usage ;;
 esac
 [ "$MODE" = gather-submit ] && [ -z "$PLAN_FILE" ] && usage
+# --now and --hook are for a sync
+[ "$MODE" != sync ] && { [ "$NOW" = 1 ] || [ "$HOOK" = 1 ]; } && usage
+# Hermes's and OpenClaw's hooks don't read what a sync prints
+QUIET=0
+[ "$HOOK" = 1 ] && { [ "$HARNESS" = hermes ] || [ "$HARNESS" = openclaw ]; } && QUIET=1
 case $WAIT in '' | *[!0-9]*) usage ;; esac
+# --code is for signin, with a one-time code from Context Locker
+if [ -n "$CODE" ]; then
+  [ "$MODE" = signin ] || usage
+  case $CODE in ctxl_ic_*) ;; *) usage ;; esac
+  case $CODE in *[!A-Za-z0-9_-]*) usage ;; esac
+  [ "${#CODE}" = 51 ] || usage
+fi
 # --to is for export and notes-move-out, which needs it
 case $MODE in
   export) [ "$TO_SET" = 1 ] && [ -z "$TO" ] && usage ;;
@@ -212,6 +246,10 @@ HASH='[0-9a-f]\{64\}'
 TMP=
 WRITTEN=0
 HELD=0
+# What this run changed in the app's files, for the line that says so
+W_BLOCKS=0
+W_SKILLS=0
+W_NOTES=0
 FAILED=0
 SKILLS_CHANGED=0
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
@@ -294,6 +332,8 @@ case $MODE in
 esac || finish_early "can't write to $CL_HOME."
 TMP=$(mktemp -d "$CL_HOME/tmp.XXXXXX") || finish_early "can't write to $CL_HOME."
 : >"$TMP/warnings"
+# What the app should hear at the start of a session, beside its own text
+: >"$TMP/said"
 LOCK=
 trap 'rm -rf "$TMP"; [ -z "$LOCK" ] || rm -rf "$LOCK"' EXIT
 trap 'exit 1' HUP INT TERM
@@ -749,9 +789,34 @@ note_saved() {
   printf 'wrote note %s %s %s %s\n' "$ns_hash" "$ns_t" "$ns_id" "$ns_ver" >>"$TMP/notes-records"
 }
 
+# An edit made here to a note that changed in Context Locker too, in the same
+# part: the edit is kept beside the note, as <name>.md.conflict, which the
+# sync never sends, and the note's file goes, so this sync writes the newer
+# version in its place. A copy goes in the backups first, so nothing is lost,
+# the edit isn't sent again, and the app is told at the start of the session.
+# Fails when the edit can't be kept that way, and then nothing changes.
+note_conflict() {
+  nc_t=$1 nc_path=$2 nc_rel=$3
+  nc_copy=$nc_path.conflict
+  [ -L "$nc_copy" ] && return 1
+  if [ -e "$nc_copy" ]; then
+    # An older copy goes in the backups before this one takes its place
+    { [ -f "$nc_copy" ] && backup "$nc_copy" "$nc_t.conflict"; } || return 1
+  fi
+  backup "$nc_path" "$nc_t" || return 1
+  cp "$nc_path" "$nc_copy" 2>/dev/null || return 1
+  rm -f "$nc_path" || return 1
+  NOTES_RESCAN=1
+  printf 'Context Locker: your edit to %s and a change made in Context Locker since touch the same part, so the note has the newer version now, and your edit is kept beside it in %s. Put the two together in the note, and the next sync saves it.\n' \
+    "$nc_rel" "$nc_rel.conflict" >>"$TMP/said"
+  warn "$nc_rel changed in Context Locker too, in the same part as your edit, so the note has the newer version now. Your edit is kept in $nc_rel.conflict."
+  return 0
+}
+
 # Sends the notes edited here, and new .md files, to Context Locker, at most
 # 20 a sync. What it saves is written as Context Locker keeps it; a file it
-# can't take stays as it is, and goes again at the next sync.
+# can't take stays as it is, and goes again at the next sync. An edit that
+# clashes with a newer version is kept beside the note instead.
 notes_up() {
   nu_query=$1
   while IFS= read -r nu_name; do
@@ -799,6 +864,10 @@ notes_up() {
           warn "couldn't make sense of Context Locker's answer for $nu_rel. The next sync tries again."
         ;;
       409 | 400 | 404 | 413 | 422)
+        if [ "$nu_code" = 409 ] && [ "$(reply_field error "$TMP/note-reply")" = version_conflict ] &&
+          note_conflict "$nu_t" "$nu_path" "$nu_rel"; then
+          continue
+        fi
         if [ "$nu_code" = 409 ] && [ "$(reply_field error "$TMP/note-reply")" = version_conflict ]; then
           warn "$nu_rel changed in Context Locker too, so your edit wasn't saved. Copy your edit, delete the file to get the latest at the next sync, then make the edit again."
         else
@@ -976,6 +1045,65 @@ send_edit() {
 
 # --- One sync: global, or one project ---------------------------------------
 
+# Whether a manifest changes any of the app's files: the files it lists,
+# against those the last sync wrote. Prints the hash of its list when it
+# does, and fails when it doesn't.
+files_change() {
+  grep -E '^(block|skill|file|note) ' "$1" | LC_ALL=C sort >"$TMP/fc-new"
+  sed -n 's/^entry //p' "$2" 2>/dev/null | grep -E '^(block|skill|file|note) ' | LC_ALL=C sort >"$TMP/fc-old"
+  fc_new=$(sha_file "$TMP/fc-new")
+  [ "$fc_new" != "$(sha_file "$TMP/fc-old")" ] || return 1
+  printf '%s' "$fc_new"
+}
+
+# Each change is said once: fails when the one with this hash was said
+# before, and otherwise remembers it in the scope's .told file, unless the
+# app doesn't read what the sync prints
+not_told() {
+  [ "$1" != "$(cat "$2.told" 2>/dev/null)" ] || return 1
+  [ "$QUIET" = 1 ] || printf '%s\n' "$1" >"$2.told" 2>/dev/null
+  return 0
+}
+
+# With auto sync off, whether a sync left changes to the app's files for
+# later, to say once
+CHANGES_WAITING=0
+
+# With auto sync off, the global sync's text for the session start comes in
+# all the same, as it's about the playbook, such as changes waiting for
+# approval, not part of it
+context_only() {
+  co_state=$1
+  co_hash=$(sed -n "s/^context \\($HASH\\)\$/\\1/p" "$TMP/entries" | head -n 1)
+  if [ -z "$co_hash" ]; then
+    rm -f "$co_state.context"
+    return 0
+  fi
+  [ -f "$co_state.context" ] && [ "$(sha_file "$co_state.context")" = "$co_hash" ] && return 0
+  printf '%s\n' "$co_hash" >"$TMP/co-want"
+  rm -rf "$TMP/co-blobs"
+  mkdir "$TMP/co-blobs"
+  co_code=$(status_of "$(http POST /v1/sync/blobs "$TMP/co.tar" "$TMP/co-want" text/plain '' '' '')")
+  if [ "$co_code" = 200 ] && tar -xmof "$TMP/co.tar" -C "$TMP/co-blobs" 2>/dev/null &&
+    [ -f "$TMP/co-blobs/$co_hash" ] && [ ! -L "$TMP/co-blobs/$co_hash" ] &&
+    [ "$(sha_file "$TMP/co-blobs/$co_hash")" = "$co_hash" ]; then
+    cp "$TMP/co-blobs/$co_hash" "$co_state.context"
+  fi
+  return 0
+}
+
+# Counts a change to the app's files, for the line that says what a sync
+# brought in: one made in the playbook since the last sync here, not a file
+# put back as it was, or what a scope's first sync here writes
+count_change() {
+  grep -qxF "$2" "$TMP/playbook-changed" || return 0
+  case $1 in
+    block) W_BLOCKS=$((W_BLOCKS + 1)) ;;
+    skill) W_SKILLS=$((W_SKILLS + 1)) ;;
+    note) W_NOTES=$((W_NOTES + 1)) ;;
+  esac
+}
+
 # In a plan, what each step would do, in plain words
 planned() { [ "$MODE" = plan ] && printf '%s\n' "$*" >>"$TMP/plan-out"; return 0; }
 
@@ -1035,6 +1163,17 @@ sync_scope() {
 
   [ -z "$query" ] && WORKSPACE_ID=$(sed -n "s/^workspace \\($UUID\\)\$/\\1/p" "$TMP/entries" | head -n 1)
 
+  # With auto sync off, a sync that would change the app's files says so,
+  # once, and leaves them as they are until the app syncs with --now. The
+  # first sync here writes them all the same, as there's nothing yet to leave
+  # as it is, and one that changes no file goes ahead.
+  if [ "$MODE" = sync ] && [ "$fresh" = 1 ] && [ -n "$old_etag" ] && [ "$NOW" = 0 ] && [ "$DAILY" = 0 ] &&
+    grep -qx 'auto-sync off' "$TMP/entries" && fc_waiting=$(files_change "$TMP/entries" "$lockfile"); then
+    not_told "$fc_waiting" "$state" && CHANGES_WAITING=1
+    [ -n "$query" ] || context_only "$state"
+    return 0
+  fi
+
   # A project's notes folder, when this sync keeps it: what's in it and what
   # Context Locker last wrote there. Edited notes and new files go up before
   # anything is written. A folder this sync doesn't keep is left as it is.
@@ -1042,7 +1181,7 @@ sync_scope() {
   : >"$TMP/notes-local"
   : >"$TMP/notes-wrote"
   : >"$TMP/notes-refused"
-  NOTES_OK=0 NOTES_SAVED=0
+  NOTES_OK=0 NOTES_SAVED=0 NOTES_RESCAN=0
   if [ "$SCOPE" = project ] && [ "$MODE" = sync ] && notes_synced; then
     if notes_folder_ok; then
       NOTES_OK=1
@@ -1065,6 +1204,9 @@ sync_scope() {
         fi
         etag=$(sha_file "$TMP/manifest")
         fresh=1
+        notes_scan
+      elif [ "$NOTES_RESCAN" = 1 ]; then
+        # An edit kept beside its note took the note's file away
         notes_scan
       fi
     else
@@ -1331,6 +1473,17 @@ sync_scope() {
   # A plan stops here: it fetches, writes and reports nothing
   [ "$MODE" = plan ] && return 0
 
+  # The targets whose files changed in the playbook since the last sync here
+  : >"$TMP/playbook-changed"
+  if [ -n "$old_etag" ]; then
+    sed -n 's/^entry //p' "$lockfile" >"$TMP/old-entries"
+    awk '
+      $1 != "block" && $1 != "skill" && $1 != "file" && $1 != "note" { next }
+      FILENAME == ARGV[1] { old[$0] = $3; next }
+      { if ($0 in old) delete old[$0]; else print $3 }
+      END { for (line in old) print old[line] }' "$TMP/old-entries" "$TMP/entries" >"$TMP/playbook-changed"
+  fi
+
   # Text for the session start, kept on this computer so it shows offline too
   context_hash=$(sed -n "s/^context \\($HASH\\)\$/\\1/p" "$TMP/entries" | head -n 1)
   if [ -z "$context_hash" ]; then
@@ -1382,6 +1535,7 @@ sync_scope() {
         result=$?
         if [ "$result" = 0 ]; then
           WRITTEN=$((WRITTEN + 1))
+          count_change block "$t"
           printf 'wrote block %s %s\n' "$hash" "$t" >>"$TMP/wrote"
         elif [ "$result" = 2 ]; then
           warn "left $path alone: its Context Locker markers don't pair up."
@@ -1400,6 +1554,7 @@ sync_scope() {
         [ "$keep" = 1 ] && [ -e "$path" ] && backup "$path" "$t"
         if install_skill "$TMP/blobs/$hash" "$path" "$item" "$ver" "$hash"; then
           WRITTEN=$((WRITTEN + 1))
+          count_change skill "$t"
           printf 'wrote skill %s %s\n' "$hash" "$t" >>"$TMP/wrote"
         else
           warn "couldn't write $path."
@@ -1407,12 +1562,17 @@ sync_scope() {
         fi
         ;;
       'remove block')
-        remove_block "$path" "$t" || complete=0
+        if remove_block "$path" "$t"; then
+          count_change block "$t"
+        else
+          complete=0
+        fi
         ;;
       'remove skill')
         if backup "$path" "$t"; then
           rm -rf "$path"
           SKILLS_CHANGED=1
+          count_change skill "$t"
         else
           complete=0
         fi
@@ -1447,6 +1607,7 @@ sync_scope() {
         keep_out_of_git
         if write_file "$path" "$TMP/blobs/$hash"; then
           WRITTEN=$((WRITTEN + 1))
+          count_change "$kind" "$t"
           printf 'wrote %s %s %s %s %s\n' "$kind" "$hash" "$t" "$item" "$ver" >>"$TMP/notes-wrote"
         else
           warn "couldn't write $path."
@@ -1457,6 +1618,7 @@ sync_scope() {
         # Only while it's still as Context Locker wrote it, and a copy is kept
         [ -f "$path" ] && [ "$(sha_file "$path")" = "$expect" ] || continue
         if backup "$path" "$t" && rm -f "$path"; then
+          count_change "$kind" "$t"
           printf 'forget %s\n' "$t" >>"$TMP/notes-wrote"
         else
           complete=0
@@ -1724,7 +1886,7 @@ shell_quote() {
   esac
 }
 
-# Where setup saves this script, and how hooks and daily jobs run it
+# Where setup saves this script, and how hooks run it
 INSTALLED=$CL_HOME/sync.sh
 if [ "$CL_HOME" = "$HOME/.contextlocker" ]; then
   RUN='sh ~/.contextlocker/sync.sh'
@@ -1732,8 +1894,9 @@ else
   RUN="sh $(shell_quote "$INSTALLED")"
 fi
 case $HARNESS in
-  hermes | openclaw) TRIGGER='daily job' ;;
-  *) TRIGGER='session-start hook' ;;
+  hermes) TRIGGER='Hermes hooks' TRIGGER_RUNS=run ;;
+  openclaw) TRIGGER='OpenClaw hook' TRIGGER_RUNS=runs ;;
+  *) TRIGGER='session-start hook' TRIGGER_RUNS=runs ;;
 esac
 case $(uname -s 2>/dev/null) in
   Darwin) OS_NAME=macOS ;;
@@ -1751,13 +1914,16 @@ json_value() {
   sed -nE 's/.*"'"$1"'":\{[^}]*"'"$2"'":"(([^"\\]|\\.)*)".*/\1/p' "$3" | head -n 1 | sed 's/\\"/"/g; s/\\\\/\\/g' | clean
 }
 
-# "Claude Code on Ada's laptop, in the Personal workspace", from GET /v1/agent
+# "Claude Code on Ada's laptop, in the Personal workspace", from GET /v1/agent, or
+# "Work Codex, in the Personal workspace" when the person named it
 connected_as() {
   name=$(json_value agent name "$TMP/agent")
   machine=$(json_value agent machine_name "$TMP/agent")
   workspace=$(json_value workspace name "$TMP/agent")
-  printf '%s' "${name:-$APP_NAME}"
-  [ -n "$machine" ] && printf ' on %s' "$machine"
+  name=${name:-$APP_NAME}
+  printf '%s' "$name"
+  # A name the person chose says which this is; the app's own name needs the computer
+  [ -n "$machine" ] && [ "$name" = "$APP_NAME" ] && printf ' on %s' "$machine"
   [ -n "$workspace" ] && printf ', in the %s workspace' "$workspace"
   return 0
 }
@@ -1803,9 +1969,78 @@ save_device_state() {
     mv -f "$state.tmp" "$state"
 }
 
+# Connects this app with a one-time code the person made in Context Locker,
+# for a connection they've already named, so there's nothing to approve. The
+# token goes straight into a file only this account can read, and the code is
+# never printed. An app already connected takes the new connection's name and
+# a fresh token, as the person asked for it.
+claim_code() {
+  TOKEN=
+  name=$(machine_name)
+  id=$(machine_id)
+  {
+    printf '{"grant_type":"urn:context-locker:params:oauth:grant-type:invite","invite_code":"%s","harness":"%s","agent_name":"%s","client_version":"sync.sh %s"' \
+      "$CODE" "$HARNESS" "$APP_NAME" "$SCRIPT_VERSION"
+    [ -n "$name" ] && printf ',"machine_name":"%s"' "$name"
+    [ -n "$id" ] && printf ',"machine_id":"%s"' "$id"
+    [ -n "$OS_NAME" ] && printf ',"os":"%s"' "$OS_NAME"
+    printf '}\n'
+  } >"$TMP/claim"
+  code=$(status_of "$(http POST /oauth/token "$TMP/claimed" "$TMP/claim" application/json '' '' '')")
+  rm -f "$TMP/claim"
+  case $code in
+    200) ;;
+    000)
+      printf "Context Locker: can't reach %s. Check the internet connection and try again.\n" "$API" >&2
+      return 1
+      ;;
+    400)
+      rm -f "$TMP/claimed"
+      printf "Context Locker: that code can't be used. It works once, for 15 minutes. Ask for a new one: the person makes it in Context Locker, from the connection's New code.\n" >&2
+      return 1
+      ;;
+    429)
+      rm -f "$TMP/claimed"
+      printf 'Context Locker: too many codes tried from this network just now. Try again in a few minutes.\n' >&2
+      return 1
+      ;;
+    *)
+      message=$(reply_field error_description "$TMP/claimed" | clean)
+      rm -f "$TMP/claimed"
+      printf "Context Locker: couldn't connect with the code: %s\n" "${message:-Context Locker answered $code.}" >&2
+      return 1
+      ;;
+  esac
+  new=$(reply_field access_token "$TMP/claimed")
+  rm -f "$TMP/claimed"
+  case $new in ctxl_at_?*) ;; *) new= ;; esac
+  case $new in *[!A-Za-z0-9_-]*) new= ;; esac
+  if [ -z "$new" ]; then
+    printf "Context Locker: the reply didn't include a usable token. Ask for a new code and try again.\n" >&2
+    return 1
+  fi
+  if ! { printf '%s\n' "$new" >"$APP_DIR/token.tmp" && mv -f "$APP_DIR/token.tmp" "$APP_DIR/token"; }; then
+    printf "Context Locker: couldn't save the connection in %s.\n" "$APP_DIR" >&2
+    return 1
+  fi
+  # A device sign-in that was waiting isn't needed any more
+  rm -f "$APP_DIR/device"
+  TOKEN=$new
+  if [ "$(status_of "$(http GET /v1/agent "$TMP/agent" '' '' '' '' '')")" = 200 ]; then
+    printf 'Connected: %s.\n' "$(connected_as)"
+  else
+    printf 'Connected.\n'
+  fi
+  return 0
+}
+
 # Connects this app with a device code (RFC 8628). Only the link and the code
 # are shown: the token goes straight into a file only this account can read.
 signin() {
+  if [ -n "$CODE" ]; then
+    claim_code
+    return
+  fi
   if ! token_problem >/dev/null; then
     code=$(status_of "$(http GET /v1/agent "$TMP/agent" '' '' '' '' '')")
     case $code in
@@ -1991,12 +2226,88 @@ hook_json() {
   printf '    {\n      "hooks": {\n        "SessionStart": [\n          {\n            "hooks": [\n              { "type": "command", "command": "%s", "timeout": 60 }\n            ]\n          }\n        ]\n      }\n    }\n' "$cmd"
 }
 
-# Daily jobs run at a minute past 9 that comes from this computer's id, so
-# computers don't all sync at once. Reading the id never creates it.
-job_minute() {
-  id=$(machine_id saved)
-  sum=$(printf '%s' "${id:-$(uname -n 2>/dev/null)}" | cksum | cut -d ' ' -f 1)
-  printf '%s' $((sum % 60))
+# --- When each app syncs ------------------------------------------------------
+
+# Each app runs the sync on its own events, all with the same command, so
+# adding an app is a line here and its case in the plan and the doctor.
+# Claude Code and Codex read what a session-start hook prints. Hermes and
+# OpenClaw don't, so their hooks run it with --hook, which keeps it quiet.
+#
+#   app          where the hook goes                     events
+#   claude-code  settings.json, under SessionStart       startup, resume, clear, compact
+#   codex        hooks.json, under SessionStart          startup, resume, clear, compact
+#   hermes       config.yaml, under hooks                on_session_start, post_compaction
+#   openclaw     ~/.openclaw/hooks/context-locker-sync   gateway:startup, command:new,
+#                                                        command:reset, session:compact:before
+hook_events() {
+  case $1 in
+    claude-code | codex) printf 'startup resume clear compact' ;;
+    hermes) printf 'on_session_start post_compaction' ;;
+    openclaw) printf 'gateway:startup command:new command:reset session:compact:before' ;;
+  esac
+}
+
+# The command a hook runs with no shell to expand ~, as Hermes's and
+# OpenClaw's do
+HOOK_RUN="sh $(shell_quote "$INSTALLED")"
+
+# Whether Hermes's config.yaml runs the sync for each of its events: a command
+# that runs this script, listed under the event in the hooks section
+hermes_hooks_in() {
+  [ -f "$1" ] || return 1
+  awk -v installed="$INSTALLED" -v events="$(hook_events hermes)" '
+    { sub(/\r$/, "") }
+    /^[^[:space:]#]/ { inhooks = ($0 ~ /^hooks:[[:space:]]*$/); event = ""; next }
+    inhooks && /^[[:space:]]+[a-z_]+:[[:space:]]*$/ { event = $0; gsub(/[[:space:]:]/, "", event); next }
+    inhooks && event != "" && /command:/ && ($0 ~ /contextlocker\/+sync[.](sh|ps1)/ || index($0, installed)) { found[event] = 1 }
+    END {
+      n = split(events, want, " ")
+      for (i = 1; i <= n; i++) if (!(want[i] in found)) exit 1
+    }' "$1"
+}
+
+hermes_hooks_yaml() {
+  hy_cmd=$(printf '%s' "$HOOK_RUN hermes --hook" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  printf '    hooks:\n'
+  for hy_event in $(hook_events hermes); do
+    printf '      %s:\n        - command: "%s"\n' "$hy_event" "$hy_cmd"
+  done
+}
+
+# OpenClaw's hook: a folder in its managed hooks folder, normally
+# ~/.openclaw/hooks, with HOOK.md and a handler that runs the sync
+OPENCLAW_HOOK=$HOME/.openclaw/hooks/context-locker-sync
+
+openclaw_hook_md() {
+  printf -- '---\nname: context-locker-sync\ndescription: "Keeps OpenClaw'"'"'s files in step with your Context Locker playbook"\nmetadata: { "openclaw": { "events": ['
+  oh_first=1
+  for oh_event in $(hook_events openclaw); do
+    [ "$oh_first" = 1 ] || printf ', '
+    printf '"%s"' "$oh_event"
+    oh_first=0
+  done
+  printf '] } }\n---\n\n# Context Locker sync\n\nRuns Context Locker'"'"'s sync when the gateway starts, when a session starts or resets, and before compaction, so OpenClaw'"'"'s files hold your playbook as it is now.\n'
+}
+
+openclaw_handler() {
+  oh_path=$(printf '%s' "$INSTALLED" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  printf 'import { execFile } from "node:child_process";\n\n// Runs the sync, waiting at most a minute, and never stops OpenClaw\nexport default function handler() {\n  return new Promise((resolve) => {\n    execFile("sh", ["%s", "openclaw", "--hook"], { timeout: 60000 }, () => resolve());\n  });\n}\n' "$oh_path"
+}
+
+# Whether OpenClaw's hook is in place: HOOK.md with each of its events, and a
+# handler that runs this script
+openclaw_hook_in() {
+  [ -f "$OPENCLAW_HOOK/HOOK.md" ] || return 1
+  for oh_event in $(hook_events openclaw); do
+    grep -Fq "\"$oh_event\"" "$OPENCLAW_HOOK/HOOK.md" || return 1
+  done
+  for oh_file in handler.ts handler.js index.ts index.js; do
+    [ -f "$OPENCLAW_HOOK/$oh_file" ] || continue
+    grep -Eq 'contextlocker[/\\]+sync\.(sh|ps1)' "$OPENCLAW_HOOK/$oh_file" && return 0
+    grep -Fq "$INSTALLED" "$OPENCLAW_HOOK/$oh_file" && return 0
+    return 1
+  done
+  return 1
 }
 
 hook_plan() {
@@ -2020,16 +2331,25 @@ hook_plan() {
       fi
       ;;
     hermes)
-      printf 'Daily job: save this as %s/scripts/contextlocker-sync.sh, the script Hermes runs:\n\n' "$(root_dir hermes)"
-      printf '    #!/bin/sh\n    exec %s hermes --daily\n\n' "$RUN"
-      printf 'Then add a daily job that runs it with no model call. From this chat, use your cron tool with no agent, the script contextlocker-sync.sh and the name contextlocker-daily. Or run:\n\n'
-      printf '    hermes cron create "%s 9 * * *" --no-agent --script contextlocker-sync.sh --name contextlocker-daily --deliver origin\n\n' "$(job_minute)"
-      printf 'It stays quiet when the sync works, and tells you when it fails.\n'
+      config=$(root_dir hermes)/config.yaml
+      if hermes_hooks_in "$config"; then
+        printf 'Hooks: %s already runs the sync when a session starts and after compaction.\n' "$config"
+      else
+        printf 'Hooks: add these to the hooks section of %s, keeping everything already in the file, so Hermes syncs when a session starts and after compaction:\n\n' "$config"
+        hermes_hooks_yaml
+        printf '\nHermes asks you to approve each one the first time it sees it, in a hermes chat. Its gateway never asks, so approve them in a chat first.\n'
+      fi
       ;;
     openclaw)
-      printf 'Daily job: add an OpenClaw automation that runs the sync with no model call. Run this on the computer where the OpenClaw gateway runs:\n\n'
-      printf '    openclaw cron add --name contextlocker-daily --cron "%s 9 * * *" --command %s\n\n' "$(job_minute)" "$(shell_quote "$RUN openclaw --daily")"
-      printf 'It stays quiet when the sync works, and posts the problem to your usual chat when it fails. With more than one chat set up, add --channel and the chat to use.\n'
+      if openclaw_hook_in; then
+        printf 'Hook: %s already runs the sync when the gateway starts, when a session starts or resets, and before compaction.\n' "$OPENCLAW_HOOK"
+      else
+        printf 'Hook: save these two files in %s, on the computer where the OpenClaw gateway runs, so OpenClaw syncs when its gateway starts, when a session starts or resets, and before compaction.\n\n%s/HOOK.md:\n\n' "$OPENCLAW_HOOK" "$OPENCLAW_HOOK"
+        openclaw_hook_md | sed 's/^/    /; s/^    $//'
+        printf '\n%s/handler.js:\n\n' "$OPENCLAW_HOOK"
+        openclaw_handler | sed 's/^/    /; s/^    $//'
+        printf '\nThen turn it on, and restart the gateway if it was running, so it loads the hook:\n\n    openclaw hooks enable context-locker-sync\n'
+      fi
       ;;
   esac
 }
@@ -2333,7 +2653,7 @@ unmanaged_doctor() {
 }
 
 doctor() {
-  fails=0 warns=0
+  fails=0 warns=0 auto_off=0
   check_pass() { printf 'PASS  %s\n' "$*"; }
   check_warn() {
     printf 'WARN  %s\n' "$*"
@@ -2345,7 +2665,7 @@ doctor() {
   }
 
   if [ ! -f "$INSTALLED" ]; then
-    check_fail "The sync script isn't at $INSTALLED, where the $TRIGGER runs it. Save it there."
+    check_fail "The sync script isn't at $INSTALLED, where the $TRIGGER $TRIGGER_RUNS it. Save it there."
   else
     installed=$(sed -n 's/^SCRIPT_VERSION=\([0-9]*\)$/\1/p' "$INSTALLED" | head -n 1)
     if [ "$installed" = "$SCRIPT_VERSION" ]; then
@@ -2392,14 +2712,22 @@ doctor() {
       code=$(status_of "$(http GET /v1/sync "$TMP/manifest" '' '' "$etag" '' '')")
       case $code in
         304) check_pass "The files match your playbook. Last synced $synced." ;;
-        200) check_warn "Your playbook has changed since the last sync ($synced). The next sync brings the files up to date." ;;
+        200)
+          if grep -qx 'auto-sync off' "$TMP/manifest" && files_change "$TMP/manifest" "$lock" >/dev/null; then
+            auto_off=1
+            check_warn "Your playbook has changed since the last sync ($synced). Auto sync is off, so the files stay as they are until a sync with --now: $RUN $HARNESS --now"
+          else
+            check_warn "Your playbook has changed since the last sync ($synced). The next sync brings the files up to date."
+          fi
+          ;;
         *) check_warn "Couldn't compare the files with your playbook: Context Locker answered $code." ;;
       esac
     fi
-    # A sync more than 7 days ago means the hook or job isn't running
-    if then_at=$(utc_seconds "$synced_at") && now_at=$(utc_seconds "$(date -u +%Y-%m-%dT%H:%M:%SZ)") &&
+    # A sync more than 7 days ago means the hooks aren't running, unless
+    # auto sync is off and changes are waiting
+    if [ "$auto_off" = 0 ] && then_at=$(utc_seconds "$synced_at") && now_at=$(utc_seconds "$(date -u +%Y-%m-%dT%H:%M:%SZ)") &&
       [ $((now_at - then_at)) -gt $((DRIFT_DAYS * 86400)) ]; then
-      check_warn "The last sync was on $synced, $(plural $(((now_at - then_at) / 86400)) 'day ago' 'days ago'). Check that the $TRIGGER runs, or sync now: $RUN $HARNESS"
+      check_warn "The last sync was on $synced, $(plural $(((now_at - then_at) / 86400)) 'day ago' 'days ago'). Check that the $TRIGGER $TRIGGER_RUNS, or sync now: $RUN $HARNESS --now"
     fi
     lock_doctor "$lock" ""
   fi
@@ -2426,42 +2754,49 @@ doctor() {
       fi
       ;;
     hermes)
-      wrapper=$(root_dir hermes)/scripts/contextlocker-sync.sh
-      if [ -f "$wrapper" ] && { grep -Eq 'contextlocker[/\\]+sync\.(sh|ps1)' "$wrapper" || grep -Fq "$INSTALLED" "$wrapper"; }; then
-        check_pass "The daily job's script is at $wrapper."
+      config=$(root_dir hermes)/config.yaml
+      if hermes_hooks_in "$config"; then
+        check_pass "Hermes runs the sync when a session starts and after compaction, from $config."
+        # Hermes runs a hook only once it's approved, in its allowlist or by
+        # hooks_auto_accept
+        allowlist=$(root_dir hermes)/shell-hooks-allowlist.json
+        if ! grep -Eq 'contextlocker[/\\]+sync\.(sh|ps1)' "$allowlist" 2>/dev/null &&
+          ! grep -Eq '^hooks_auto_accept:[[:space:]]*true' "$config" 2>/dev/null; then
+          check_warn "Hermes hasn't approved the hooks yet, so they don't run. Start a hermes chat and approve them when it asks, then check with: hermes hooks list"
+        fi
       else
-        check_fail "The daily job's script isn't at $wrapper. Run: $RUN plan $HARNESS, and save the script it shows."
+        check_fail "Hermes's hooks don't run the sync. Run: $RUN plan $HARNESS, and add the hooks it shows to $config."
       fi
-      # `hermes cron list --all` prints a paragraph per job: its id and state
-      # ([active], [paused], ...), then lines such as "Script: <name>"
-      if ! have hermes; then
-        check_warn "The hermes command isn't on this account's PATH, so the daily job wasn't checked."
-      elif ! hermes cron list --all >"$TMP/jobs" 2>&1; then
-        check_warn "Couldn't list Hermes's jobs, so the daily job wasn't checked."
-      else
-        jobs=$(tr -d '\033' <"$TMP/jobs" | sed 's/\[[0-9;]*m//g' |
-          awk 'BEGIN { RS = ""; ORS = "\n\n" } /contextlocker-sync\.sh/')
-        case $jobs in
-          '') check_fail "Hermes has no job that runs contextlocker-sync.sh. Run: $RUN plan $HARNESS, and add the job it shows." ;;
-          *'[active]'*) check_pass "Hermes has a job that runs contextlocker-sync.sh." ;;
-          *) check_warn "Hermes's job that runs contextlocker-sync.sh is paused or turned off. Run: hermes cron resume $(printf '%s\n' "$jobs" | awk 'NF { print $1; exit }' | clean)" ;;
-        esac
-        grep -q 'Scheduler is not ready' "$TMP/jobs" &&
-          check_warn "Hermes says its scheduler isn't running, so the daily job won't run. Run: hermes cron status"
+      # The daily job from before the hooks, which they replace
+      if have hermes && hermes cron list --all >"$TMP/jobs" 2>/dev/null; then
+        job=$(tr -d '\033' <"$TMP/jobs" | sed 's/\[[0-9;]*m//g' |
+          awk 'BEGIN { RS = "" } /contextlocker-sync\.sh/ { print $1; exit }' | clean)
+        if [ -n "$job" ]; then
+          wrapper=$(root_dir hermes)/scripts/contextlocker-sync.sh
+          if [ -f "$wrapper" ]; then
+            check_warn "Hermes still has the daily job that ran the sync, which the hooks replace. Remove it with: hermes cron remove $job, then delete $wrapper."
+          else
+            check_warn "Hermes still has the daily job that ran the sync, which the hooks replace. Remove it with: hermes cron remove $job"
+          fi
+        fi
       fi
       ;;
     openclaw)
-      # Without --all, OpenClaw lists only the jobs that are turned on
-      if ! have openclaw; then
-        check_warn "The openclaw command isn't on this account's PATH, so the daily job wasn't checked."
-      elif ! listed=$(openclaw cron list --json 2>/dev/null); then
-        check_warn "Couldn't list OpenClaw's jobs. Is its gateway running?"
-      elif printf '%s' "$listed" | grep -Eq 'contextlocker-daily|contextlocker[/\\]+sync\.(sh|ps1)'; then
-        check_pass "OpenClaw has a job that runs the sync."
-      elif openclaw cron list --all --json 2>/dev/null | grep -Eq 'contextlocker-daily|contextlocker[/\\]+sync\.(sh|ps1)'; then
-        check_warn "OpenClaw's job that runs the sync is turned off. Turn it back on in OpenClaw."
+      if openclaw_hook_in; then
+        check_pass "OpenClaw's hook runs the sync, from $OPENCLAW_HOOK."
+        # OpenClaw says whether it's turned on, when it can be asked
+        have openclaw && openclaw hooks info context-locker-sync --json 2>/dev/null |
+          grep -Eq '"enabled"[[:space:]]*:[[:space:]]*false' &&
+          check_warn "OpenClaw's hook isn't turned on, so it doesn't run. Run: openclaw hooks enable context-locker-sync"
       else
-        check_fail "OpenClaw has no job that runs the sync. Run: $RUN plan $HARNESS, and add the job it shows."
+        check_fail "OpenClaw's hook doesn't run the sync. Run: $RUN plan $HARNESS, and save the hook it shows in $OPENCLAW_HOOK."
+      fi
+      # The daily job from before the hook, which it replaces
+      if have openclaw && listed=$(openclaw cron list --all --json 2>/dev/null); then
+        job=$(printf '%s' "$listed" | tr '{' '\n' | grep -E 'contextlocker-daily|contextlocker[/\\]+sync\.(sh|ps1)' |
+          sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1 | clean)
+        [ -n "$job" ] &&
+          check_warn "OpenClaw still has the daily job that ran the sync, which the hook replaces. Remove it with: openclaw cron remove $job"
       fi
       ;;
   esac
@@ -2586,10 +2921,60 @@ readback() {
     [ "$kind" = skill ] || continue
     path=$(resolve "$t") || continue
     [ -f "$path/.ctx-managed" ] || continue
-    about=$(sed -n 's/^description:[[:space:]]*//p' "$path/SKILL.md" 2>/dev/null | head -n 1 | clean)
-    printf -- '- %s, in %s%s\n' "${t##*/}" "$path" "${about:+: $about}"
+    about=$(skill_description "$path/SKILL.md")
+    # The version, which an app sends with a change it suggests to the skill
+    version=$(awk -v t="$t" '$1 == "entry" && $2 == "skill" && $4 == t { print $6; exit }' "$APP_DIR/global.lock" |
+      grep -E '^[0-9]{1,9}$')
+    printf -- '- %s%s, in %s%s\n' "${t##*/}" "${version:+ (version $version)}" "$path" "${about:+: $about}"
   done <"$TMP/wrote-lines"
   return 0
+}
+
+# A skill's description from its front matter, on one line: a value on the
+# description line itself, without quotes around it, or one that runs over
+# the lines under it, as description: > or | writes it
+skill_description() {
+  awk '
+    { sub(/\r$/, "") }
+    NR == 1 { if ($0 != "---") exit; next }
+    /^---[[:space:]]*$/ { exit }
+    taking {
+      if ($0 ~ /^[[:space:]]*$/) next
+      if ($0 !~ /^[[:space:]]/) exit
+      line = $0
+      sub(/^[[:space:]]+/, "", line)
+      text = text (text == "" ? "" : " ") line
+      next
+    }
+    /^description:/ {
+      value = $0
+      sub(/^description:[[:space:]]*/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      if (value == "" || value ~ /^[>|][-+0-9]*$/) { taking = 1; next }
+      text = value
+      exit
+    }
+    END {
+      if (length(text) >= 2 && (text ~ /^".*"$/ || text ~ /^\047.*\047$/)) text = substr(text, 2, length(text) - 2)
+      print text
+    }' "$1" 2>/dev/null | head -n 1 | clean
+}
+
+# After a command an app runs as it works, such as map: a line when the
+# playbook changed the app's files since it last synced, saying to sync now,
+# or when it suits with auto sync off, once for each change. The check is
+# one small request.
+changed_since() {
+  cs_etag=$(sed -n "s/^etag \\($HASH\\)\$/\\1/p" "$APP_DIR/global.lock" 2>/dev/null | head -n 1)
+  [ -n "$cs_etag" ] || return 0
+  cs_code=$(status_of "$(http GET /v1/sync "$TMP/cs-manifest" '' '' "$cs_etag" '' '')")
+  [ "$cs_code" = 200 ] || return 0
+  cs_new=$(files_change "$TMP/cs-manifest" "$APP_DIR/global.lock") && not_told "$cs_new" "$APP_DIR/global" || return 0
+  if grep -qx 'auto-sync off' "$TMP/cs-manifest"; then
+    printf "\nContext Locker: the user's playbook changed since this app last synced. Auto sync is off: run \`%s %s --now\` when it suits.\n" "$RUN" "$HARNESS"
+  else
+    printf "\nContext Locker: the user's playbook changed since this app last synced. Run \`%s %s\` now to bring the changes into its files.\n" "$RUN" "$HARNESS"
+  fi
 }
 
 # Prints the project's map: its docs home, its Start here entries, the notes
@@ -2618,6 +3003,7 @@ map() {
     200)
       # Tabs and line breaks stay; other control characters never show
       tr -d '\000-\010\013-\037\177' <"$TMP/map"
+      changed_since
       return 0
       ;;
     401) printf "Context Locker: this computer's connection for %s was revoked or has expired. Set it up again at context.locker/setup.\n" "$APP_NAME" >&2 ;;
@@ -2679,6 +3065,7 @@ fix_mode() {
     200)
       # Tabs and line breaks stay; other control characters never show
       tr -d '\000-\010\013-\037\177' <"$TMP/fix"
+      [ -z "$FIX_AS" ] && changed_since
       return 0
       ;;
     401) printf "Context Locker: this computer's connection for %s was revoked or has expired. Set it up again at context.locker/setup.\n" "$APP_NAME" >&2 ;;
@@ -3784,6 +4171,19 @@ move_take_back() {
   return 0
 }
 
+# What this run changed in the app's files, such as "its instructions and 2
+# skills", or nothing when it changed nothing
+what_changed() {
+  wc_parts=
+  [ "$W_BLOCKS" -gt 0 ] && wc_parts="its instructions"
+  [ "$W_SKILLS" -gt 0 ] && wc_parts="$wc_parts${wc_parts:+|}$(plural "$W_SKILLS" skill skills)"
+  [ "$W_NOTES" -gt 0 ] && wc_parts="$wc_parts${wc_parts:+|}$(plural "$W_NOTES" note notes)"
+  [ -n "$wc_parts" ] || return 1
+  printf '%s' "$wc_parts" | awk -F '|' '{
+    for (i = 1; i <= NF; i++) printf "%s%s", (i == 1 ? "" : (i == NF ? " and " : ", ")), $i
+  }'
+}
+
 # Lines as one list, such as "a.md, b.md", with control characters taken out
 clean_list() { clean_lines | awk '{ printf "%s%s", (NR > 1 ? ", " : ""), $0 }'; }
 clean_lines() { tr -d '\000-\011\013-\037\177'; }
@@ -3853,6 +4253,21 @@ if newer_script; then
   printf '%s\n' "$NEWER_LINE" >>"$TMP/context"
   context_file=$TMP/context
 fi
+# Then what changed since the last sync, in a line: what the sync brought in,
+# or with auto sync off, that changes are waiting, then any edit kept beside
+# its note
+: >"$TMP/changed"
+if [ "$CHANGES_WAITING" = 1 ]; then
+  printf "Context Locker: the user's playbook changed since this app last synced. Auto sync is off, so its files stay as they are until it syncs: run \`%s %s --now\` when it suits.\n" "$RUN" "$HARNESS" >"$TMP/changed"
+elif brought=$(what_changed); then
+  printf "Context Locker: the user's playbook changed since this app last synced, and the sync brought the changes in: %s.\n" "$brought" >"$TMP/changed"
+fi
+cat "$TMP/said" >>"$TMP/changed"
+if [ -s "$TMP/changed" ]; then
+  [ -n "$context_file" ] && printf '\n' >>"$TMP/context"
+  cat "$TMP/changed" >>"$TMP/context"
+  context_file=$TMP/context
+fi
 
 if [ "$DAILY" = 1 ]; then
   if [ "$FAILED" = 1 ]; then
@@ -3863,6 +4278,9 @@ if [ "$DAILY" = 1 ]; then
 fi
 
 [ -s "$TMP/warnings" ] && cat "$TMP/warnings" >&2
+
+# Hermes's and OpenClaw's hooks don't read what a sync prints
+[ "$QUIET" = 1 ] && exit 0
 
 json_escape() {
   awk 'BEGIN { ORS = "" }
