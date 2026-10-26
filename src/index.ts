@@ -103,6 +103,22 @@ export {
   writeTar,
 } from "./tar.js";
 export type { TarEntry } from "./tar.js";
+export {
+  HOOK_EVENTS,
+  OPENCLAW_HOOK_NAME,
+  SYNC_SCRIPT_PATTERN,
+  hermesHookCommand,
+  hermesHookYaml,
+  hookArgs,
+  hookRun,
+  installedScript,
+  openclawHandler,
+  openclawHookMd,
+  scriptName,
+  sessionStartHook,
+  shellQuote,
+} from "./hooks.js";
+export type { HookShell, HookTarget, SessionStartHook } from "./hooks.js";
 export { injectionMatches } from "./threats.js";
 export { COMPILED_HARNESSES, isCompiledHarness } from "./types.js";
 export type {

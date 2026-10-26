@@ -8,7 +8,9 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Ask your AI app to follow the steps at `https://context.locker/setup/v12/SKILL.md`. The steps download the script, check its hash, sign the app in with a link and a code you approve, or with a one-time code you made in Context Locker, show what a sync would write, run Gather once to bring in what your AI apps already know, and add hooks so the app syncs on its own events, such as the start of a session. The same files are in [`setup/v12`](setup/v12). An app that can't run commands, such as Claude or ChatGPT in a browser, connects over MCP instead, at `https://mcp.context.locker`.
+Paste this line into Claude Code, Codex, Hermes or OpenClaw, on your computer or a server that stays up: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v14`](setup/v14). Or run `npx context-locker setup` yourself. The command finds every AI app on the computer that setup works for, and connects them all with one approval in your browser, or one app with a one-time code you made in Context Locker. Then it saves the sync script, writes each app's files, adds hooks so each app syncs on its own events, such as the start of a session, and runs the doctor. The app then runs Gather once, to bring in what your AI apps already know. Without Node, the steps have the app download the script, check its hash, sign in, show what a sync would write and add the hooks itself.
+
+Any other app connects over MCP instead, at `https://mcp.context.locker`, even one that can run commands, such as Claude in Cowork. The steps say how to add it in Claude and ChatGPT, as [context.locker/docs](https://context.locker/docs) does.
 
 A published version never changes. When a script changes, it's published as a new version, with the hashes of its files in its `SKILL.md`. The tests fail until the newest version matches the scripts in [`scripts`](scripts).
 
@@ -51,7 +53,7 @@ sh ~/.contextlocker/sync.sh gather codex                     # copies every AI a
 sh ~/.contextlocker/sync.sh gather-submit codex <plan.json>  # sends the plan you approved
 ```
 
-`gather` only reads. It copies each app's instructions, skills and memories, and the project's own, into a folder only this account can read, and lists every source with its app, kind, path, date and hash. It follows no links, leaves out files over 4 MB and anything past 64 MB in all, as one plan holds, and never copies a file that looks like it holds a secret: every file it leaves out is listed with the reason. Your agent merges the sources into one plan with the `context-locker-gather` skill, you approve the plan once, and `gather-submit` sends it. The working sets are deleted once the plan is in.
+`gather` only reads. It copies each app's instructions, skills and memories, and the project's own, into a folder only this account can read, and lists every source with its app, kind, path, date and hash. It follows no links, leaves out files over 4 MB and anything past 64 MB in all, as one plan holds, and never copies a file with a password, key or token that could work. A placeholder, such as `your-api-key-here`, or a value cut short or masked, such as `sk-live-abc...`, doesn't count: Context Locker checks those when the plan comes in, as it does for every change. Every file it leaves out is listed with the reason. Your agent merges the sources into one plan with the `context-locker-gather` skill, you approve the plan once, and `gather-submit` sends it. The working sets are deleted once the plan is in.
 
 Two more modes take things out:
 
@@ -99,6 +101,8 @@ Facts in About come first, under `### About the user` in an app's own files and 
 A managed block sits between `<!-- context-locker:start v1 -->` and `<!-- context-locker:end -->`, and nothing outside the markers changes. Each block has a size limit for its app (see `BUDGETS`). Preferences that don't fit are counted in a line saying where they are, and a repo's `AGENTS.md` block leaves out wording that Hermes would refuse, saying so in the block.
 
 A project's block also carries its map: up to 10 Start here entries, notes or pointers, and once the project has a docs home, where its lasting docs go. A pointer stands in for a note kept somewhere else, a file in the repo or a page on the web, and the block links to its address. Every entry goes through the same filter as the rest of the block, as an AI app may have written it.
+
+The hooks setup adds for each app come from [`src/hooks.ts`](src/hooks.ts), which the setup command uses too. They're the same hooks each script's `plan` shows.
 
 Every app's sync also writes Context Locker's own skill, `context-locker-gather` (see [`src/gather.ts`](src/gather.ts)), with the steps for Gather. Skill names that start with `context-locker-` are kept for Context Locker's own.
 

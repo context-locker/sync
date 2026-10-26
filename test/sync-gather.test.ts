@@ -86,7 +86,12 @@ const SECRET_VALUES = [
 
 const SECRET_EXAMPLES = JSON.parse(
   readFileSync(new URL("./secret-examples.json", import.meta.url), "utf8"),
-) as Array<{ name: string; text: string; kind: string | null }>;
+) as Array<{
+  name: string;
+  text: string;
+  kind: string | null;
+  evidence?: "cut short" | "masked";
+}>;
 
 /** Writes a file, making its folders */
 function put(path: string, content: string | Buffer) {
@@ -625,7 +630,9 @@ describe("gather, and gather-submit", () => {
         const out = rows(join(set, "left-out.tsv"));
         for (const [index, example] of SECRET_EXAMPLES.entries()) {
           const path = `~/.codex/memories/example-${index}.md`;
-          if (example.kind === null) {
+          // A value cut short or masked is copied, for Context Locker to
+          // check when the plan comes in, with it hidden
+          if (example.kind === null || example.evidence) {
             assert.ok(
               sources.some((row) => row.path === path),
               example.name,

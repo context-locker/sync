@@ -100,7 +100,7 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=11
+SCRIPT_VERSION=12
 MODE=sync
 case ${1:-} in
   signin | plan | doctor | readback | map | gather | gather-submit | export | notes-move-out | fix)
@@ -3222,9 +3222,76 @@ EOF
 # it checks starts with a line break, so a name counts at the start of a
 # line too, without the ^ that macOS's awk can't match inside a group. And
 # match() is given a variable, as macOS's awk places a match in what a
-# function returned at -1.
+# function returned at -1. As the API does, it takes a value that says
+# outright it's a placeholder, such as your-api-key-here or ********, for
+# none, and copies one cut short or masked, such as sk-live-abc..., with too
+# little of it left to work: Context Locker checks that when the plan comes
+# in, with the value hidden.
 g_assignment_secret() {
-  LC_ALL=C awk '
+  LC_ALL=C awk -v bullet="$(printf '\342\200\242')" -v ellipsis="$(printf '\342\200\246')" '
+    function placeholder_words(   n, i, w) {
+      n = split("your my our the an api key keys secret secrets token tokens password passwords passwd pass passphrase pwd access auth client private public here goes example examples sample samples dummy fake placeholder changeme change replace insert put enter me this with value redacted todo tbd sk pk rk live prod dev staging app service account bot webhook signing id own real actual new", w, " ")
+      for (i = 1; i <= n; i++) {
+        ph_words[w[i]] = 1
+        if (length(w[i]) > ph_longest) ph_longest = length(w[i])
+      }
+      n = split("your my here example examples sample samples dummy fake placeholder changeme replace insert enter redacted todo tbd", w, " ")
+      for (i = 1; i <= n; i++) ph_markers[w[i]] = 1
+    }
+    # A run of letters and digits split into placeholder words, as the API
+    # splits it, noting any word that says it is a placeholder
+    function placeholder_token(t,   len, e, s, from) {
+      if (t ~ /^xx+$/) { ph_marked = 1; return 1 }
+      len = length(t)
+      split("", ph_ok); split("", ph_prev)
+      ph_ok[0] = 1
+      for (e = 1; e <= len; e++) {
+        ph_ok[e] = 0
+        from = e - ph_longest
+        if (from < 0) from = 0
+        for (s = from; s < e; s++) {
+          if (ph_ok[s] && (substr(t, s + 1, e - s) in ph_words)) { ph_ok[e] = 1; ph_prev[e] = s; break }
+        }
+      }
+      if (!ph_ok[len]) return 0
+      for (e = len; e > 0; e = ph_prev[e]) {
+        if (substr(t, ph_prev[e] + 1, e - ph_prev[e]) in ph_markers) ph_marked = 1
+      }
+      return 1
+    }
+    function placeholder(v,   n, i, part, any) {
+      if (v ~ mask_only) return 1
+      if (length(v) > 100) return 0
+      n = split(tolower(v), part, /[^a-z0-9]+/)
+      ph_marked = 0
+      any = 0
+      for (i = 1; i <= n; i++) {
+        if (part[i] == "") continue
+        any = 1
+        if (!placeholder_token(part[i])) return 0
+      }
+      return any && ph_marked
+    }
+    # Letters and digits left in a value once some parts of it are taken out
+    function showing(v, taken) {
+      gsub(taken, "", v)
+      gsub(/[^A-Za-z0-9]/, "", v)
+      return length(v)
+    }
+    function cut_or_masked(v,   lowered) {
+      lowered = tolower(v)
+      if (lowered ~ cut && showing(lowered, cut) <= 16) return 1
+      if (v ~ mask && showing(v, mask) <= 16) return 1
+      return 0
+    }
+    BEGIN {
+      placeholder_words()
+      run = "([xX]+|\\*+|(" bullet ")+|0+)"
+      mask_only = "^" run "([-_.: ]" run ")*$"
+      mark = "(x|X|\\*|" bullet ")"
+      mask = mark mark mark mark "+"
+      cut = "\\.\\.\\.+|" ellipsis "|\\[[[:space:]]*(\\.\\.\\.|" ellipsis "|truncated|cut|snip)[[:space:]]*\\]|\\([[:space:]]*(truncated|cut|snip)[[:space:]]*\\)"
+    }
     BEGIN {
       sq = sprintf("%c", 39); bt = sprintf("%c", 96)
       key = "[^A-Za-z0-9_](password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)[\"" sq "]?[[:space:]]*"
@@ -3264,6 +3331,7 @@ g_assignment_secret() {
           if (value ~ /^(this\.)?(env|process\.env|import\.meta\.env)\.[A-Za-z_$][A-Za-z0-9_$]*$/ &&
               (tail == "" || tail ~ /^\r?\n/ || substr(tail, 1, 2) == "//" || index(",;)}]", substr(tail, 1, 1)))) continue
         }
+        if (placeholder(value) || cut_or_masked(value)) continue
         found = 1
         exit
       }
