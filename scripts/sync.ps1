@@ -118,7 +118,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 12
+$ScriptVersion = 13
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -3338,7 +3338,7 @@ function Copy-GatherFile([string]$App, [string]$Kind, [string]$Root, [string]$Re
   foreach ($part in $Rel.Split('/')) {
     $cur = Join-Path $cur $part
     $item = Get-Item -LiteralPath $cur -Force -ErrorAction SilentlyContinue
-    if (-not $item) { return }
+    if (-not $item) { if ($Kind -ceq 'skill') { Add-LeftOut $App $Kind $path 'unreadable' 'it disappeared while collecting' }; return }
     if (Test-ReparsePoint $item) { Add-LeftOut $App $Kind $cur 'link' $GatherLink; return }
   }
   if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return }
@@ -3349,7 +3349,7 @@ function Copy-GatherFile([string]$App, [string]$Kind, [string]$Root, [string]$Re
     return
   }
   try { $bytes = [IO.File]::ReadAllBytes($path) } catch { Add-LeftOut $App $Kind $path 'unreadable' "it couldn't be read"; return }
-  if ((Split-Path -Leaf $path).ToLowerInvariant() -match $BinaryNames -or [Array]::IndexOf($bytes, [byte]0) -ge 0) {
+  if ($Kind -cne 'skill' -and ((Split-Path -Leaf $path).ToLowerInvariant() -match $BinaryNames -or [Array]::IndexOf($bytes, [byte]0) -ge 0)) {
     Add-LeftOut $App $Kind $path 'binary' "it isn't a text file"
     return
   }
@@ -3361,7 +3361,7 @@ function Copy-GatherFile([string]$App, [string]$Kind, [string]$Root, [string]$Re
     $text = Remove-Blocks $text
     $copy = $Utf8.GetBytes($text)
   }
-  if ($text.Trim() -eq '') {
+  if ($Kind -cne 'skill' -and $text.Trim() -eq '') {
     if ($note -eq 'cut') { Add-LeftOut $App $Kind $path 'own' "it holds only Context Locker's own block" }
     else { Add-LeftOut $App $Kind $path 'empty' "it's empty" }
     return
@@ -3395,14 +3395,15 @@ function Copy-GatherFile([string]$App, [string]$Kind, [string]$Root, [string]$Re
 # skipped, and no link is entered. -Text leaves out names that can't hold
 # instructions, but every link is listed, whatever its name, so
 # Copy-GatherFile says it wasn't followed.
-function Get-GatherPaths([string]$Dir, [int]$Depth, [switch]$Text) {
+function Get-GatherPaths([string]$Dir, [int]$Depth, [switch]$Text, [switch]$Whole) {
   $found = New-Object System.Collections.Generic.List[string]
   $walk = {
     param([string]$Full, [string]$Rel, [int]$Level)
-    foreach ($item in @(Get-ChildItem -LiteralPath $Full -Force -ErrorAction SilentlyContinue)) {
+    foreach ($item in @(Get-ChildItem -LiteralPath $Full -Force -ErrorAction $(if ($Whole) { 'Stop' } else { 'SilentlyContinue' }))) {
       $name = $item.Name
-      if ($name.StartsWith('.') -or $name -ceq 'node_modules' -or $name -ceq '__pycache__') { continue }
+      if (-not $Whole -and ($name.StartsWith('.') -or $name -ceq 'node_modules' -or $name -ceq '__pycache__')) { continue }
       $relPath = if ($Rel) { "$Rel/$name" } else { $name }
+      if ($Whole -and ($name -cnotmatch '^[A-Za-z0-9._-]+$' -or $relPath.Length -gt 200 -or $Level -gt 8)) { throw 'A package path is unsupported.' }
       $wanted = (-not $Text) -or ($name.ToLowerInvariant() -match $TextNames)
       if (Test-ReparsePoint $item) { $found.Add($relPath); continue }
       if ($item.PSIsContainer) {
@@ -3448,11 +3449,33 @@ function Copy-GatherSkill([string]$App, [string]$Root, [string]$Sub, [string]$Pr
       }
     }
   }
-  $before = $Script:GatherSources.Count
-  foreach ($rel in (Get-GatherPaths $dir 8)) {
-    Copy-GatherFile $App 'skill' $Root "$Sub/$rel" $Prefix
+  try { $paths = Get-GatherPaths $dir 9 -Whole } catch {
+    Add-LeftOut $App 'skill' $dir 'package' 'the whole package is deferred: its files could not all be listed or a path is unsupported'
+    return
   }
-  if ($Script:GatherSources.Count -gt $before) { $Script:GatherSkills.Add($App) }
+  if ($paths.Count -lt 1 -or $paths.Count -gt 1000) {
+    Add-LeftOut $App 'skill' $dir 'package' 'the whole package is deferred: a skill needs 1 to 1,000 files'
+    return
+  }
+  $before = $Script:GatherSources.Count
+  $copied = $Script:GatherCopied.Count
+  $left = $Script:GatherOut.Count
+  $total = $Script:GatherTotal
+  $full = $Script:GatherFull
+  foreach ($rel in $paths) {
+    Copy-GatherFile $App 'skill' $Root "$Sub/$rel" $Prefix
+    if ($Script:GatherOut.Count -ne $left -or $Script:GatherTotal - $total -gt 10485760) { break }
+  }
+  if ($Script:GatherOut.Count -ne $left -or $Script:GatherTotal - $total -gt 10485760 -or $Script:GatherSources.Count - $before -ne $paths.Count) {
+    # Only this package's private copies are removed, never its source files.
+    $dest = Join-Path $Script:GatherSet ("$Prefix/$Sub" -replace '/', [IO.Path]::DirectorySeparatorChar)
+    if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
+    $Script:GatherSources.RemoveRange($before, $Script:GatherSources.Count - $before)
+    $Script:GatherCopied.RemoveRange($copied, $Script:GatherCopied.Count - $copied)
+    $Script:GatherTotal = $total
+    $Script:GatherFull = $full
+    Add-LeftOut $App 'skill' $dir 'package' 'the whole package is deferred: a file was blocked or the package exceeds 10 MB; no files from it were kept'
+  } else { $Script:GatherSkills.Add($App) }
 }
 
 # The skills in <root>/<sub>: each folder in it with a SKILL.md, or with

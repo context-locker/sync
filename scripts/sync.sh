@@ -100,7 +100,7 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=12
+SCRIPT_VERSION=13
 MODE=sync
 case ${1:-} in
   signin | plan | doctor | readback | map | gather | gather-submit | export | notes-move-out | fix)
@@ -3381,9 +3381,9 @@ g_file() {
       g_out "$gf_app" "$gf_kind" "$gf_cur" link "$G_LINK"
       return 0
     fi
-    [ -e "$gf_cur" ] || return 0
+    [ -e "$gf_cur" ] || { [ "$gf_kind" != skill ] || g_out "$gf_app" "$gf_kind" "$gf_path" unreadable "it disappeared while collecting"; return 0; }
   done
-  [ -f "$gf_path" ] || return 0
+  [ -f "$gf_path" ] || { [ "$gf_kind" != skill ] || g_out "$gf_app" "$gf_kind" "$gf_path" unreadable "it is not a regular file"; return 0; }
   if [ "$G_FULL" = 1 ]; then
     g_out "$gf_app" "$gf_kind" "$gf_path" total "Gather takes at most $((GATHER_MOST / 1048576)) MB in all, and it had that much"
     return 0
@@ -3399,7 +3399,7 @@ g_file() {
     g_out "$gf_app" "$gf_kind" "$gf_path" size "it's $(((gf_size + 1023) / 1024)) KB, and Gather takes files of up to 4 MB"
     return 0
   fi
-  if g_binary "$gf_path"; then
+  if [ "$gf_kind" != skill ] && g_binary "$gf_path"; then
     g_out "$gf_app" "$gf_kind" "$gf_path" binary "it isn't a text file"
     return 0
   fi
@@ -3413,7 +3413,7 @@ g_file() {
     g_out "$gf_app" "$gf_kind" "$gf_path" unreadable "it couldn't be read"
     return 0
   }
-  if ! LC_ALL=C grep -q '[^[:space:]]' "$TMP/g-copy"; then
+  if [ "$gf_kind" != skill ] && ! LC_ALL=C grep -q '[^[:space:]]' "$TMP/g-copy"; then
     if [ "$gf_note" = cut ]; then
       g_out "$gf_app" "$gf_kind" "$gf_path" own "it holds only Context Locker's own block"
     else
@@ -3483,14 +3483,50 @@ g_skill() {
     g_out "$gk_app" skill "$gk_dir" bundled "it came with the app"
     return 0
   fi
-  (cd "$gk_dir" 2>/dev/null && find . -maxdepth 8 \( ! -name . \( -name '.*' -o -name node_modules -o -name __pycache__ \) \) -prune -o \
-    \( -type f -o -type l \) -print) | sed 's|^\./||' | LC_ALL=C sort >"$TMP/g-skill"
+  # Enumerate the whole package, including hidden files and assets. Do not
+  # follow links. Unrepresentable names defer it before line-based traversal.
+  if ! (cd "$gk_dir" && LC_ALL=C find . ! -name . -name '*[!A-Za-z0-9._-]*' -print) >"$TMP/g-bad-paths" 2>/dev/null || [ -s "$TMP/g-bad-paths" ]; then
+    g_out "$gk_app" skill "$gk_dir" package "the whole package is deferred: a path is unreadable or has unsupported characters"
+    return 0
+  fi
+  if ! (cd "$gk_dir" && find . ! -type d -print) >"$TMP/g-skill-raw" 2>/dev/null; then
+    g_out "$gk_app" skill "$gk_dir" package "the whole package is deferred: its files could not all be listed"
+    return 0
+  fi
+  sed 's|^\./||' "$TMP/g-skill-raw" | LC_ALL=C sort >"$TMP/g-skill"
+  gk_count=$(wc -l <"$TMP/g-skill")
+  if [ "$gk_count" -gt 1000 ] || [ "$gk_count" -eq 0 ]; then
+    g_out "$gk_app" skill "$gk_dir" package "the whole package is deferred: a skill needs 1 to 1,000 files"
+    return 0
+  fi
+  cp "$G_WS/sources.tsv" "$TMP/g-skill-sources"
+  cp "$TMP/g-copied" "$TMP/g-skill-copied"
   gk_before=$(wc -l <"$G_WS/sources.tsv")
+  gk_out=$(wc -l <"$G_WS/left-out.tsv")
+  gk_total=$G_TOTAL gk_full=$G_FULL
   while IFS= read -r gk_rel <&6; do
     [ -n "$gk_rel" ] || continue
+    gk_depth=$(printf '%s' "$gk_rel" | awk -F/ '{print NF}')
+    if [ "$gk_depth" -gt 8 ] || [ "${#gk_rel}" -gt 200 ]; then
+      g_out "$gk_app" skill "$gk_dir/$gk_rel" path "the path is longer or deeper than a skill can hold"
+      break
+    fi
     g_file "$gk_app" skill "$gk_root" "$gk_sub/$gk_rel" "$gk_copy"
+    [ "$(wc -l <"$G_WS/left-out.tsv")" -eq "$gk_out" ] || break
+    [ $((G_TOTAL - gk_total)) -le 10485760 ] || break
   done 6<"$TMP/g-skill"
-  [ "$(wc -l <"$G_WS/sources.tsv")" -gt "$gk_before" ] && printf '%s\n' "$gk_app" >>"$TMP/g-skills"
+  if [ "$(wc -l <"$G_WS/left-out.tsv")" -ne "$gk_out" ] ||
+    [ $((G_TOTAL - gk_total)) -gt 10485760 ] ||
+    [ $(( $(wc -l <"$G_WS/sources.tsv") - gk_before )) -ne "$gk_count" ]; then
+    # Delete only copies made in this private working set, never the source.
+    rm -rf "${G_WS:?}/$gk_copy/$gk_sub"
+    cp "$TMP/g-skill-sources" "$G_WS/sources.tsv"
+    cp "$TMP/g-skill-copied" "$TMP/g-copied"
+    G_TOTAL=$gk_total G_FULL=$gk_full
+    g_out "$gk_app" skill "$gk_dir" package "the whole package is deferred: a file was blocked or the package exceeds 10 MB; no files from it were kept"
+  else
+    printf '%s\n' "$gk_app" >>"$TMP/g-skills"
+  fi
   return 0
 }
 
