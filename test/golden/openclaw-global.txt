@@ -25,5 +25,5 @@ item: 44444444-4444-4444-8444-444444444444@2
 files: SKILL.md, references/checklist.md
 
 == skill {agents}/skills/context-locker-gather
-item: c0de0000-6a7e-4e00-8000-000000000001@8
+item: c0de0000-6a7e-4e00-8000-000000000001@9
 files: SKILL.md, references/plan.md

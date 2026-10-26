@@ -182,7 +182,7 @@ function globalSkills(
     notes:
       clash.length > 0
         ? [
-            `Your skill ${GATHER_SKILL_NAME} has the name of Context Locker's own Gather skill, so it was left out of ${NAMES[harness]}'s files.`,
+            `Your skill ${GATHER_SKILL_NAME} has the name of Context Locker's own Import skill, so it was left out of ${NAMES[harness]}'s files.`,
           ]
         : [],
   };

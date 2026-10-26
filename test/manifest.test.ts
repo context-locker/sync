@@ -52,7 +52,7 @@ describe("the sync manifest", () => {
         gather?.kind === "skill",
     );
 
-    // Context Locker's own Gather skill goes with the person's
+    // Context Locker's own Import skill goes with the person's
     assert.equal(
       manifest.text,
       [
