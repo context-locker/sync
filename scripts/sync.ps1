@@ -118,7 +118,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 12
+$ScriptVersion = 14
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -3230,7 +3230,7 @@ function Remove-Blocks([string]$Text) {
 # placeholder words, such as your-api-key-here, with at least one that says
 # it's a placeholder
 $PlaceholderWords = New-Object 'Collections.Generic.HashSet[string]'
-foreach ($word in ('your my our the an api key keys secret secrets token tokens password passwords passwd pass passphrase pwd access auth client private public here goes example examples sample samples dummy fake placeholder changeme change replace insert put enter me this with value redacted todo tbd sk pk rk live prod dev staging app service account bot webhook signing id own real actual new' -split ' ')) { [void]$PlaceholderWords.Add($word) }
+foreach ($word in ('your my our the an api key keys secret secrets token tokens password passwords passwd pass passphrase pwd access auth client private public here goes example examples sample samples dummy fake placeholder changeme change replace insert put enter me this with value redacted todo tbd sk pk rk live prod dev staging app service account bot webhook signing id own real actual new turn' -split ' ')) { [void]$PlaceholderWords.Add($word) }
 $PlaceholderMarkers = New-Object 'Collections.Generic.HashSet[string]'
 foreach ($word in ('your my here example examples sample samples dummy fake placeholder changeme replace insert enter redacted todo tbd' -split ' ')) { [void]$PlaceholderMarkers.Add($word) }
 $LongestPlaceholderWord = 0
@@ -3286,12 +3286,32 @@ function Test-CutOrMasked([string]$Value) {
 # placeholder that says so isn't a secret, and a value cut short or masked is
 # copied, for Context Locker to check, with the value hidden, when the plan
 # comes in.
+# Keep this bounded expression grammar in step with the API and sync.sh.
+$ReferenceName = '[A-Za-z_$][\w$]*'
+$ReferenceKey = '(?:"[A-Za-z_][\w]*"|''[A-Za-z_][\w]*'')'
+$ReferenceValue = '(?:(?:this\.)?(?:env|process\.env|import\.meta\.env|cred|credentials|config|data|secret|random_id)(?:\.' + $ReferenceName + ')+|[A-Z_][A-Z0-9_]*_(?:API_KEY|TOKEN|SECRET|PASSWORD)|os\.environ\[' + $ReferenceKey + '\]|(?:os\.environ\.get|os\.getenv|config\.(?:requireSecret|getSecret))\(' + $ReferenceKey + '\))'
+$SafeReference = '^' + $ReferenceValue + '(?:[ \t]*(?:\|\||\?\?|or)[ \t]*' + $ReferenceValue + ')*(?:[ \t]*(?:\|\||\?\?|or)[ \t]*(?:""|''''))?[ \t]*(?=[,;)}\]\x60]|//|\r?\n|$)'
+$PublicTestKeys = @('1x0000000000000000000000000000000AA', '2x0000000000000000000000000000000AA', '3x0000000000000000000000000000000AA')
+
+function Test-ReferencePassword([string]$Address) {
+  $credentials = $Address.Substring($Address.IndexOf('://') + 3).TrimEnd('@')
+  $password = $credentials.Substring($credentials.IndexOf(':') + 1)
+  return $password -cmatch '^\$\{[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\}$'
+}
+
 function Test-AssignmentSecret([string]$Text) {
   $names = '(?i)\b(?:password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)["'']?\s*[:=]\s*'
   foreach ($match in [regex]::Matches($Text, $names)) {
     $rest = $Text.Substring($match.Index + $match.Length)
     $quoted = $rest -cmatch '^["''\x60]'
     $quote = if ($quoted) { $rest.Substring(0, 1) } else { '' }
+    if (-not $quoted) {
+      $bounded = $rest.Substring(0, [Math]::Min(512, $rest.Length))
+      $reference = [regex]::Match($bounded, $SafeReference)
+      if ($reference.Success -and ($reference.Length -lt $bounded.Length -or $rest.Length -le 512)) { continue }
+    }
+    $prefix = $Text.Substring([Math]::Max(0, $match.Index - 12), [Math]::Min(12, $match.Index))
+    if ($prefix -imatch '\bSet $' -and $rest -cmatch '^(?:npx[ \t]+)?wrangler[ \t]+secret[ \t]+put[ \t]+[A-Z_][A-Z0-9_]*[ \t]*(?:\r?\n|$)') { continue }
     $start = $rest.Substring([int]$quoted)
     if ($start.Length -gt 512) { $start = $start.Substring(0, 512) }
     if ($quoted) {
@@ -3308,6 +3328,8 @@ function Test-AssignmentSecret([string]$Text) {
       if ($value -cmatch '^(?:this\.)?(?:env|process\.env|import\.meta\.env)\.[A-Za-z_$][A-Za-z0-9_$]*$' -and
           $rest.Substring($value.Length) -cmatch '^[ \t]*(?:[,;)}\]]|//|\r?\n|$)') { continue }
     }
+    if ($PublicTestKeys -ccontains $value) { continue }
+    if ($match.Value -imatch '^api[_-]?key' -and $value -cmatch '^(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{1,15}$') { continue }
     if ((Test-Placeholder $value) -or (Test-CutOrMasked $value)) { continue }
     return $true
   }
@@ -3319,7 +3341,10 @@ function Test-AssignmentSecret([string]$Text) {
 function Get-Secret([string]$Text) {
   $flat = $Text.Replace("`r", ' ').Replace("`n", ' ')
   foreach ($entry in $SecretRegexes) {
-    if ($entry[1].IsMatch($flat)) { return $entry[0] }
+    foreach ($match in $entry[1].Matches($flat)) {
+      if ($entry[0] -eq 'a password in an address' -and (Test-ReferencePassword $match.Value)) { continue }
+      return $entry[0]
+    }
   }
   if (Test-AssignmentSecret $Text) { return 'a password or key' }
   return ''
@@ -3338,7 +3363,7 @@ function Copy-GatherFile([string]$App, [string]$Kind, [string]$Root, [string]$Re
   foreach ($part in $Rel.Split('/')) {
     $cur = Join-Path $cur $part
     $item = Get-Item -LiteralPath $cur -Force -ErrorAction SilentlyContinue
-    if (-not $item) { return }
+    if (-not $item) { if ($Kind -ceq 'skill') { Add-LeftOut $App $Kind $path 'unreadable' 'it disappeared while collecting' }; return }
     if (Test-ReparsePoint $item) { Add-LeftOut $App $Kind $cur 'link' $GatherLink; return }
   }
   if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return }
@@ -3349,7 +3374,7 @@ function Copy-GatherFile([string]$App, [string]$Kind, [string]$Root, [string]$Re
     return
   }
   try { $bytes = [IO.File]::ReadAllBytes($path) } catch { Add-LeftOut $App $Kind $path 'unreadable' "it couldn't be read"; return }
-  if ((Split-Path -Leaf $path).ToLowerInvariant() -match $BinaryNames -or [Array]::IndexOf($bytes, [byte]0) -ge 0) {
+  if ($Kind -cne 'skill' -and ((Split-Path -Leaf $path).ToLowerInvariant() -match $BinaryNames -or [Array]::IndexOf($bytes, [byte]0) -ge 0)) {
     Add-LeftOut $App $Kind $path 'binary' "it isn't a text file"
     return
   }
@@ -3361,7 +3386,7 @@ function Copy-GatherFile([string]$App, [string]$Kind, [string]$Root, [string]$Re
     $text = Remove-Blocks $text
     $copy = $Utf8.GetBytes($text)
   }
-  if ($text.Trim() -eq '') {
+  if ($Kind -cne 'skill' -and $text.Trim() -eq '') {
     if ($note -eq 'cut') { Add-LeftOut $App $Kind $path 'own' "it holds only Context Locker's own block" }
     else { Add-LeftOut $App $Kind $path 'empty' "it's empty" }
     return
@@ -3395,14 +3420,15 @@ function Copy-GatherFile([string]$App, [string]$Kind, [string]$Root, [string]$Re
 # skipped, and no link is entered. -Text leaves out names that can't hold
 # instructions, but every link is listed, whatever its name, so
 # Copy-GatherFile says it wasn't followed.
-function Get-GatherPaths([string]$Dir, [int]$Depth, [switch]$Text) {
+function Get-GatherPaths([string]$Dir, [int]$Depth, [switch]$Text, [switch]$Whole) {
   $found = New-Object System.Collections.Generic.List[string]
   $walk = {
     param([string]$Full, [string]$Rel, [int]$Level)
-    foreach ($item in @(Get-ChildItem -LiteralPath $Full -Force -ErrorAction SilentlyContinue)) {
+    foreach ($item in @(Get-ChildItem -LiteralPath $Full -Force -ErrorAction $(if ($Whole) { 'Stop' } else { 'SilentlyContinue' }))) {
       $name = $item.Name
-      if ($name.StartsWith('.') -or $name -ceq 'node_modules' -or $name -ceq '__pycache__') { continue }
+      if (-not $Whole -and ($name.StartsWith('.') -or $name -ceq 'node_modules' -or $name -ceq '__pycache__')) { continue }
       $relPath = if ($Rel) { "$Rel/$name" } else { $name }
+      if ($Whole -and ($name -cnotmatch '^[A-Za-z0-9._-]+$' -or $relPath.Length -gt 200 -or $Level -gt 8)) { throw 'A package path is unsupported.' }
       $wanted = (-not $Text) -or ($name.ToLowerInvariant() -match $TextNames)
       if (Test-ReparsePoint $item) { $found.Add($relPath); continue }
       if ($item.PSIsContainer) {
@@ -3448,11 +3474,33 @@ function Copy-GatherSkill([string]$App, [string]$Root, [string]$Sub, [string]$Pr
       }
     }
   }
-  $before = $Script:GatherSources.Count
-  foreach ($rel in (Get-GatherPaths $dir 8)) {
-    Copy-GatherFile $App 'skill' $Root "$Sub/$rel" $Prefix
+  try { $paths = Get-GatherPaths $dir 9 -Whole } catch {
+    Add-LeftOut $App 'skill' $dir 'package' 'the whole package is deferred: its files could not all be listed or a path is unsupported'
+    return
   }
-  if ($Script:GatherSources.Count -gt $before) { $Script:GatherSkills.Add($App) }
+  if ($paths.Count -lt 1 -or $paths.Count -gt 1000) {
+    Add-LeftOut $App 'skill' $dir 'package' 'the whole package is deferred: a skill needs 1 to 1,000 files'
+    return
+  }
+  $before = $Script:GatherSources.Count
+  $copied = $Script:GatherCopied.Count
+  $left = $Script:GatherOut.Count
+  $total = $Script:GatherTotal
+  $full = $Script:GatherFull
+  foreach ($rel in $paths) {
+    Copy-GatherFile $App 'skill' $Root "$Sub/$rel" $Prefix
+    if ($Script:GatherOut.Count -ne $left -or $Script:GatherTotal - $total -gt 10485760) { break }
+  }
+  if ($Script:GatherOut.Count -ne $left -or $Script:GatherTotal - $total -gt 10485760 -or $Script:GatherSources.Count - $before -ne $paths.Count) {
+    # Only this package's private copies are removed, never its source files.
+    $dest = Join-Path $Script:GatherSet ("$Prefix/$Sub" -replace '/', [IO.Path]::DirectorySeparatorChar)
+    if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
+    $Script:GatherSources.RemoveRange($before, $Script:GatherSources.Count - $before)
+    $Script:GatherCopied.RemoveRange($copied, $Script:GatherCopied.Count - $copied)
+    $Script:GatherTotal = $total
+    $Script:GatherFull = $full
+    Add-LeftOut $App 'skill' $dir 'package' 'the whole package is deferred: a file was blocked or the package exceeds 10 MB; no files from it were kept'
+  } else { $Script:GatherSkills.Add($App) }
 }
 
 # The skills in <root>/<sub>: each folder in it with a SKILL.md, or with

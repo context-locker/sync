@@ -90,7 +90,7 @@ const SECRET_EXAMPLES = JSON.parse(
   name: string;
   text: string;
   kind: string | null;
-  evidence?: "cut short" | "masked";
+  evidence?: "cut short" | "masked" | "short provider key";
 }>;
 
 /** Writes a file, making its folders */
@@ -198,6 +198,11 @@ describe("gather, and gather-submit", () => {
     );
     put(join(claude, "skills", "my-skill", "data.txt"), Buffer.from("a\0b"));
     put(join(claude, "skills", "my-skill", ".DS_Store"), "x");
+    put(join(claude, "skills", "my-skill", "empty.txt"), "");
+    put(
+      join(claude, "skills", "my-skill", "agents", "openai.yaml"),
+      "name: Useful skill\n",
+    );
     put(
       join(claude, "skills", "synced-skill", "SKILL.md"),
       "---\nname: synced-skill\ndescription: Synced.\n---\nMANAGED-SKILL-TEXT\n",
@@ -428,7 +433,12 @@ describe("gather, and gather-submit", () => {
             "claude-code instructions ~/.claude/rules/style.md",
             "claude-code memory ~/.claude/projects/-home-ada-repo/memory/MEMORY.md",
             "claude-code memory ~/.claude/projects/-home-ada-repo/memory/testing.md",
+            "claude-code skill ~/.claude/skills/my-skill/.DS_Store",
             "claude-code skill ~/.claude/skills/my-skill/SKILL.md",
+            "claude-code skill ~/.claude/skills/my-skill/agents/openai.yaml",
+            "claude-code skill ~/.claude/skills/my-skill/data.txt",
+            "claude-code skill ~/.claude/skills/my-skill/empty.txt",
+            "claude-code skill ~/.claude/skills/my-skill/logo.png",
             "claude-code skill ~/.claude/skills/my-skill/references/guide.md",
             "codex instructions ~/.codex/AGENTS.md",
             "codex memory ~/.codex/memories/notes.md",
@@ -518,7 +528,7 @@ describe("gather, and gather-submit", () => {
         assert.match(
           result.stdout,
           new RegExp(
-            `^Context Locker gathered 27 sources into ${shown.replace(/[.]/g, "\\.")}, which only this account can read\\. No app's files changed, and nothing left this computer\\.\\n`,
+            `^Context Locker gathered 32 sources into ${shown.replace(/[.]/g, "\\.")}, which only this account can read\\. No app's files changed, and nothing left this computer\\.\\n`,
           ),
         );
         assert.match(
@@ -549,7 +559,7 @@ describe("gather, and gather-submit", () => {
           result.stdout,
           /^- This project, ~\/repo: 3 instruction files$/m,
         );
-        assert.match(result.stdout, /^Left out, 16:$/m);
+        assert.match(result.stdout, /^Left out, 14:$/m);
         assert.match(
           result.stdout,
           /\nNext: follow the Gather skill, context-locker-gather, from step 2 with this working set, and show the person one plan to approve\.\n$/,
@@ -746,16 +756,88 @@ describe("gather, and gather-submit", () => {
             .length,
           links.length,
         );
-        assert.equal(out["~/.claude/skills/my-skill/logo.png"]?.code, "binary");
-        assert.equal(out["~/.claude/skills/my-skill/data.txt"]?.code, "binary");
+        for (const name of [
+          "logo.png",
+          "data.txt",
+          ".DS_Store",
+          "empty.txt",
+          "agents/openai.yaml",
+        ]) {
+          assert.equal(out[`~/.claude/skills/my-skill/${name}`], undefined);
+          assert.deepEqual(
+            readFileSync(join(set, "claude-code/skills/my-skill", name)),
+            readFileSync(join(home, ".claude/skills/my-skill", name)),
+          );
+        }
         assert.equal(out["~/.codex/memories/big.md"]?.code, "size");
         assert.equal(
           out["~/.codex/memories/big.md"]?.why,
           "it's 4297 KB, and Gather takes files of up to 4 MB",
         );
         assert.ok(
-          !existsSync(join(set, "claude-code/skills/my-skill/.DS_Store")),
+          existsSync(join(set, "claude-code/skills/my-skill/.DS_Store")),
         );
+      });
+
+      it("defers a whole package if a file is blocked, without changing its source or keeping a partial copy", async () => {
+        for (const blocked of [
+          "secret",
+          "link",
+          "size",
+          "depth",
+          "count",
+          "package-size",
+        ]) {
+          const { home, repo, codex } = computer();
+          const root = join(codex, "skills", "atomic-skill");
+          put(
+            join(root, "SKILL.md"),
+            "---\nname: atomic-skill\ndescription: Test.\n---\nWhole package.\n",
+          );
+          put(join(root, "LICENSE"), "MIT\n");
+          if (blocked === "secret")
+            put(join(root, "z.txt"), SECRETS["password.md"]!);
+          if (blocked === "link")
+            symlinkSync(join(home, "outside", "notes.md"), join(root, "z.txt"));
+          if (blocked === "size")
+            put(join(root, "z.bin"), Buffer.alloc(4 * 1024 * 1024 + 1));
+          if (blocked === "depth")
+            put(join(root, "a/b/c/d/e/f/g/h/i.txt"), "too deep");
+          if (blocked === "count")
+            for (let i = 0; i < 1000; i++) put(join(root, `file-${i}.txt`), "");
+          if (blocked === "package-size")
+            for (let i = 0; i < 3; i++)
+              put(join(root, `file-${i}.bin`), Buffer.alloc(4 * 1024 * 1024));
+          const before = snapshot(home);
+          const result = await run(
+            shell,
+            home,
+            ["gather", "claude-code"],
+            repo,
+          );
+          assert.equal(result.status, 0, result.stderr);
+          assert.deepEqual(snapshot(home), before, blocked);
+          const set = workingSet(home);
+          assert.equal(
+            existsSync(join(set, "codex/skills/atomic-skill")),
+            false,
+            blocked,
+          );
+          assert.ok(
+            rows(join(set, "left-out.tsv")).some(
+              (row) =>
+                row.path === "~/.codex/skills/atomic-skill" &&
+                row.code === "package",
+            ),
+            blocked,
+          );
+          assert.ok(
+            rows(join(set, "sources.tsv")).every(
+              (row) => !row.path?.includes("atomic-skill"),
+            ),
+            blocked,
+          );
+        }
       });
 
       it("stops copying once it holds what a plan can, here 20 MB", async () => {

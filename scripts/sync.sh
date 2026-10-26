@@ -100,7 +100,7 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=12
+SCRIPT_VERSION=14
 MODE=sync
 case ${1:-} in
   signin | plan | doctor | readback | map | gather | gather-submit | export | notes-move-out | fix)
@@ -3229,8 +3229,15 @@ EOF
 # in, with the value hidden.
 g_assignment_secret() {
   LC_ALL=C awk -v bullet="$(printf '\342\200\242')" -v ellipsis="$(printf '\342\200\246')" '
+    function reference(v,   tail) {
+      if (!match(substr(v, 1, 512), safe_ref)) return 0
+      if (length(v) > 512 && RLENGTH >= 512) return 0
+      tail = substr(v, RLENGTH + 1)
+      sub(/^[ \t]*/, "", tail)
+      return tail == "" || tail ~ /^\r?\n/ || substr(tail, 1, 2) == "//" || index(",;)}]" bt, substr(tail, 1, 1))
+    }
     function placeholder_words(   n, i, w) {
-      n = split("your my our the an api key keys secret secrets token tokens password passwords passwd pass passphrase pwd access auth client private public here goes example examples sample samples dummy fake placeholder changeme change replace insert put enter me this with value redacted todo tbd sk pk rk live prod dev staging app service account bot webhook signing id own real actual new", w, " ")
+      n = split("your my our the an api key keys secret secrets token tokens password passwords passwd pass passphrase pwd access auth client private public here goes example examples sample samples dummy fake placeholder changeme change replace insert put enter me this with value redacted todo tbd sk pk rk live prod dev staging app service account bot webhook signing id own real actual new turn", w, " ")
       for (i = 1; i <= n; i++) {
         ph_words[w[i]] = 1
         if (length(w[i]) > ph_longest) ph_longest = length(w[i])
@@ -3294,6 +3301,12 @@ g_assignment_secret() {
     }
     BEGIN {
       sq = sprintf("%c", 39); bt = sprintf("%c", 96)
+      id = "[A-Za-z_$][A-Za-z0-9_$]*"
+      qname = "(\"[A-Za-z_][A-Za-z0-9_]*\"|" sq "[A-Za-z_][A-Za-z0-9_]*" sq ")"
+      ref = "((this\\.)?(env|process\\.env|import\\.meta\\.env|cred|credentials|config|data|secret|random_id)(\\." id ")+|[A-Z_][A-Z0-9_]*_(API_KEY|TOKEN|SECRET|PASSWORD)|os\\.environ\\[" qname "\\]|(os\\.environ\\.get|os\\.getenv|config\\.(requireSecret|getSecret))\\(" qname "\\))"
+      op = "[[:blank:]]*(\\|\\||\\?\\?|or)[[:blank:]]*"
+      safe_ref = "^" ref "(" op ref ")*(" op "(\"\"|" sq sq "))?"
+
       key = "[^A-Za-z0-9_](password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)[\"" sq "]?[[:space:]]*"
       names = key "[:=][[:space:]]*"
       ends = key "$"
@@ -3303,6 +3316,8 @@ g_assignment_secret() {
       carry = ""
       text = "\n" line "\n"
       while (match(lower = tolower(text), names)) {
+        assignment = substr(text, RSTART, RLENGTH)
+        prefix = substr(text, 1, RSTART)
         rest = substr(text, RSTART + RLENGTH)
         text = "\n" rest
         # The value is on a later line
@@ -3312,6 +3327,8 @@ g_assignment_secret() {
         }
         quote = substr(rest, 1, 1)
         quoted = quote == "\"" || quote == sq || quote == bt
+        if (!quoted && reference(rest)) continue
+        if (tolower(prefix) ~ /set $/ && rest ~ /^(npx[ \t]+)?wrangler[ \t]+secret[ \t]+put[ \t]+[A-Z_][A-Z0-9_]*[ \t]*(\r?\n|$)/) continue
         start = substr(rest, quoted ? 2 : 1, 512)
         if (quoted) {
           stop = index(start, quote)
@@ -3331,6 +3348,8 @@ g_assignment_secret() {
           if (value ~ /^(this\.)?(env|process\.env|import\.meta\.env)\.[A-Za-z_$][A-Za-z0-9_$]*$/ &&
               (tail == "" || tail ~ /^\r?\n/ || substr(tail, 1, 2) == "//" || index(",;)}]", substr(tail, 1, 1)))) continue
         }
+        if (value == "1x0000000000000000000000000000000AA" || value == "2x0000000000000000000000000000000AA" || value == "3x0000000000000000000000000000000AA") continue
+        if (tolower(assignment) ~ /api[_-]?key/ && value ~ /^(sk|rk)_(live|test)_[A-Za-z0-9]{1,15}$/) continue
         if (placeholder(value) || cut_or_masked(value)) continue
         found = 1
         exit
@@ -3339,6 +3358,26 @@ g_assignment_secret() {
       if (carry == "" && match(lower = tolower("\n" line), ends)) {
         carry = substr("\n" line, RSTART)
         sub(/[[:space:]]+$/, "", carry)
+      }
+    }
+    END { exit !found }' "$1"
+}
+
+# A URL password made entirely from a variable is a reference. A literal
+# prefix, suffix or fallback still counts; other token shapes are checked
+# against the original file independently.
+g_address_secret() {
+  LC_ALL=C awk '
+    {
+      text = $0
+      pattern = "[A-Za-z][A-Za-z0-9+.-]+://[^[:space:]:@/]+:[^[:space:]@/]{6,}@"
+      while (match(text, pattern)) {
+        value = substr(text, RSTART, RLENGTH)
+        text = substr(text, RSTART + RLENGTH)
+        sub(/^[^:]+:\/\//, "", value)
+        sub(/^[^:]+:/, "", value)
+        sub(/@$/, "", value)
+        if (value !~ /^\$\{[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)*\}$/) { found = 1; exit }
       }
     }
     END { exit !found }' "$1"
@@ -3353,6 +3392,7 @@ g_secret() {
     while IFS='	' read -r gs_case gs_kind gs_pattern; do
       if [ "$gs_case" = i ]; then gs_flags=-Eiq; else gs_flags=-Eq; fi
       if LC_ALL=C grep "$gs_flags" -e "$gs_pattern" "$TMP/g-flat"; then
+        if [ "$gs_kind" = "a password in an address" ] && ! g_address_secret "$TMP/g-flat"; then continue; fi
         printf '%s' "$gs_kind"
         return 0
       fi
@@ -3381,9 +3421,9 @@ g_file() {
       g_out "$gf_app" "$gf_kind" "$gf_cur" link "$G_LINK"
       return 0
     fi
-    [ -e "$gf_cur" ] || return 0
+    [ -e "$gf_cur" ] || { [ "$gf_kind" != skill ] || g_out "$gf_app" "$gf_kind" "$gf_path" unreadable "it disappeared while collecting"; return 0; }
   done
-  [ -f "$gf_path" ] || return 0
+  [ -f "$gf_path" ] || { [ "$gf_kind" != skill ] || g_out "$gf_app" "$gf_kind" "$gf_path" unreadable "it is not a regular file"; return 0; }
   if [ "$G_FULL" = 1 ]; then
     g_out "$gf_app" "$gf_kind" "$gf_path" total "Gather takes at most $((GATHER_MOST / 1048576)) MB in all, and it had that much"
     return 0
@@ -3399,7 +3439,7 @@ g_file() {
     g_out "$gf_app" "$gf_kind" "$gf_path" size "it's $(((gf_size + 1023) / 1024)) KB, and Gather takes files of up to 4 MB"
     return 0
   fi
-  if g_binary "$gf_path"; then
+  if [ "$gf_kind" != skill ] && g_binary "$gf_path"; then
     g_out "$gf_app" "$gf_kind" "$gf_path" binary "it isn't a text file"
     return 0
   fi
@@ -3413,7 +3453,7 @@ g_file() {
     g_out "$gf_app" "$gf_kind" "$gf_path" unreadable "it couldn't be read"
     return 0
   }
-  if ! LC_ALL=C grep -q '[^[:space:]]' "$TMP/g-copy"; then
+  if [ "$gf_kind" != skill ] && ! LC_ALL=C grep -q '[^[:space:]]' "$TMP/g-copy"; then
     if [ "$gf_note" = cut ]; then
       g_out "$gf_app" "$gf_kind" "$gf_path" own "it holds only Context Locker's own block"
     else
@@ -3483,14 +3523,50 @@ g_skill() {
     g_out "$gk_app" skill "$gk_dir" bundled "it came with the app"
     return 0
   fi
-  (cd "$gk_dir" 2>/dev/null && find . -maxdepth 8 \( ! -name . \( -name '.*' -o -name node_modules -o -name __pycache__ \) \) -prune -o \
-    \( -type f -o -type l \) -print) | sed 's|^\./||' | LC_ALL=C sort >"$TMP/g-skill"
+  # Enumerate the whole package, including hidden files and assets. Do not
+  # follow links. Unrepresentable names defer it before line-based traversal.
+  if ! (cd "$gk_dir" && LC_ALL=C find . ! -name . -name '*[!A-Za-z0-9._-]*' -print) >"$TMP/g-bad-paths" 2>/dev/null || [ -s "$TMP/g-bad-paths" ]; then
+    g_out "$gk_app" skill "$gk_dir" package "the whole package is deferred: a path is unreadable or has unsupported characters"
+    return 0
+  fi
+  if ! (cd "$gk_dir" && find . ! -type d -print) >"$TMP/g-skill-raw" 2>/dev/null; then
+    g_out "$gk_app" skill "$gk_dir" package "the whole package is deferred: its files could not all be listed"
+    return 0
+  fi
+  sed 's|^\./||' "$TMP/g-skill-raw" | LC_ALL=C sort >"$TMP/g-skill"
+  gk_count=$(wc -l <"$TMP/g-skill")
+  if [ "$gk_count" -gt 1000 ] || [ "$gk_count" -eq 0 ]; then
+    g_out "$gk_app" skill "$gk_dir" package "the whole package is deferred: a skill needs 1 to 1,000 files"
+    return 0
+  fi
+  cp "$G_WS/sources.tsv" "$TMP/g-skill-sources"
+  cp "$TMP/g-copied" "$TMP/g-skill-copied"
   gk_before=$(wc -l <"$G_WS/sources.tsv")
+  gk_out=$(wc -l <"$G_WS/left-out.tsv")
+  gk_total=$G_TOTAL gk_full=$G_FULL
   while IFS= read -r gk_rel <&6; do
     [ -n "$gk_rel" ] || continue
+    gk_depth=$(printf '%s' "$gk_rel" | awk -F/ '{print NF}')
+    if [ "$gk_depth" -gt 8 ] || [ "${#gk_rel}" -gt 200 ]; then
+      g_out "$gk_app" skill "$gk_dir/$gk_rel" path "the path is longer or deeper than a skill can hold"
+      break
+    fi
     g_file "$gk_app" skill "$gk_root" "$gk_sub/$gk_rel" "$gk_copy"
+    [ "$(wc -l <"$G_WS/left-out.tsv")" -eq "$gk_out" ] || break
+    [ $((G_TOTAL - gk_total)) -le 10485760 ] || break
   done 6<"$TMP/g-skill"
-  [ "$(wc -l <"$G_WS/sources.tsv")" -gt "$gk_before" ] && printf '%s\n' "$gk_app" >>"$TMP/g-skills"
+  if [ "$(wc -l <"$G_WS/left-out.tsv")" -ne "$gk_out" ] ||
+    [ $((G_TOTAL - gk_total)) -gt 10485760 ] ||
+    [ $(( $(wc -l <"$G_WS/sources.tsv") - gk_before )) -ne "$gk_count" ]; then
+    # Delete only copies made in this private working set, never the source.
+    rm -rf "${G_WS:?}/$gk_copy/$gk_sub"
+    cp "$TMP/g-skill-sources" "$G_WS/sources.tsv"
+    cp "$TMP/g-skill-copied" "$TMP/g-copied"
+    G_TOTAL=$gk_total G_FULL=$gk_full
+    g_out "$gk_app" skill "$gk_dir" package "the whole package is deferred: a file was blocked or the package exceeds 10 MB; no files from it were kept"
+  else
+    printf '%s\n' "$gk_app" >>"$TMP/g-skills"
+  fi
   return 0
 }
 

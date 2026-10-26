@@ -614,7 +614,7 @@ describe("the sync scripts' tools", () => {
           /^PASS {2}Preferences: 1 of 50 everywhere\.$/m,
         );
         assert.match(doctor.stdout, /^PASS {2}Skills: 1 of 20\.$/m);
-        // code-review, and Context Locker's own Gather skill
+        // code-review, and Context Locker's own Import skill
         assert.match(
           doctor.stdout,
           /^PASS {2}1 block and 2 skills in place\.$/m,
