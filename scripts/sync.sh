@@ -100,7 +100,7 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=13
+SCRIPT_VERSION=14
 MODE=sync
 case ${1:-} in
   signin | plan | doctor | readback | map | gather | gather-submit | export | notes-move-out | fix)
@@ -3229,8 +3229,15 @@ EOF
 # in, with the value hidden.
 g_assignment_secret() {
   LC_ALL=C awk -v bullet="$(printf '\342\200\242')" -v ellipsis="$(printf '\342\200\246')" '
+    function reference(v,   tail) {
+      if (!match(substr(v, 1, 512), safe_ref)) return 0
+      if (length(v) > 512 && RLENGTH >= 512) return 0
+      tail = substr(v, RLENGTH + 1)
+      sub(/^[ \t]*/, "", tail)
+      return tail == "" || tail ~ /^\r?\n/ || substr(tail, 1, 2) == "//" || index(",;)}]" bt, substr(tail, 1, 1))
+    }
     function placeholder_words(   n, i, w) {
-      n = split("your my our the an api key keys secret secrets token tokens password passwords passwd pass passphrase pwd access auth client private public here goes example examples sample samples dummy fake placeholder changeme change replace insert put enter me this with value redacted todo tbd sk pk rk live prod dev staging app service account bot webhook signing id own real actual new", w, " ")
+      n = split("your my our the an api key keys secret secrets token tokens password passwords passwd pass passphrase pwd access auth client private public here goes example examples sample samples dummy fake placeholder changeme change replace insert put enter me this with value redacted todo tbd sk pk rk live prod dev staging app service account bot webhook signing id own real actual new turn", w, " ")
       for (i = 1; i <= n; i++) {
         ph_words[w[i]] = 1
         if (length(w[i]) > ph_longest) ph_longest = length(w[i])
@@ -3294,6 +3301,12 @@ g_assignment_secret() {
     }
     BEGIN {
       sq = sprintf("%c", 39); bt = sprintf("%c", 96)
+      id = "[A-Za-z_$][A-Za-z0-9_$]*"
+      qname = "(\"[A-Za-z_][A-Za-z0-9_]*\"|" sq "[A-Za-z_][A-Za-z0-9_]*" sq ")"
+      ref = "((this\\.)?(env|process\\.env|import\\.meta\\.env|cred|credentials|config|data|secret|random_id)(\\." id ")+|[A-Z_][A-Z0-9_]*_(API_KEY|TOKEN|SECRET|PASSWORD)|os\\.environ\\[" qname "\\]|(os\\.environ\\.get|os\\.getenv|config\\.(requireSecret|getSecret))\\(" qname "\\))"
+      op = "[[:blank:]]*(\\|\\||\\?\\?|or)[[:blank:]]*"
+      safe_ref = "^" ref "(" op ref ")*(" op "(\"\"|" sq sq "))?"
+
       key = "[^A-Za-z0-9_](password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)[\"" sq "]?[[:space:]]*"
       names = key "[:=][[:space:]]*"
       ends = key "$"
@@ -3303,6 +3316,8 @@ g_assignment_secret() {
       carry = ""
       text = "\n" line "\n"
       while (match(lower = tolower(text), names)) {
+        assignment = substr(text, RSTART, RLENGTH)
+        prefix = substr(text, 1, RSTART)
         rest = substr(text, RSTART + RLENGTH)
         text = "\n" rest
         # The value is on a later line
@@ -3312,6 +3327,8 @@ g_assignment_secret() {
         }
         quote = substr(rest, 1, 1)
         quoted = quote == "\"" || quote == sq || quote == bt
+        if (!quoted && reference(rest)) continue
+        if (tolower(prefix) ~ /set $/ && rest ~ /^(npx[ \t]+)?wrangler[ \t]+secret[ \t]+put[ \t]+[A-Z_][A-Z0-9_]*[ \t]*(\r?\n|$)/) continue
         start = substr(rest, quoted ? 2 : 1, 512)
         if (quoted) {
           stop = index(start, quote)
@@ -3331,6 +3348,8 @@ g_assignment_secret() {
           if (value ~ /^(this\.)?(env|process\.env|import\.meta\.env)\.[A-Za-z_$][A-Za-z0-9_$]*$/ &&
               (tail == "" || tail ~ /^\r?\n/ || substr(tail, 1, 2) == "//" || index(",;)}]", substr(tail, 1, 1)))) continue
         }
+        if (value == "1x0000000000000000000000000000000AA" || value == "2x0000000000000000000000000000000AA" || value == "3x0000000000000000000000000000000AA") continue
+        if (tolower(assignment) ~ /api[_-]?key/ && value ~ /^(sk|rk)_(live|test)_[A-Za-z0-9]{1,15}$/) continue
         if (placeholder(value) || cut_or_masked(value)) continue
         found = 1
         exit
@@ -3339,6 +3358,26 @@ g_assignment_secret() {
       if (carry == "" && match(lower = tolower("\n" line), ends)) {
         carry = substr("\n" line, RSTART)
         sub(/[[:space:]]+$/, "", carry)
+      }
+    }
+    END { exit !found }' "$1"
+}
+
+# A URL password made entirely from a variable is a reference. A literal
+# prefix, suffix or fallback still counts; other token shapes are checked
+# against the original file independently.
+g_address_secret() {
+  LC_ALL=C awk '
+    {
+      text = $0
+      pattern = "[A-Za-z][A-Za-z0-9+.-]+://[^[:space:]:@/]+:[^[:space:]@/]{6,}@"
+      while (match(text, pattern)) {
+        value = substr(text, RSTART, RLENGTH)
+        text = substr(text, RSTART + RLENGTH)
+        sub(/^[^:]+:\/\//, "", value)
+        sub(/^[^:]+:/, "", value)
+        sub(/@$/, "", value)
+        if (value !~ /^\$\{[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)*\}$/) { found = 1; exit }
       }
     }
     END { exit !found }' "$1"
@@ -3353,6 +3392,7 @@ g_secret() {
     while IFS='	' read -r gs_case gs_kind gs_pattern; do
       if [ "$gs_case" = i ]; then gs_flags=-Eiq; else gs_flags=-Eq; fi
       if LC_ALL=C grep "$gs_flags" -e "$gs_pattern" "$TMP/g-flat"; then
+        if [ "$gs_kind" = "a password in an address" ] && ! g_address_secret "$TMP/g-flat"; then continue; fi
         printf '%s' "$gs_kind"
         return 0
       fi

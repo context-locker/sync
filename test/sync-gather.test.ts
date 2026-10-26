@@ -90,7 +90,7 @@ const SECRET_EXAMPLES = JSON.parse(
   name: string;
   text: string;
   kind: string | null;
-  evidence?: "cut short" | "masked";
+  evidence?: "cut short" | "masked" | "short provider key";
 }>;
 
 /** Writes a file, making its folders */
