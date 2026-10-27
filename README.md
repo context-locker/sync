@@ -8,7 +8,13 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Paste this line into Claude Code, Codex, Hermes or OpenClaw, on your computer or a server that stays up: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v17`](setup/v17). Or run `npx context-locker setup` yourself. The command finds every AI app on the computer that setup works for, and connects them all with one approval in your browser, or one app with a one-time code you made in Context Locker. Then it saves the sync script, writes each app's files, adds hooks so each app syncs on its own events, such as the start of a session, and runs the doctor. The app then runs Gather once, to bring in what your AI apps already know. Without Node, the steps have the app download the script, check its hash, sign in, show what a sync would write and add the hooks itself.
+Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v19`](setup/v19), using `context-locker@0.1.3`.
+
+Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.3 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
+
+The browser approval names that app, lets you name the connection, and asks whether it runs on a Computer or in the Cloud. A supported cloud runtime can suggest the location, or pass `--environment computer` or `--environment cloud`. Unknown environments need a human choice. The command writes the selected app's files, adds its sync hook and runs the doctor. Gather is a separate import with an agreed scope and approval; reading another app's information does not connect or configure it. Existing connections and hooks are never removed automatically.
+
+Without Node, the pinned steps have the app download the script, check its hash, sign in, show what a sync would write and add only its own hooks.
 
 Any other app connects over MCP instead, at `https://mcp.context.locker`, even one that can run commands, such as Claude in Cowork. The steps say how to add it in Claude and ChatGPT, as [context.locker/docs](https://context.locker/docs) does.
 

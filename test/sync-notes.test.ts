@@ -44,7 +44,7 @@ const PS_SCRIPT = fileURLToPath(
 );
 // The scripts that setup v3 installed, which know nothing of notes
 const V3 = fileURLToPath(
-  new URL("../setup/v3/", import.meta.url),
+  new URL("../../../apps/site/src/setup/v3/", import.meta.url),
 );
 const WORKSPACE = "6f1d2c4e-8a3b-4c5d-9e7f-0a1b2c3d4e5f";
 const PROJECT = {
@@ -823,13 +823,13 @@ describe("a project's notes folder", () => {
         );
       });
 
-      it("refuses a file over 100 KB before sending it, and one named as no note's file is", async () => {
+      it("refuses a file over 512 KB before sending it, and one named as no note's file is", async () => {
         const machine = computer();
         assert.equal((await run(shell, machine)).status, 0);
         const big = join(machine.notes, "big.md");
         writeFileSync(
           big,
-          `---\ntitle: "Big"\n---\n\n${"x".repeat(103_000)}\n`,
+          `---\ntitle: "Big"\n---\n\n${"x".repeat(525_000)}\n`,
         );
         writeFileSync(
           join(machine.notes, "My Plan.md"),
@@ -845,7 +845,7 @@ describe("a project's notes folder", () => {
         assert.match(
           result.stderr,
           new RegExp(
-            `couldn't save ${NOTES}/big\\.md: it's 101 KB, and a note can hold at most 100 KB\\.`,
+            `couldn't save ${NOTES}/big\\.md: it's 513 KB, and a note can hold at most 512 KB\\.`,
           ),
         );
         assert.match(

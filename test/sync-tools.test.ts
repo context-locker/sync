@@ -720,7 +720,7 @@ describe("the sync scripts' tools", () => {
           });
           assert.equal(doctor.status, 0, doctor.stdout + doctor.stderr);
           const gather = escape(
-            `To bring them into your playbook, run Gather: ${runLine(shell)} gather codex`,
+            `To bring them into your playbook, run Import: ${runLine(shell)} gather codex`,
           );
           assert.match(
             doctor.stdout,

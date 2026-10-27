@@ -4,6 +4,7 @@
 // skill of its own, into every app's skills folder at the global sync, and
 // the MCP server hands the same steps to chat apps. Agents read every word,
 // so none of it may look like prompt injection.
+import { NOTE_FILE_RULES } from "./notes.js";
 import type { CompiledHarness, SkillFile, SkillInput } from "./types.js";
 
 /** The skill's name, kept for Context Locker's own skills */
@@ -17,7 +18,7 @@ export const RESERVED_SKILL_PREFIX = "context-locker-";
  * playbook: the version goes up whenever the steps change.
  */
 export const GATHER_SKILL_ID = "c0de0000-6a7e-4e00-8000-000000000001";
-export const GATHER_SKILL_VERSION = 10;
+export const GATHER_SKILL_VERSION = 12;
 
 /**
  * What the skill may take. The Agent Skills format and Hermes allow a
@@ -244,7 +245,7 @@ function collect(harness: CompiledHarness | "mcp"): string[] {
 /** How the plan reaches Context Locker */
 function submit(harness: CompiledHarness | "mcp"): string[] {
   const script = [
-    "Write the plan into the working set's `plan.json`, keeping its `plan_id`, as `references/plan.md` describes. Then run:",
+    "Write the plan into the working set's `plan.json`, keeping its `plan_id`, as `references/plan.md` describes. Put a doc that's a file into its note's `text` with a command or a short script that reads the file, rather than typing it out, so it comes in exactly as it is. Then run:",
     "",
     "```sh",
     "sh ~/.contextlocker/sync.sh gather-submit <app> <the working set>/plan.json",
@@ -260,7 +261,7 @@ function submit(harness: CompiledHarness | "mcp"): string[] {
   return [
     "Write the plan as `references/plan.md` describes, with a `plan_id` you make once, a random UUID. Then call `submit_gather` with it. For JSON over 768 KiB, follow the upload steps in `references/plan.md`.",
     "",
-    "If you collected with the sync script, you can instead write the plan into the working set's `plan.json`, keeping its `plan_id`, and run `sh ~/.contextlocker/sync.sh gather-submit <app> <the working set>/plan.json`.",
+    "If you collected with the sync script, you can instead write the plan into the working set's `plan.json`, keeping its `plan_id`, and run `sh ~/.contextlocker/sync.sh gather-submit <app> <the working set>/plan.json`. Put a doc that's a file into its note's `text` with a command or a short script that reads the file, rather than typing it out.",
   ];
 }
 
@@ -385,7 +386,7 @@ function planMd(): string {
     "  - A `preference`, `about` or `skill` the rules couldn't settle has an `ask`: one question of up to 200 characters that Approve answers yes to. It waits in the inbox with it.",
     "  - For a `preference`, `about` or `skill` the playbook already has: `base_version`, the version you read. One that changed since keeps its newer version, and the reply says so.",
     "  - `pointer`, for a link: `title`, `kind` (plan, spec, decision, research, idea, log, profile, design, runbook, onboarding, code, run-test or channel), `address` (an http or https address, or a path in the repo: a document's own file or page, never its folder) and `summary` (one line of up to 200 characters). It can also have `use_as` (source-of-truth, reference or historic), `area`, `start_here` and `tags`.",
-    "  - `note`: `title`, `kind` (plan, spec, decision, research, idea, log, profile, design, runbook or onboarding), `summary` (one line), `text` (Markdown, up to 100 KB) and 1 to 20 `tags`. Use tags the playbook already has where one fits. It can also have `use_as` (source-of-truth, reference or historic), `area` and `start_here`.",
+    `  - \`note\`: \`title\`, \`kind\` (plan, spec, decision, research, idea, log, profile, design, runbook or onboarding), \`summary\` (one line), \`text\` (Markdown, up to ${NOTE_FILE_RULES.bytes / 1024} KB) and 1 to 20 \`tags\`. Draw a diagram in the text as a \`mermaid\` code block, which Context Locker draws, rather than a line saying where it was. Use tags the playbook already has where one fits. It can also have \`use_as\` (source-of-truth, reference or historic), \`area\` and \`start_here\`.`,
     '- `left_out`: up to 300 entries, each with `summary`, `reason` and `sources`. The summary says what it was in a few words that don\'t repeat it, such as "A personal detail about family": never the detail itself, and never a secret. The reason is personal, secret, transcript, stale, persona, duplicate, conflict, over_cap, unreachable, declined or other, and other needs a `detail`. Put alike drops in one entry, with all their sources.',
     "",
     "## Whole-package transfer and verification",

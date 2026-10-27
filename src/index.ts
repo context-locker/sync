@@ -119,7 +119,11 @@ export {
   shellQuote,
 } from "./hooks.js";
 export type { HookShell, HookTarget, SessionStartHook } from "./hooks.js";
-export { injectionMatches } from "./threats.js";
+export {
+  injectionMatches,
+  injectionEvidence,
+  type InjectionEvidence,
+} from "./threats.js";
 export { COMPILED_HARNESSES, isCompiledHarness } from "./types.js";
 export type {
   CompileInput,

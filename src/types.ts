@@ -78,6 +78,11 @@ export interface NoteInput extends ItemRef {
   text: string;
   /** Whether it applies everywhere, rather than to the project being synced */
   everywhere: boolean;
+  /**
+   * For one that applies to more than one project: their names, its own
+   * first, which its file lists in each project's notes folder (G1-68)
+   */
+  appliesTo?: readonly string[];
 }
 
 /**
