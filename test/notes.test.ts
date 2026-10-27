@@ -233,6 +233,23 @@ describe("the notes folder in a project's sync", () => {
       text("{project}/.context-locker/notes/release-plan.md"),
       /^id: "d1111111-1111-4111-8111-111111111111"\nversion: 3\n---\n\n# Release plan\n/m,
     );
+    // One that applies to other projects as well names them all (G1-68)
+    const shared = compile(
+      inProject("claude-code", "repo", {
+        notes: projectNotes.map((note) =>
+          note.name === "release-plan"
+            ? { ...note, appliesTo: ["App", "Docs site"] }
+            : note,
+        ),
+      }),
+    ).outputs;
+    assert.match(
+      folderOf(shared).find(
+        (output) =>
+          output.target === "{project}/.context-locker/notes/release-plan.md",
+      )?.text ?? "",
+      /^applies_to: \["App", "Docs site"\]$/m,
+    );
   });
 
   it("tells an app that only reads its files how to save a lasting doc, once Notes is the docs home", () => {

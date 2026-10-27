@@ -562,7 +562,7 @@ describe("gather, and gather-submit", () => {
         assert.match(result.stdout, /^Left out, 14:$/m);
         assert.match(
           result.stdout,
-          /\nNext: follow the Gather skill, context-locker-gather, from step 2 with this working set, and show the person one plan to approve\.\n$/,
+          /\nNext: follow the Import skill, context-locker-gather, from step 2 with this working set, and show the person one plan to approve\.\n$/,
         );
       });
 
@@ -741,12 +741,12 @@ describe("gather, and gather-submit", () => {
           assert.equal(out[path]?.code, "link", path);
           assert.equal(
             out[path]?.why,
-            "it's a link, and Gather doesn't follow links",
+            "it's a link, and Import doesn't follow links",
             path,
           );
           assert.ok(
             result.stdout.includes(
-              `\n- ${path}: it's a link, and Gather doesn't follow links.\n`,
+              `\n- ${path}: it's a link, and Import doesn't follow links.\n`,
             ),
             path,
           );
@@ -772,7 +772,7 @@ describe("gather, and gather-submit", () => {
         assert.equal(out["~/.codex/memories/big.md"]?.code, "size");
         assert.equal(
           out["~/.codex/memories/big.md"]?.why,
-          "it's 4297 KB, and Gather takes files of up to 4 MB",
+          "it's 4297 KB, and Import takes files of up to 4 MB",
         );
         assert.ok(
           existsSync(join(set, "claude-code/skills/my-skill/.DS_Store")),
@@ -870,7 +870,7 @@ describe("gather, and gather-submit", () => {
         assert.ok(over.length >= 2, String(over.length));
         assert.equal(
           over[0]?.why,
-          "Gather takes at most 20 MB in all, and it had that much",
+          "Import takes at most 20 MB in all, and it had that much",
         );
       });
 
@@ -985,7 +985,7 @@ describe("gather, and gather-submit", () => {
         assert.equal(result.status, 0, result.stderr);
         assert.equal(
           result.stdout,
-          "Brought in 2 items with Gather.\nTell the user.\nContext Locker deleted Gather's working copies from this computer, in ~/.contextlocker/gather, now that the plan is in.\n",
+          "Brought in 2 items with Gather.\nTell the user.\nContext Locker deleted Import's working copies from this computer, in ~/.contextlocker/gather, now that the plan is in.\n",
         );
         assert.deepEqual(readdirSync(root), ["my-notes"]);
         assert.equal(seen.length, 1);
@@ -1037,7 +1037,7 @@ describe("gather, and gather-submit", () => {
         assert.equal(busy.status, 0, busy.stderr);
         assert.match(
           busy.stdout,
-          /\nGather's working copies stay in ~\/\.contextlocker\/gather for now, as a gather is running\. A later gather deletes them after 7 days\.\n$/,
+          /\nImport's working copies stay in ~\/\.contextlocker\/gather for now, as an import is running\. A later import deletes them after 7 days\.\n$/,
         );
         assert.ok(existsSync(join(root, "20261021T100000Z")));
         rmSync(join(home, ".contextlocker", "gather.lock"), {

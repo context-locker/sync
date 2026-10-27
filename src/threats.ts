@@ -147,3 +147,44 @@ export function injectionMatches(text: string): string[] {
   if (hasInvisible(text)) found.push("invisible_unicode");
   return found;
 }
+
+/** One occurrence of each matched rule, with offsets in the original text. */
+export interface InjectionEvidence {
+  id: string;
+  start: number;
+  end: number;
+}
+
+export function injectionEvidence(text: string): InjectionEvidence[] {
+  const source = text.slice(0, 65_536);
+  let normalized = source.normalize("NFKC");
+  let starts: number[] | null = null;
+  let ends: number[] | null = null;
+  if (normalized !== source) {
+    starts = [];
+    ends = [];
+    let mapped = "";
+    // Graphemes keep combining sequences together. A normalised match
+    // still points to its original characters, including full-width text.
+    for (const part of new Intl.Segmenter("en", {
+      granularity: "grapheme",
+    }).segment(source)) {
+      const value = part.segment.normalize("NFKC");
+      mapped += value;
+      for (let index = 0; index < value.length; index++) {
+        starts.push(part.index);
+        ends.push(part.index + part.segment.length);
+      }
+    }
+    if (mapped !== normalized) return []; // Never invent a source location.
+  }
+  normalized = normalized.slice(0, 65_536);
+  return PATTERNS.flatMap(([id, pattern]) => {
+    const match = pattern.exec(normalized);
+    if (!match) return [];
+    const start = starts?.[match.index] ?? match.index;
+    const last = match.index + match[0].length;
+    const end = ends?.[last - 1] ?? last;
+    return [{ id, start, end }];
+  });
+}

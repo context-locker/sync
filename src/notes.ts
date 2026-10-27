@@ -37,8 +37,11 @@ export const NOTE_FILE_RULES = Object.freeze({
   titleCharacters: 120,
   summaryCharacters: 200,
   tags: 20,
-  /** A note's text, in bytes of UTF-8. The sync scripts hold whole files to the same. */
-  bytes: 100 * 1024,
+  /**
+   * A note's text, in bytes of UTF-8 (G1-17). The sync scripts hold whole
+   * files to the same from script 15; earlier ones to 100 KB.
+   */
+  bytes: 512 * 1024,
 });
 
 const NOTE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -120,7 +123,8 @@ export function yamlString(value: string): string {
  */
 export function renderNoteFile(
   note: NoteInput,
-  appliesTo: string,
+  /** everywhere, its project's name, or every project's when there are several */
+  appliesTo: string | readonly string[],
   options: { ids?: boolean } = {},
 ): string {
   const front = [
@@ -129,7 +133,9 @@ export function renderNoteFile(
     `use_as: ${yamlString(note.useAs)}`,
     `summary: ${yamlString(note.summary)}`,
     `tags: [${note.tags.map(yamlString).join(", ")}]`,
-    `applies_to: ${yamlString(appliesTo)}`,
+    typeof appliesTo === "string" || appliesTo.length === 1
+      ? `applies_to: ${yamlString(typeof appliesTo === "string" ? appliesTo : (appliesTo[0] ?? ""))}`
+      : `applies_to: [${appliesTo.map(yamlString).join(", ")}]`,
     ...(options.ids === false
       ? []
       : [`id: ${yamlString(note.id)}`, `version: ${note.version}`]),
@@ -156,7 +162,7 @@ export function splitNoteFile(
 export const README_TEXT = {
   title: "# Notes from Context Locker",
   holds: (project: string) =>
-    `This folder holds the notes for ${project} from Context Locker, the user's playbook: plans, specs, decisions, research, ideas, logs, profiles, designs, runbooks and onboarding docs, one Markdown file each. The notes that apply everywhere are in everywhere/. Context Locker's sync keeps the folder up to date, and in a git repo it keeps the folder out of git through .git/info/exclude.`,
+    `This folder holds the notes for ${project} from Context Locker, the user's playbook: plans, specs, decisions, research, ideas, logs, profiles, designs, runbooks and onboarding docs, one Markdown file each. A note that applies to other projects as well is in each of their folders too, and the notes that apply everywhere are in everywhere/. Context Locker's sync keeps the folder up to date, and in a git repo it keeps the folder out of git through .git/info/exclude.`,
   pointers:
     "Links aren't here. A link stands in for a note whose text lives somewhere else, such as a file in the repo or a page on the web, and the project's map lists each one with where it points.",
   information:
@@ -166,14 +172,19 @@ export const README_TEXT = {
     "Edit its file. The next sync saves the edit in Context Locker as a new version. If the note changed in Context Locker too, the edit isn't saved, and the sync says what to do.",
   deleting:
     "Deleting a file doesn't delete its note: the file comes back at the next sync. Notes are archived in Context Locker.",
+  sources:
+    "A note whose use_as is source-of-truth wins when two disagree, so two that contradict each other mislead every AI app that reads them. When you change one, check that the other sources of truth beside it, in this folder or in everywhere/, still agree where your change touches what they say, and check them all now and then, such as once a week. If you can schedule a task, offer the user a weekly check. Where one is out of date, fix it, and where two disagree on a decision, ask the user.",
   addHeading: "## Add a note",
   add: "Save a new .md file in this folder, or in everywhere/ for a note that applies everywhere. Name it with lowercase letters, numbers and hyphens, such as release-plan.md, and start it with front matter like this:",
   exampleText: "The note, in Markdown.",
   added:
-    'The next sync saves it as a new note, and adds its id and version. In everywhere/, applies_to is "everywhere".',
+    'The next sync saves it as a new note for this project, and adds its id and version. In everywhere/, applies_to is "everywhere".',
+  addFile:
+    "To bring in a doc that's already a file, write the front matter into the new file, then add the doc's text after it with a command, such as cat, rather than typing it out, so it comes in exactly as it is.",
   rulesHeading: "## Rules",
   rules: [
     "A note has a title, kind, use_as, summary, tags and applies_to, then its text.",
+    'applies_to lists every project a note applies to, such as ["Website", "App"], when there are several. Change where a note applies in Context Locker, not in its file.',
     `kind is ${NOTE_FILE_RULES.kinds.slice(0, -1).join(", ")} or ${NOTE_FILE_RULES.kinds.at(-1)}.`,
     "use_as is source-of-truth for the note that wins when two disagree, reference for background that gives way to one, or historic once it no longer holds.",
     `title is one line of up to ${NOTE_FILE_RULES.titleCharacters} characters. summary is one line of up to ${NOTE_FILE_RULES.summaryCharacters} that says what the note holds.`,
@@ -238,10 +249,12 @@ export function renderNotesReadme(input: {
     README_TEXT.changeHeading,
     README_TEXT.change,
     README_TEXT.deleting,
+    README_TEXT.sources,
     README_TEXT.addHeading,
     README_TEXT.add,
     `${fence}\n${example}\n${fence}`,
     README_TEXT.added,
+    README_TEXT.addFile,
     README_TEXT.rulesHeading,
     README_TEXT.rules.map((rule) => `- ${rule}`).join("\n"),
     README_TEXT.tagsHeading,
@@ -288,7 +301,11 @@ export function notesFolderOutputs(input: {
       target,
       text: renderNoteFile(
         note,
-        note.everywhere ? "everywhere" : input.projectName,
+        note.everywhere
+          ? "everywhere"
+          : note.appliesTo && note.appliesTo.length > 1
+            ? note.appliesTo
+            : input.projectName,
       ),
       item: { id: note.id, version: note.version },
     });
