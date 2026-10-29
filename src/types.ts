@@ -99,6 +99,16 @@ export type DocsHome =
  */
 export type ProjectLayer = "repo" | "personal";
 
+/** A recorded location is a map, never a grant of access or a mirrored copy. */
+export interface DocsLocation {
+  id: string;
+  name: string;
+  kind: "notes" | "place";
+  place: string | null;
+  purpose: string;
+  is_default: boolean;
+}
+
 export interface CompileInput {
   harness: CompiledHarness;
   /** Null for the global sync, which carries everything that applies everywhere. */
@@ -117,6 +127,7 @@ export interface CompileInput {
   startHere?: StartHereInput[];
   /** For a project sync: its docs home. Left out, none is recorded. */
   docsHome?: DocsHome;
+  docsLocations?: DocsLocation[];
   /**
    * For a project sync: its live notes and the ones that apply everywhere,
    * historic ones too, which its notes folder mirrors. Pointers are left out.

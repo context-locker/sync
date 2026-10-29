@@ -8,9 +8,9 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v24`](setup/v24), using `context-locker@0.1.8`.
+Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v25`](setup/v25), using `context-locker@0.1.9`.
 
-Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.8 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
+Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.9 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
 
 The browser approval names that app, lets you name the connection, and asks whether it runs on a Computer or in the Cloud. A supported cloud runtime can suggest the location, or pass `--environment computer` or `--environment cloud`. Unknown environments need a human choice. The command writes the selected app's files, adds its sync hook and runs the doctor. Gather is a separate import with an agreed scope and approval; reading another app's information does not connect or configure it. When you tick Bring in as you approve the connection, or as you make its one-time code, setup's last line tells the app to import now, and a Claude Code or Codex session start says so once. The import waits in your inbox, where you pick what comes in. Existing connections and hooks are never removed automatically.
 
@@ -22,7 +22,7 @@ A published version never changes. When a script changes, it's published as a ne
 
 ## The scripts
 
-[`scripts/sync.sh`](scripts/sync.sh) (POSIX sh, for macOS and Linux) and [`scripts/sync.ps1`](scripts/sync.ps1) (Windows PowerShell 5.1 and PowerShell 7) do the same steps. State lives in `~/.contextlocker`: the API address in `config`, this computer's random id in `machine-id`, each app's token in `<app>/token`, a sign-in that's still waiting in `<app>/device`, what each sync wrote in `<app>/global.lock` and `<app>/projects/<id>.lock`, and copies of anything replaced in `backups/`.
+[`scripts/sync.sh`](scripts/sync.sh) (POSIX sh, for macOS and Linux) and [`scripts/sync.ps1`](scripts/sync.ps1) (Windows PowerShell 5.1 and PowerShell 7) do the same steps. State lives in `~/.contextlocker`: the API address in `config`, this computer's random id in `machine-id`, each app's token in `<app>/token`, a sign-in that's still waiting in `<app>/device`, what each sync wrote in `<app>/global.lock` and `<app>/projects/<id>.lock`, copies of anything replaced in `backups/`, and the script an update replaced in `sync.sh.previous` or `sync.ps1.previous`.
 
 ```sh
 sh ~/.contextlocker/sync.sh codex             # from the app's hooks, such as at session start
@@ -85,7 +85,13 @@ sh ~/.contextlocker/sync.sh fix codex --skip <id> --reason "<why>"   # left for 
 
 `fix` prints the list as Context Locker words it, each item with its id, the evidence, a fix and its risk, and how the app makes a change: in the files the sync writes, which the next sync sends back. The app works through it with you. `--done` checks the item again at once, and `--skip` leaves it in Tidy-up with the app's reason.
 
-When changes wait for your approval, the script says so once at the start of a Claude Code or Codex session, with a link to your inbox, and again only when a newer one comes in. `map` and `fix` end with a line when the playbook changed since the app last synced, once for each change. When you ask the app to work through Tidy-up, the session start says so, with the `fix` command, for up to 24 hours. When a newer script is out, the session start and the doctor say so, and nothing changes on its own.
+When changes wait for your approval, the script says so once at the start of a Claude Code or Codex session, with a link to your inbox, and again only when a newer one comes in. `map` and `fix` end with a line when the playbook changed since the app last synced, once for each change. When you ask the app to work through Tidy-up, the session start says so, with the `fix` command, for up to 24 hours. When a newer script is out, the session start and the doctor say so, and nothing changes on its own. From script 20, when only the script changed, they name one command, which the app runs once you say yes:
+
+```sh
+sh ~/.contextlocker/sync.sh update codex     # takes the newest script, checked, keeping this one beside it
+```
+
+`update` asks Context Locker which script is the newest and whether this one can take it in place. It downloads it from setup's folder for that version at context.locker/setup, and nowhere else, without the connection's token, and uses it only if it matches the SHA-256 Context Locker gives, says it's that version and reads as a script in its shell. The old one stays beside it, the new one takes its place in one step, and nothing else changes. When a release changes more than the script, such as a hook, the session start says to set Context Locker up again instead.
 
 The scripts only write where an app reads its files, and refuse anything else the server sends.
 
@@ -118,7 +124,7 @@ A project's sync mirrors its notes into `{project}/.context-locker/notes`, one M
 
 ## The sync protocol
 
-1. `GET /v1/sync[?project=<id>&layer=repo|personal]` with `If-None-Match` answers `304` or a manifest (see [`src/manifest.ts`](src/manifest.ts)). Its ETag is the SHA-256 of the text. The global manifest names the newest script, and a project's lists its pointers to paths in the repo, which the script checks are there. A manifest says `auto-sync off` when auto sync is off for it.
+1. `GET /v1/sync[?project=<id>&layer=repo|personal]` with `If-None-Match` answers `304` or a manifest (see [`src/manifest.ts`](src/manifest.ts)). Its ETag is the SHA-256 of the text. The global manifest names the newest script, and for a script that can take it with `update`, the setup version it's published in and its SHA-256 for that script's shell. A project's lists its pointers to paths in the repo, which the script checks are there. A manifest says `auto-sync off` when auto sync is off for it.
 2. `POST /v1/sync/notes` with `Context-Locker-Target` sends a note's file changed in the notes folder, or a new `.md` file there, before anything is written. Context Locker saves it at once, or refuses it with a message naming every gap. An edit names the version the file started from in `Context-Locker-Base` and merges with what changed since; where both changed the same part, it's refused as `version_conflict`, naming each place.
 3. `POST /v1/sync/blobs` with the hashes it needs, one per line, answers one tar archive: a file per block or note, a folder per skill, each named by its hash.
 4. `POST /v1/sync/edits` with `Context-Locker-Target` sends an edit found in a synced file: a block's text, or a skill folder as a bundle (see [`src/bundle.ts`](src/bundle.ts)). It merges with what changed in Context Locker since the file was written: a skill file by file, and by lines where both changed a file, and a block preference by preference. The answer is `accepted` (it applied straight away), `pending` (it waits for the owner's approval, so keep it), `rejected` (put the synced version back), `same` or `gone`.
@@ -129,6 +135,7 @@ Around a sync, `POST /v1/sync/remote` with a git remote answers the project that
 For the other modes:
 
 - `GET /v1/sync/caps` answers a `PASS`, `WARN` or `FAIL` line for each of the playbook's limits, which the doctor prints as they are.
+- `GET /v1/sync/script` answers the global manifest's lines about the newest script, for `update`, without a sync.
 - `GET /v1/sync/fixes[?project=<id>]` answers Tidy-up as text: the project's items and the ones that apply everywhere, or with no project every item. `POST /v1/sync/fixes/<id>` with `done`, or `skipped` and the reason on the next line, marks one.
 - `POST /v1/gather` takes the plan `gather-submit` sends, checks it whole, and stages it in the inbox for the person to pick from.
 - `POST /v1/sync/schedule` records the app's reported hooks and daily job separately from the result of a scheduled run. A completed daily run reports `ran`; a failed run reports why when Context Locker can next be reached.
@@ -156,7 +163,7 @@ npm run typecheck
 npm test
 ```
 
-`npm test` checks the compilers against the expected files in `test/golden` (`UPDATE_GOLDEN=1` rewrites them), runs the scripts against a fake API to check they refuse anything they may not write, runs `gather` against a fake home folder with every app's files, runs the doctor, `export`, `notes-move-out` and `fix` against a fake API, and checks the published setup files. Then it runs the setup command's tests, in [`cli/test`](cli/test). When `pwsh` and PSScriptAnalyzer are installed, it also checks `sync.ps1` against Windows PowerShell 5.1's syntax and commands.
+`npm test` checks the compilers against the expected files in `test/golden` (`UPDATE_GOLDEN=1` rewrites them), runs the scripts against a fake API to check they refuse anything they may not write, runs `gather` against a fake home folder with every app's files, runs the doctor, `export`, `notes-move-out`, `fix` and `update` against a fake API, and checks the published setup files. Then it runs the setup command's tests, in [`cli/test`](cli/test). When `pwsh` and PSScriptAnalyzer are installed, it also checks `sync.ps1` against Windows PowerShell 5.1's syntax and commands.
 
 ## Licence
 

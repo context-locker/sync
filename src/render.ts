@@ -6,6 +6,7 @@ import { NOTES_PATH, noteFileName } from "./notes.js";
 import { injectionMatches } from "./threats.js";
 import type {
   DocsHome,
+  DocsLocation,
   ItemRef,
   PreferenceInput,
   StartHereInput,
@@ -70,6 +71,7 @@ export const TEXT = {
    * record the answer, so it would ask the user every session
    */
   docsHomeHeading: "### Docs home",
+  docsLocationsHeading: "### Documentation locations",
   docsHomePlace: (place: string) =>
     `Keep lasting docs in ${place}, this project's docs home, and add a link for each new one with write_note, if you have it.`,
   docsHomeNotes:
@@ -172,10 +174,34 @@ export function docsHomeRule(home: DocsHome): {
   return { rule, leftOut: null };
 }
 
+/** Consistent routing for new docs, without moving existing records or granting access. */
+export function docsLocationsRule(
+  locations: DocsLocation[],
+  budget = 3000,
+): string {
+  const rule =
+    "Keep existing documents at their authoritative locations. For a new document, use a location clearly matching its purpose, otherwise the default. If more than one fits, neither a purpose match nor a default exists, or you cannot access the chosen location, ask before saving elsewhere. Recording a location grants no access and copies nothing.";
+  const lines = locations.map((l) => {
+    const destination = l.kind === "notes" ? "Context Locker Notes" : l.place!;
+    const line = `- ${plainMarkdown(l.name)}${l.is_default ? " (default)" : ""}: ${plainMarkdown(destination)}${l.purpose ? `. For: ${plainMarkdown(l.purpose)}` : ""}`;
+    return injectionMatches(line).length
+      ? "- A location needs a human check in playbook Settings before use."
+      : line;
+  });
+  if (!locations.length)
+    lines.push(
+      "No documentation locations are recorded. Ask the person where to keep new lasting docs.",
+    );
+  const full = [rule, ...lines].join("\n");
+  if (Buffer.byteLength(full, "utf8") <= budget) return full;
+  return `${rule}\nThe documentation map is too long for this startup file. Read all locations through Context Locker's project_map or get_context, or ask the person to open playbook Settings, before choosing where to save.`;
+}
+
 /** A project's Start here entries and docs home, to compile into its block. */
 export interface MapPlan {
   startHere: StartHereInput[];
   docsHome: DocsHome;
+  docsLocations?: DocsLocation[];
   /** Most bytes the Start here section may take, so preferences keep most of the room */
   startHereBudget: number;
   /** Whether the sync mirrors the project's notes into its notes folder for this app */
@@ -244,19 +270,30 @@ function renderMap(map: MapPlan | undefined): RenderedMap {
     kept.push(entry);
   }
   const overflow = [...candidates.slice(kept.length), ...extra];
-  const home = docsHomeRule(map.docsHome);
+  const home =
+    map.docsLocations === undefined
+      ? docsHomeRule(map.docsHome)
+      : { rule: docsLocationsRule(map.docsLocations), leftOut: null };
   // With Notes as the docs home, an app that only reads its files saves a
   // lasting doc as a file in the notes folder, when the sync mirrors one
   const rule =
-    home.rule !== null && map.docsHome?.kind === "notes" && map.notesFolder
-      ? `${home.rule} ${TEXT.notesFolder}`
+    home.rule !== null &&
+    (map.docsHome?.kind === "notes" ||
+      map.docsLocations?.some((l) => l.kind === "notes")) &&
+    map.notesFolder
+      ? `${home.rule}${map.docsLocations === undefined ? " " : "\n"}${map.docsLocations === undefined ? TEXT.notesFolder : "When the chosen location is Context Locker Notes, save a Markdown file in .context-locker/notes with the front matter its README shows; the next sync saves it."}`
       : home.rule;
   return {
     startHere:
       map.startHere.length > 0
         ? [section(kept, overflow.length), TEXT.onboarding]
         : [],
-    docsHome: rule === null ? [] : [`${TEXT.docsHomeHeading}\n\n${rule}`],
+    docsHome:
+      rule === null
+        ? []
+        : [
+            `${map.docsLocations === undefined ? TEXT.docsHomeHeading : TEXT.docsLocationsHeading}\n\n${rule}`,
+          ],
     items: kept.map(({ id, version }) => ({ id, version })),
     map: { overflow, leftOut, docsHomeLeftOut: home.leftOut },
   };

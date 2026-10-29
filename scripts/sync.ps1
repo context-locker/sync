@@ -1,4 +1,4 @@
-# Context Locker sync, version 18. MIT licence.
+# Context Locker sync, version 20. MIT licence.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 map <app> [-All]
@@ -10,6 +10,7 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 signin <app> [-Code <code>]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 plan|doctor|readback|daily-job <app>
+#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 update <app>
 #
 # Keeps one AI app's files in step with your playbook at context.locker. <app>
 # is claude-code, codex, hermes or openclaw. The script asks for a manifest of
@@ -81,6 +82,14 @@
 # -Done <id> marks it done, and Context Locker checks it again at once.
 # -Skip <id> -Reason <text> leaves it for the person, with the reason.
 #
+# update takes the newest sync script, once the person says yes, when Context
+# Locker says this one can. It downloads it from where setup publishes it, at
+# context.locker/setup, checks its SHA-256 against the one Context Locker
+# gives, that it's the version it says and that PowerShell can read it, keeps
+# this one beside it as sync.ps1.previous and puts the new one in its place.
+# It changes nothing else. When the newest script needs more than the script,
+# such as a new hook, it says to set Context Locker up again instead.
+#
 # For setup (see context.locker/setup):
 #   signin    connects the app with a code you approve in your browser. The
 #             first run prints the link and the code and exits 3. Run it again
@@ -125,7 +134,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 19
+$ScriptVersion = 20
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -139,7 +148,7 @@ if ($Second.StartsWith('-')) {
 }
 $Mode = 'sync'
 $Harness = $First
-if (@('signin', 'plan', 'doctor', 'readback', 'map', 'gather', 'gather-submit', 'export', 'notes-move-out', 'fix', 'daily-job') -contains $First) {
+if (@('signin', 'plan', 'doctor', 'readback', 'map', 'gather', 'gather-submit', 'export', 'notes-move-out', 'fix', 'daily-job', 'update') -contains $First) {
   $Mode = $First
   $Harness = $Second
 } elseif ($Second) {
@@ -190,7 +199,7 @@ $badCode = $Code -and (($Mode -ne 'signin') -or ($Code -cnotmatch '^ctxl_ic_[A-Z
 # -Now and -Hook are for a sync
 $badSync = ($Mode -ne 'sync') -and ($Now -or $Hook)
 if ($badOption -or $badTo -or $badFix -or $badCode -or $badSync -or (@('claude-code', 'codex', 'hermes', 'openclaw') -notcontains $Harness) -or $Wait -lt 0 -or ($Mode -eq 'gather-submit' -and -not $PlanFile)) {
-  [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 gather <app>`n       sync.ps1 gather-submit <app> <plan.json>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder>`n       sync.ps1 fix <app> [-All]`n       sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text>`n       sync.ps1 signin <app> [-Code <code>]`n       sync.ps1 plan|doctor|readback|daily-job <app>`n<app> is claude-code, codex, hermes or openclaw.")
+  [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 gather <app>`n       sync.ps1 gather-submit <app> <plan.json>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder>`n       sync.ps1 fix <app> [-All]`n       sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text>`n       sync.ps1 signin <app> [-Code <code>]`n       sync.ps1 plan|doctor|readback|daily-job <app>`n       sync.ps1 update <app>`n<app> is claude-code, codex, hermes or openclaw.")
   exit 2
 }
 $AppName = @{ 'claude-code' = 'Claude Code'; 'codex' = 'Codex'; 'hermes' = 'Hermes'; 'openclaw' = 'OpenClaw' }[$Harness]
@@ -258,6 +267,11 @@ function Get-Sha256File([string]$Path) { return Get-Sha256Bytes ([IO.File]::Read
 $Api = if ($env:CONTEXT_LOCKER_API) { $env:CONTEXT_LOCKER_API } else { Read-Setting 'api' (Join-Path $ClHome 'config') }
 if (-not $Api) { $Api = 'https://api.context.locker' }
 $Api = $Api.TrimEnd('/')
+# Where setup's files are published: update takes the newest script from
+# there, and from nowhere else (G1-112)
+$Site = if ($env:CONTEXT_LOCKER_SITE) { $env:CONTEXT_LOCKER_SITE } else { Read-Setting 'site' (Join-Path $ClHome 'config') }
+if (-not $Site) { $Site = 'https://context.locker' }
+$Site = $Site.TrimEnd('/')
 
 if ($Mode -eq 'sync' -and -not (Get-Command tar -ErrorAction SilentlyContinue)) {
   Stop-Early 'sync needs tar, which comes with Windows 10 and later.'
@@ -279,19 +293,35 @@ function Get-TokenProblem {
   }
   return ''
 }
-if (@('sync', 'plan', 'map', 'gather', 'gather-submit', 'export', 'notes-move-out', 'fix', 'daily-job') -contains $Mode) {
+if (@('sync', 'plan', 'map', 'gather', 'gather-submit', 'export', 'notes-move-out', 'fix', 'daily-job', 'update') -contains $Mode) {
   $problem = Get-TokenProblem
   if ($problem) { Stop-Early $problem }
 }
 
-# The global manifest names the newest sync script. A newer one than this
-# gets a line at session start and in the doctor; nothing changes on its own.
+# The global manifest names the newest sync script, and when this one can
+# take it with update, where it's published and its SHA-256 (G1-112). A newer
+# one than this gets a line at session start and in the doctor; nothing
+# changes on its own.
 $NewerLine = 'Context Locker: a newer version of its sync script is out. When it suits the user, offer to set Context Locker up again from https://context.locker/setup. The one installed keeps working until then.'
+$Script:NewestScript = 0
 function Test-NewerScript {
   $lock = Join-Path $AppDir 'global.lock'
   if (-not (Test-Path -LiteralPath $lock -PathType Leaf)) { return $false }
   foreach ($line in [IO.File]::ReadAllLines($lock)) {
-    if ($line -cmatch '^entry script ([0-9]{1,6})\z') { return ([int]$Matches[1] -gt $ScriptVersion) }
+    if ($line -cmatch '^entry script ([0-9]{1,6})\z') {
+      $Script:NewestScript = [int]$Matches[1]
+      return ($Script:NewestScript -gt $ScriptVersion)
+    }
+  }
+  return $false
+}
+# Whether this script can take the newest one with update, as the last sync
+# heard
+function Test-CanUpdate {
+  $lock = Join-Path $AppDir 'global.lock'
+  if (-not (Test-Path -LiteralPath $lock -PathType Leaf)) { return $false }
+  foreach ($line in [IO.File]::ReadAllLines($lock)) {
+    if ($line -cmatch '^entry update [0-9a-f]{64} [0-9]{1,6}\z') { return $true }
   }
   return $false
 }
@@ -3263,7 +3293,11 @@ function Invoke-Doctor {
     }
   }
   if (Test-NewerScript) {
-    Warning 'A newer version of the sync script is out. When it suits you, set Context Locker up again from context.locker/setup. This one keeps working until then.'
+    if (Test-CanUpdate) {
+      Warning "Version $($Script:NewestScript) of the sync script is out, and updating to it changes only the script. When it suits you, run: $Run update $Harness"
+    } else {
+      Warning 'A newer version of the sync script is out. When it suits you, set Context Locker up again from context.locker/setup. This one keeps working until then.'
+    }
   }
 
   $connected = $false
@@ -4969,6 +5003,110 @@ function Undo-MoveOut([string]$Dest, [string]$File) {
   }
 }
 
+# --- Update ---------------------------------------------------------------
+
+# Takes the newest sync script, when Context Locker says this one can, from
+# setup's folder for its release and nowhere else, as setup would save it: it
+# must match the SHA-256 Context Locker gives, say it's the version Context
+# Locker names and read as a PowerShell script. This one stays beside it as
+# sync.ps1.previous, and the new one takes its place in one step. Nothing
+# else changes (G1-112).
+function Invoke-Update {
+  function Stop-Update([string]$Text) { [Console]::Error.WriteLine("Context Locker: $Text") }
+  if (-not (Test-Path -LiteralPath $Installed)) {
+    Stop-Update "the sync script isn't at $Installed, where the $Trigger $TriggerRuns it, so there's nothing to update. Set Context Locker up again from https://context.locker/setup."
+    return 1
+  }
+  $item = Get-Item -LiteralPath $Installed -Force
+  if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+    Stop-Update "$Installed is a link, so update leaves it as it is. Set Context Locker up again from https://context.locker/setup instead."
+    return 1
+  }
+  $installedVersion = ''
+  foreach ($line in [IO.File]::ReadAllLines($Installed)) {
+    if ($line -match '^\$ScriptVersion = (\d+)$') { $installedVersion = $Matches[1]; break }
+  }
+  if ($installedVersion -ne [string]$ScriptVersion) {
+    $shown = if ($installedVersion) { $installedVersion } else { 'unknown' }
+    Stop-Update "the sync script at $Installed is version $shown, and this one is version $ScriptVersion. Run the one there: $Run update $Harness"
+    return 1
+  }
+
+  $reply = Invoke-Api 'GET' '/v1/sync/script' $null '' @{ 'Accept' = 'text/plain' }
+  if ($reply.Status -eq 0) { Stop-Update "can't reach Context Locker, so the sync script stays as it is."; return 1 }
+  if ($reply.Status -eq 401) {
+    Stop-Update "this computer's connection for $AppName was revoked or has expired, so the sync script stays as it is. Set it up again at context.locker/setup."
+    return 1
+  }
+  if ($reply.Status -ne 200) { Stop-Update "Context Locker answered $($reply.Status), so the sync script stays as it is."; return 1 }
+  $newest = 0
+  $want = ''
+  $setup = ''
+  foreach ($line in ($Utf8.GetString($reply.Body) -split "`n")) {
+    if (-not $newest -and $line -cmatch '^script ([0-9]{1,6})\z') { $newest = [int]$Matches[1] }
+    elseif (-not $want -and $line -cmatch '^update ([0-9a-f]{64}) ([0-9]{1,6})\z') { $want = $Matches[1]; $setup = $Matches[2] }
+  }
+  if (-not $newest) { Stop-Update "Context Locker didn't say which sync script is the newest, so this one stays as it is."; return 1 }
+  if ($newest -le $ScriptVersion) {
+    Say "Context Locker: the sync script is up to date, at version $ScriptVersion."
+    return 0
+  }
+  if (-not $want) {
+    Stop-Update "version $newest of the sync script needs more than the script, such as a new hook, so update can't take it. Set Context Locker up again from https://context.locker/setup."
+    return 1
+  }
+
+  # Straight from the site, without the connection's token, which only
+  # Context Locker's API is sent
+  $url = "$Site/setup/v$setup/sync.ps1"
+  $status = 0
+  $bytes = [byte[]]@()
+  try {
+    $request = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Get, $url)
+    $response = $Client.SendAsync($request).GetAwaiter().GetResult()
+    $status = [int]$response.StatusCode
+    $bytes = $response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+  } catch {
+    $status = 0
+  }
+  if ($status -eq 0) { Stop-Update "couldn't download version $newest of the sync script from $url, so the script stays as it is. Try again later."; return 1 }
+  if ($status -ne 200) { Stop-Update "$url answered $status, so the sync script stays as it is. Try again later."; return 1 }
+  if ((Get-Sha256Bytes $bytes) -ne $want) {
+    Stop-Update "the sync script from $url doesn't match the SHA-256 Context Locker gives for version $newest, so it wasn't used, and the script stays as it is."
+    return 1
+  }
+  $saysVersion = ''
+  foreach ($line in ($Utf8.GetString($bytes) -split "`n")) {
+    if ($line -match '^\$ScriptVersion = (\d+)\r?$') { $saysVersion = $Matches[1]; break }
+  }
+  if ($saysVersion -ne [string]$newest) {
+    Stop-Update "the sync script from $url isn't version $newest, so it wasn't used, and the script stays as it is."
+    return 1
+  }
+  $new = Join-Path $Tmp 'sync.ps1.new'
+  [IO.File]::WriteAllBytes($new, $bytes)
+  $tokens = $null
+  $errors = $null
+  [void][Management.Automation.Language.Parser]::ParseFile($new, [ref]$tokens, [ref]$errors)
+  if ($errors -and $errors.Count -gt 0) {
+    Stop-Update "the sync script from $url doesn't read as a PowerShell script here, so it wasn't used, and the script stays as it is."
+    return 1
+  }
+
+  # The old one stays beside the new one, which takes its place in one step
+  $previous = "$Installed.previous"
+  try {
+    Set-OwnerOnly $new
+    if (Test-Path -LiteralPath $previous) { Remove-Item -LiteralPath $previous -Force }
+    [IO.File]::Replace($new, $Installed, $previous)
+  } catch {
+    Stop-Update "couldn't put the new sync script in place, so the script stays as it is."
+    return 1
+  }
+  Say "Context Locker: the sync script is now version $newest, from $url. Version $ScriptVersion is kept at $previous, and nothing else changed."
+  return 0
+}
+
 # --- Run ------------------------------------------------------------------
 
 if ($Mode -ne 'sync') {
@@ -4986,6 +5124,7 @@ if ($Mode -ne 'sync') {
       'notes-move-out' { $exitCode = Invoke-NotesMoveOut }
       'fix' { $exitCode = Invoke-Fix }
       'daily-job' { $exitCode = Invoke-DailyJob }
+      'update' { $exitCode = Invoke-Update }
     }
   } catch {
     [Console]::Error.WriteLine("Context Locker: $($_.Exception.Message)")
@@ -5049,7 +5188,13 @@ if ($Script:ProjectId) {
   $candidate = Join-Path (Join-Path $AppDir 'projects') "$($Script:ProjectId).context"
   if (Test-Path -LiteralPath $candidate -PathType Leaf) { $contextParts.Add((Read-Text $candidate)) }
 }
-if (Test-NewerScript) { $contextParts.Add("$NewerLine`n") }
+if (Test-NewerScript) {
+  if (Test-CanUpdate) {
+    $contextParts.Add("Context Locker: version $($Script:NewestScript) of its sync script is out. When it suits the user, offer to update it, and once they say yes, run ``$Run update $Harness``. That changes only the script, and the one installed keeps working until then.`n")
+  } else {
+    $contextParts.Add("$NewerLine`n")
+  }
+}
 
 # What this run changed in the app's files, such as "its instructions and 2
 # skills", or '' when it changed nothing

@@ -11,6 +11,9 @@
 //                                                    manifest is empty, so what it was given there
 //                                                    goes, and a script can say why
 //   script <version>                                 the newest sync script, in the global manifest
+//   update <sha256> <setup version>                  where the script that asked can take that one
+//                                                    with its update command, from setup's folder
+//                                                    for that version, and its SHA-256 (G1-112)
 //   block <sha256> <target>                          a managed block
 //   skill <tree hash> <target> <item id> <version>   a skill folder
 //   file <sha256> <target>                           a whole file, such as the notes folder's README
@@ -33,7 +36,36 @@ export const MANIFEST_HEADER = "context-locker-sync 1";
  * The newest version of the sync scripts, as their SCRIPT_VERSION says. The
  * global manifest names it, so an older script can say a newer one is out.
  */
-export const SYNC_SCRIPT_VERSION = 19;
+export const SYNC_SCRIPT_VERSION = 20;
+
+/** The shell a sync script runs in: sh on macOS and Linux, PowerShell on Windows */
+export type ScriptShell = "sh" | "powershell";
+
+/**
+ * Where the newest sync scripts are published, for the scripts' update
+ * command, from script 20 (G1-112): the setup version whose folder at
+ * context.locker/setup/v<setup>/ holds them, each one's SHA-256, and the
+ * oldest script that can take them in place. A release that changes what
+ * setup adds, such as a hook or a daily job, raises updatesFrom to its own
+ * version, so an older script is told to set Context Locker up again instead.
+ */
+export interface ScriptRelease {
+  version: number;
+  setup: number;
+  sha256: Readonly<Record<ScriptShell, string>>;
+  updatesFrom: number;
+}
+
+export const SYNC_SCRIPT_RELEASE: ScriptRelease = Object.freeze({
+  version: SYNC_SCRIPT_VERSION,
+  setup: 25,
+  sha256: Object.freeze({
+    sh: "faf329fbffb1670f5b1d6f788120741476e041e3696f004c9bee8408608b37e6",
+    powershell:
+      "ca780f73f171ead6886ecd9e545a1f0a873147585fd86edcb7a43323983730b3",
+  }),
+  updatesFrom: 20,
+});
 
 export type ManifestEntry =
   | { kind: "block"; hash: string; target: string }
@@ -43,7 +75,8 @@ export type ManifestEntry =
   | { kind: "link"; id: string; path: string }
   | { kind: "context"; hash: string }
   | { kind: "hold"; hash: string; target: string }
-  | { kind: "script"; version: number };
+  | { kind: "script"; version: number }
+  | { kind: "update"; hash: string; setup: number };
 
 /** A project's pointer to a path in its repo, such as docs/runbook.md, which the script checks. */
 export interface RepoLink {
@@ -116,6 +149,11 @@ export function buildManifest(input: {
   holds: readonly Hold[];
   /** The newest sync script's version, for the global manifest */
   script?: number;
+  /**
+   * Where the script that asked can take the newest one with its update
+   * command, for the global manifest (G1-112)
+   */
+  update?: { hash: string; setup: number } | null;
   /** A project's pointers to paths in its repo */
   links?: readonly RepoLink[];
   /** Whether a check that finds changes brings them in at once, which is the default */
@@ -131,6 +169,17 @@ export function buildManifest(input: {
     (!Number.isSafeInteger(input.script) || input.script < 1)
   ) {
     throw new Error("A script version is a whole number");
+  }
+  if (
+    input.update &&
+    (!HASH.test(input.update.hash) ||
+      !Number.isSafeInteger(input.update.setup) ||
+      input.update.setup < 1 ||
+      input.script === undefined)
+  ) {
+    throw new Error(
+      "An update names the newest script's SHA-256 and its setup version",
+    );
   }
 
   const blobs = new Map<string, Blob>();
@@ -208,6 +257,15 @@ export function buildManifest(input: {
     ...(input.script !== undefined
       ? [{ kind: "script" as const, version: input.script }]
       : []),
+    ...(input.update
+      ? [
+          {
+            kind: "update" as const,
+            hash: input.update.hash,
+            setup: input.update.setup,
+          },
+        ]
+      : []),
     ...(blocks as Array<ManifestEntry & { target: string }>).sort(byTarget),
     ...(skills as Array<ManifestEntry & { target: string }>).sort(byTarget),
     ...(files as Array<ManifestEntry & { target: string }>).sort(byTarget),
@@ -243,6 +301,9 @@ export function buildManifest(input: {
     switch (entry.kind) {
       case "script":
         lines.push(`script ${entry.version}`);
+        break;
+      case "update":
+        lines.push(`update ${entry.hash} ${entry.setup}`);
         break;
       case "block":
         lines.push(`block ${entry.hash} ${entry.target}`);
@@ -323,6 +384,15 @@ export function parseManifest(text: string): {
       });
     } else if (kind === "script" && hash && /^[0-9]{1,6}$/.test(hash)) {
       entries.push({ kind, version: Number(hash) });
+    } else if (
+      kind === "update" &&
+      hash &&
+      HASH.test(hash) &&
+      target &&
+      /^[0-9]{1,6}$/.test(target) &&
+      fields.length === 3
+    ) {
+      entries.push({ kind, hash, setup: Number(target) });
     } else if (kind === "context" && hash) entries.push({ kind, hash });
     else if (kind === "hold" && hash && target) {
       entries.push({ kind, hash, target });
