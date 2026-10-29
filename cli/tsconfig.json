@@ -1,0 +1,12 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@internal/compilers": ["../src/index.ts"],
+      "@internal/shared": ["./shared.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "shared.ts"]
+}
