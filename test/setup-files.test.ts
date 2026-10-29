@@ -8,6 +8,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { SYNC_SCRIPT_RELEASE, SYNC_SCRIPT_VERSION } from "../src/index.js";
+
 const SITE = fileURLToPath(new URL("../", import.meta.url));
 const SCRIPTS = fileURLToPath(new URL("../scripts/", import.meta.url));
 
@@ -60,4 +62,33 @@ describe("the published setup files", () => {
       assert.doesNotMatch(skill, /%%[A-Z_0-9]+%%/);
     });
   }
+
+  it("hold the newest scripts where the update command takes them from (G1-112)", () => {
+    const release = SYNC_SCRIPT_RELEASE;
+    assert.equal(release.version, SYNC_SCRIPT_VERSION);
+    const dir = `${SITE}setup/v${release.setup}/`;
+    assert.ok(
+      versions.includes(`v${release.setup}`),
+      `setup v${release.setup} is published`,
+    );
+    for (const [shell, script] of [
+      ["sh", "sync.sh"],
+      ["powershell", "sync.ps1"],
+    ] as const) {
+      assert.equal(
+        sha256(`${dir}${script}`),
+        release.sha256[shell],
+        `SYNC_SCRIPT_RELEASE names ${script}'s SHA-256 in setup v${release.setup}`,
+      );
+      assert.equal(
+        sha256(`${dir}${script}`),
+        sha256(`${SCRIPTS}${script}`),
+        `setup v${release.setup} holds the newest ${script}`,
+      );
+    }
+    // Only a script with the update command can take it, and the newest
+    // script has nothing to take
+    assert.ok(release.updatesFrom >= 20, "update came in with script 20");
+    assert.ok(release.updatesFrom <= release.version);
+  });
 });

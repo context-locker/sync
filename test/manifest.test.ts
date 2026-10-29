@@ -263,6 +263,69 @@ describe("the sync manifest", () => {
     }
   });
 
+  it("says where the script that asked can take the newest one with update (G1-112)", () => {
+    const hash = "c".repeat(64);
+    const manifest = buildManifest({
+      workspaceId: WORKSPACE_ID,
+      outputs: [],
+      holds: [],
+      script: SYNC_SCRIPT_VERSION,
+      update: { hash, setup: 31 },
+    });
+    const lines = manifest.text.split("\n");
+    assert.equal(lines[2], `script ${SYNC_SCRIPT_VERSION}`);
+    assert.equal(lines[3], `update ${hash} 31`);
+    assert.deepEqual(parseManifest(manifest.text).entries, manifest.entries);
+    // Without an update, or with none to give, there's no line
+    for (const update of [undefined, null]) {
+      assert.ok(
+        !buildManifest({
+          workspaceId: WORKSPACE_ID,
+          outputs: [],
+          holds: [],
+          script: SYNC_SCRIPT_VERSION,
+          update,
+        }).text.includes("\nupdate "),
+      );
+    }
+    // It names a SHA-256 and a setup version, and only beside the script line
+    for (const bad of [
+      { hash: "c".repeat(63), setup: 31 },
+      { hash: "C".repeat(64), setup: 31 },
+      { hash, setup: 0 },
+      { hash, setup: 1.5 },
+    ]) {
+      assert.throws(
+        () =>
+          buildManifest({
+            workspaceId: WORKSPACE_ID,
+            outputs: [],
+            holds: [],
+            script: SYNC_SCRIPT_VERSION,
+            update: bad,
+          }),
+        /SHA-256 and its setup version/,
+      );
+    }
+    assert.throws(
+      () =>
+        buildManifest({
+          workspaceId: WORKSPACE_ID,
+          outputs: [],
+          holds: [],
+          update: { hash, setup: 31 },
+        }),
+      /SHA-256 and its setup version/,
+    );
+    // A line that isn't quite one is skipped, as the scripts skip it
+    assert.deepEqual(
+      parseManifest(
+        `${MANIFEST_HEADER}\nupdate ${hash} 31 extra\nupdate ${hash.slice(1)} 31\nupdate ${hash} v31\n`,
+      ).entries,
+      [],
+    );
+  });
+
   it("names the version the scripts here say they are", () => {
     const scripts = new URL("../scripts/", import.meta.url);
     assert.match(

@@ -44,6 +44,7 @@ export {
 } from "./hash.js";
 export {
   MANIFEST_HEADER,
+  SYNC_SCRIPT_RELEASE,
   SYNC_SCRIPT_VERSION,
   buildManifest,
   parseManifest,
@@ -54,6 +55,8 @@ export type {
   Manifest,
   ManifestEntry,
   RepoLink,
+  ScriptRelease,
+  ScriptShell,
 } from "./manifest.js";
 export {
   EVERYWHERE_FOLDER,
@@ -82,6 +85,7 @@ export {
   START_HERE_MOST,
   TEXT,
   docsHomeRule,
+  docsLocationsRule,
   linkDestination,
   plainMarkdown,
   preferenceLine,
@@ -139,3 +143,5 @@ export type {
   SkillInput,
   StartHereInput,
 } from "./types.js";
+
+export type { DocsLocation } from "./types.js";

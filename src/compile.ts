@@ -15,6 +15,7 @@ import type {
   Compiled,
   CompiledHarness,
   DocsHome,
+  DocsLocation,
   NoteInput,
   Output,
   PreferenceInput,
@@ -192,8 +193,12 @@ function compileGlobal(
   harness: CompiledHarness,
   preferences: PreferenceInput[],
   personal: SkillInput[],
+  docsLocations?: DocsLocation[],
 ): Compiled {
   const targets = TARGETS[harness];
+  const map = docsLocations?.length
+    ? { startHere: [], docsHome: null, docsLocations, startHereBudget: 0 }
+    : undefined;
   const { skills: skillList, notes: skillNotes } = globalSkills(
     harness,
     personal,
@@ -216,6 +221,7 @@ function compileGlobal(
           : "Context Locker keeps your preferences in USER.md.",
       preferences: user.overflow,
       budget: BUDGETS.openclawAgents,
+      map,
       footer: TEXT.endOfTaskIn(
         user.overflow.length > 0 ? "USER.md or this file" : "USER.md",
       ),
@@ -242,6 +248,7 @@ function compileGlobal(
     preferences,
     empty: TEXT.noPreferences,
     budget,
+    map,
     footer: TEXT.endOfTask,
   });
   return {
@@ -279,7 +286,11 @@ function compileProject(
   project: NonNullable<CompileInput["project"]>,
   preferences: PreferenceInput[],
   skillList: SkillInput[],
-  map: { startHere: StartHereInput[]; docsHome: DocsHome },
+  map: {
+    startHere: StartHereInput[];
+    docsHome: DocsHome;
+    docsLocations?: DocsLocation[];
+  },
   folder: { notes: NoteInput[]; tags: string[] },
 ): Compiled {
   const targets = TARGETS[harness];
@@ -293,7 +304,10 @@ function compileProject(
   // A project with preferences, Start here entries or a docs home gets its
   // block, which says where lasting docs go once a docs home is recorded
   const compiled =
-    preferences.length > 0 || map.startHere.length > 0 || map.docsHome !== null;
+    preferences.length > 0 ||
+    map.startHere.length > 0 ||
+    map.docsHome !== null ||
+    (map.docsLocations?.length ?? 0) > 0;
 
   if (!targets.projectBlock) {
     return {
@@ -394,8 +408,9 @@ export function compile(input: CompileInput): Compiled {
         {
           startHere: [...(input.startHere ?? [])],
           docsHome: input.docsHome ?? null,
+          docsLocations: input.docsLocations,
         },
         { notes: [...(input.notes ?? [])], tags: [...(input.tags ?? [])] },
       )
-    : compileGlobal(input.harness, preferences, skillList);
+    : compileGlobal(input.harness, preferences, skillList, input.docsLocations);
 }
