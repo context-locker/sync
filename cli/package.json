@@ -1,0 +1,48 @@
+{
+  "name": "context-locker",
+  "version": "0.1.7",
+  "description": "Set up Context Locker for one AI app, with your approval",
+  "keywords": [
+    "context-locker",
+    "ai-agents",
+    "claude-code",
+    "codex",
+    "hermes",
+    "openclaw",
+    "skills",
+    "cli"
+  ],
+  "homepage": "https://context.locker/setup",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/context-locker/sync.git"
+  },
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "context-locker": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepublishOnly": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "tsx --test \"test/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@internal/compilers": "file:../compilers",
+    "@internal/shared": "file:../shared",
+    "@types/node": "22.20.5",
+    "esbuild": "0.28.2",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "yaml": "2.9.1"
+  }
+}
