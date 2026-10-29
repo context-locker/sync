@@ -125,7 +125,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 18
+$ScriptVersion = 19
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -1472,6 +1472,8 @@ function Sync-Scope([string]$Query, [string]$State) {
   if ($Mode -eq 'sync' -and -not $Now -and ($entries -ccontains 'auto-sync off') -and ($Script:Removals.Count -or $Script:ProjectRemovals.Count)) {
     $Script:RemovalsPaused = $true
     $Script:ChangesWaiting = $true
+    # The session start's text still comes in, as it does below (G1-104)
+    if (-not $Query) { Get-ContextOnly $State $entries }
     return 0
   }
 
