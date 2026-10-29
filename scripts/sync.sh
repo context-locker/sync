@@ -107,7 +107,7 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=18
+SCRIPT_VERSION=19
 MODE=sync
 case ${1:-} in
   signin | plan | doctor | readback | map | gather | gather-submit | export | notes-move-out | fix | daily-job)
@@ -1408,6 +1408,8 @@ sync_scope() {
   [ "$MODE" != sync ] || load_removals
   if [ "$MODE" = sync ] && [ "$NOW" = 0 ] && grep -qx 'auto-sync off' "$TMP/entries" && { [ -s "$TMP/removals" ] || [ -s "$TMP/project-removals" ]; }; then
     REMOVALS_PAUSED=1 CHANGES_WAITING=1
+    # The session start's text still comes in, as it does below (G1-104)
+    [ -n "$query" ] || context_only "$state"
     return 0
   fi
 
