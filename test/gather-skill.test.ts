@@ -214,11 +214,16 @@ describe("the Import skill, context-locker-gather", () => {
     }
   });
 
-  it("decides by its rules, asks one yes or no, and sends what it can't settle to the inbox", () => {
+  it("decides by its rules, and sends the plan to the inbox, where the person picks, asking nothing in the chat (G1-89)", () => {
     for (const harness of ["claude-code", "codex", "mcp"] as const) {
       const skillMd = gatherSkillFiles(harness)[0]?.content ?? "";
-      assert.match(skillMd, /ask nothing but the one yes or no/);
+      assert.match(
+        skillMd,
+        /don't ask the person to approve the plan in this chat: the inbox is where they decide/,
+      );
+      assert.doesNotMatch(skillMd, /yes or no/);
       assert.match(skillMd, /give it an `ask`/);
+      assert.match(skillMd, /`could_apply_to`/);
       assert.match(skillMd, /show the person the reply's message as it is/);
       // Short enough to read in a moment, unlike the 9 steps before it
       assert.ok(skillMd.split("\n").length <= 110, harness);

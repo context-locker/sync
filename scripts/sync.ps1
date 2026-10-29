@@ -1,4 +1,4 @@
-# Context Locker sync, version 10. MIT licence.
+# Context Locker sync, version 18. MIT licence.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 map <app> [-All]
@@ -9,7 +9,7 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 fix <app> [-All]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 signin <app> [-Code <code>]
-#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 plan|doctor|readback <app>
+#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 plan|doctor|readback|daily-job <app>
 #
 # Keeps one AI app's files in step with your playbook at context.locker. <app>
 # is claude-code, codex, hermes or openclaw. The script asks for a manifest of
@@ -42,9 +42,11 @@
 # -Now          syncs even when auto sync is off.
 # -Hook         is for an app's hook, and prints only what that app's hook
 #               reads.
-# -Daily        is for scheduled runs, from before syncs ran on the apps'
-#               events: silent when all is well, exit 1 when not. It syncs
-#               the projects linked on this computer too.
+# -Daily        is for the daily job in Hermes's or OpenClaw's own
+#               scheduler: silent when all is well, exit 1 when not. It
+#               syncs the projects linked on this computer too, keeps to
+#               auto sync off, and tells Context Locker the run finished, or
+#               why it failed, for the connection's page.
 #
 # map prints the project's map: its docs home, its Start here entries, the
 # notes and pointers that matter in the current folder (every one with -All)
@@ -88,10 +90,15 @@
 #             instead, with nothing to approve, and exits 0 once connected.
 #   plan      shows what a sync would write, and the hooks to add. It changes
 #             nothing.
-#   doctor    checks the connection, the files and the hooks, how
-#             full the playbook's limits are, instruction files Context Locker
-#             doesn't manage, and anything that has drifted since the last
-#             sync. It exits 1 when a check fails.
+#   doctor    checks the connection, the files, the hooks and the daily job,
+#             how full the playbook's limits are, instruction files Context
+#             Locker doesn't manage, and anything that has drifted since the
+#             last sync. It tells Context Locker how the app runs the sync,
+#             for the connection's page. It exits 1 when a check fails.
+#   daily-job adds a daily job to Hermes's or OpenClaw's own scheduler that
+#             runs the sync once a day, with no model call, once the person
+#             says yes. One that's there already stays as it is. Claude Code
+#             and Codex can't run one in the background.
 #   readback  prints what Context Locker has put in the app's files
 #
 # The same steps as sync.sh, for Windows PowerShell 5.1 and PowerShell 7.
@@ -118,7 +125,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 15
+$ScriptVersion = 18
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -132,7 +139,7 @@ if ($Second.StartsWith('-')) {
 }
 $Mode = 'sync'
 $Harness = $First
-if (@('signin', 'plan', 'doctor', 'readback', 'map', 'gather', 'gather-submit', 'export', 'notes-move-out', 'fix') -contains $First) {
+if (@('signin', 'plan', 'doctor', 'readback', 'map', 'gather', 'gather-submit', 'export', 'notes-move-out', 'fix', 'daily-job') -contains $First) {
   $Mode = $First
   $Harness = $Second
 } elseif ($Second) {
@@ -183,12 +190,14 @@ $badCode = $Code -and (($Mode -ne 'signin') -or ($Code -cnotmatch '^ctxl_ic_[A-Z
 # -Now and -Hook are for a sync
 $badSync = ($Mode -ne 'sync') -and ($Now -or $Hook)
 if ($badOption -or $badTo -or $badFix -or $badCode -or $badSync -or (@('claude-code', 'codex', 'hermes', 'openclaw') -notcontains $Harness) -or $Wait -lt 0 -or ($Mode -eq 'gather-submit' -and -not $PlanFile)) {
-  [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 gather <app>`n       sync.ps1 gather-submit <app> <plan.json>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder>`n       sync.ps1 fix <app> [-All]`n       sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text>`n       sync.ps1 signin <app> [-Code <code>]`n       sync.ps1 plan|doctor|readback <app>`n<app> is claude-code, codex, hermes or openclaw.")
+  [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 gather <app>`n       sync.ps1 gather-submit <app> <plan.json>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder>`n       sync.ps1 fix <app> [-All]`n       sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text>`n       sync.ps1 signin <app> [-Code <code>]`n       sync.ps1 plan|doctor|readback|daily-job <app>`n<app> is claude-code, codex, hermes or openclaw.")
   exit 2
 }
 $AppName = @{ 'claude-code' = 'Claude Code'; 'codex' = 'Codex'; 'hermes' = 'Hermes'; 'openclaw' = 'OpenClaw' }[$Harness]
-# Hermes's and OpenClaw's hooks don't read what a sync prints
-$Quiet = $Hook -and ($Harness -eq 'hermes' -or $Harness -eq 'openclaw')
+# Hermes's and OpenClaw's hooks don't read what a sync prints, and a daily
+# job tells the person only of a failure, so what it finds is said at the
+# next session start
+$Quiet = ($Hook -and ($Harness -eq 'hermes' -or $Harness -eq 'openclaw')) -or $Daily
 $OnWindows = ($PSVersionTable.PSVersion.Major -lt 6) -or $IsWindows
 $OnMac = ($PSVersionTable.PSVersion.Major -ge 6) -and $IsMacOS
 
@@ -270,7 +279,7 @@ function Get-TokenProblem {
   }
   return ''
 }
-if (@('sync', 'plan', 'map', 'gather', 'gather-submit', 'export', 'notes-move-out', 'fix') -contains $Mode) {
+if (@('sync', 'plan', 'map', 'gather', 'gather-submit', 'export', 'notes-move-out', 'fix', 'daily-job') -contains $Mode) {
   $problem = Get-TokenProblem
   if ($problem) { Stop-Early $problem }
 }
@@ -869,6 +878,12 @@ function Send-Notes([string]$Query, [string[]]$Entries) {
     if (($f[0] -eq 'note' -or $f[0] -eq 'file') -and $f.Length -ge 3) { $inManifest[$f[2]] = $f[1] }
   }
   $records = @{}
+  foreach ($line in $lockLines) {
+    $f = $line.Split(' ')
+    if ($f.Length -ge 6 -and $f[0] -eq 'entry' -and $f[1] -eq 'skill' -and $plan.ContainsKey($f[3])) {
+      $plan[$f[3]].RId = $f[4]; $plan[$f[3]].RVer = $f[5]
+    }
+  }
   foreach ($line in $Script:NotesRecords) {
     $f = $line.Split(' ')
     if ($f[0] -eq 'wrote' -and $f.Length -ge 6) { $records[$f[3]] = @{ Kind = $f[1]; Hash = $f[2]; Id = $f[4]; Ver = $f[5] } }
@@ -1208,6 +1223,194 @@ function Add-Change([string]$Kind, [string]$Target, $Changed) {
 $Script:PlanOut = New-Object System.Collections.Generic.List[string]
 function Add-Planned([string]$Text) { if ($Mode -eq 'plan') { $Script:PlanOut.Add($Text) } }
 
+# Removal generations remain waiting until every known managed copy is gone.
+function Get-SkillMarker([string]$Path) {
+  $lines = @([IO.File]::ReadAllLines($Path))
+  if ($lines.Count -and $lines[0] -cmatch '^Managed by Context Locker: skill ([0-9a-f-]{36}), version ([0-9]{1,9})\.$') {
+    return @{ Item = $Matches[1]; Version = [int]$Matches[2] }
+  }
+  return $null
+}
+
+function Get-CleanupRoots {
+  switch ($Harness) {
+    'claude-code' { Join-Path (Get-RootDir 'claude') 'skills' }
+    'codex' { Join-Path (Get-RootDir 'agents') 'skills' }
+    'openclaw' { Join-Path (Get-RootDir 'agents') 'skills' }
+    'hermes' { Join-Path (Get-RootDir 'hermes') 'skills' }
+  }
+  $suffix = switch ($Harness) { 'claude-code' { '.claude/skills' }; 'codex' { '.agents/skills' } }
+  if (-not $suffix) { return }
+  if ($Script:ProjectRoot) { Join-Path $Script:ProjectRoot $suffix }
+  $registry = Join-Path $ClHome 'projects'
+  if (Test-Path -LiteralPath $registry -PathType Leaf) {
+    foreach ($line in [IO.File]::ReadAllLines($registry)) {
+      if ($line -notmatch '^([0-9a-f-]{36}) (.+)$') { continue }
+      $id = $Matches[1]; $folder = $Matches[2]
+      if (-not (Test-Path -LiteralPath (Join-Path $AppDir "projects/$id.lock"))) { continue }
+      if (-not (Test-Path -LiteralPath $folder -PathType Container)) { '?'; continue }
+      Join-Path $folder $suffix
+    }
+  }
+}
+
+function Test-CleanupPath([string]$Path, [string]$Root) {
+  $stop = Split-Path -Parent (Split-Path -Parent $Root)
+  while ($Path -and $Path -ne $stop) {
+    if (Test-Link $Path) { return $false }
+    $parent = Split-Path -Parent $Path
+    if ($parent -eq $Path) { break }
+    $Path = $parent
+  }
+  return $true
+}
+
+function Get-Removals {
+  if ($Script:RemovalsLoaded) { return }
+  $Script:RemovalsLoaded = $true
+  $Script:Removals = @()
+  $reply = Invoke-Api 'GET' '/v1/sync/removals'
+  if ($reply.Status -ne 200) { return }
+  foreach ($line in (Get-Lines ($Utf8.GetString($reply.Body)))) {
+    if ($line -cmatch '^remove ([0-9a-f-]{36}) ([0-9a-f-]{36}) ([0-9]{1,9}) project ([0-9a-f-]{36})$' -and $Matches[2] -ceq $Matches[4]) {
+      $Script:ProjectRemovals += @{Id=$Matches[1];Project=$Matches[2];Version=[int]$Matches[3]}
+    }
+    if ($line -cmatch '^remove ([0-9a-f-]{36}) ([0-9a-f-]{36}) ([0-9]{1,9}) skill ([a-z0-9]+(?:-[a-z0-9]+)*)$') {
+      $Script:Removals += @{ Id = $Matches[1]; Item = $Matches[2]; Version = [int]$Matches[3]; Name = $Matches[4] }
+    }
+  }
+}
+
+function Remove-ScopeCopies {
+  if ($Mode -ne 'sync') { return }
+  Get-Removals
+  if (-not $Script:Removals.Count) { return }
+  $root = switch ("$($Script:Scope) $Harness") {
+    'global claude-code' { Join-Path (Get-RootDir 'claude') 'skills' }
+    'global codex' { Join-Path (Get-RootDir 'agents') 'skills' }
+    'global openclaw' { Join-Path (Get-RootDir 'agents') 'skills' }
+    'global hermes' { Join-Path (Get-RootDir 'hermes') 'skills' }
+    'project claude-code' { if ($Script:Layer -eq 'repo') { Join-Path $Script:ProjectRoot '.claude/skills' } }
+    'project codex' { if ($Script:Layer -eq 'repo') { Join-Path $Script:ProjectRoot '.agents/skills' } }
+  }
+  if (-not $root) { return }
+  $Script:CleanupRoots += $root
+  foreach ($removal in $Script:Removals) {
+    foreach ($dir in (Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction SilentlyContinue)) {
+      $markerPath = Join-Path $dir.FullName '.ctx-managed'
+      if (-not (Test-CleanupPath $markerPath $root) -or -not (Test-Path -LiteralPath $markerPath -PathType Leaf)) { continue }
+      $marker = Get-SkillMarker $markerPath
+      if (-not $marker -or $marker.Item -cne $removal.Item -or $marker.Version -gt $removal.Version) { continue }
+      try {
+        $target = "removed-$($removal.Id)-$(Get-Sha256Text $dir.FullName)"
+        if (-not (Backup-Item $dir.FullName $target)) { throw 'Could not back up the managed copy.' }
+        Remove-Item -LiteralPath $dir.FullName -Recurse -Force -ErrorAction Stop
+        if (Test-Path -LiteralPath $dir.FullName) { throw 'The managed copy is still present.' }
+        $Script:SkillsChanged = $true
+        $Script:WSkills++
+      } catch {
+        [void](Invoke-Api 'POST' "/v1/sync/removals/$($removal.Id)" ($Utf8.GetBytes("skipped`nCould not safely back up and remove a managed copy.`n")) 'text/plain')
+        Warn "couldn't remove a managed copy of $($removal.Name); cleanup stays waiting."
+      }
+    }
+  }
+}
+
+function Confirm-Removals {
+  if ($Script:RemovalsPaused -or -not $Script:Removals.Count) { return }
+  $roots = @(@(Get-CleanupRoots) + $Script:CleanupRoots | Select-Object -Unique)
+  foreach ($removal in $Script:Removals) {
+    $waiting = $false
+    foreach ($root in $roots) {
+      if ($root -eq '?' -or -not (Test-CleanupPath $root $root)) { $waiting = $true; break }
+      foreach ($dir in (Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction SilentlyContinue)) {
+        $path = Join-Path $dir.FullName '.ctx-managed'
+        if (-not (Test-CleanupPath $path $root)) { $waiting = $true; break }
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+        $marker = Get-SkillMarker $path
+        if (-not $marker) { $waiting = $true; break }
+        if ($marker.Item -cne $removal.Item) { continue }
+        if ($marker.Version -le $removal.Version) { $waiting = $true; break }
+      }
+    }
+    if (-not $waiting) {
+      [void](Invoke-Api 'POST' "/v1/sync/removals/$($removal.Id)" ($Utf8.GetBytes("done`nRemoved all known managed copies through the removed version.`n")) 'text/plain')
+    }
+  }
+}
+
+$Script:ProjectRemovals = @()
+$Script:RemovalsLoaded = $false
+$Script:Removals = @()
+$Script:RemovalsPaused = $false
+$Script:CleanupRoots = @()
+
+function Remove-ProjectCopies([string]$Id, [int]$Version, [string]$State, [string[]]$LockLines) {
+  if ($Mode -ne 'sync') { Add-Planned "Remove this playbook's managed files after keeping backups."; return 0 }
+  if (-not $Script:ProjectRoot -or -not (Test-Path -LiteralPath $Script:ProjectRoot -PathType Container)) { return 1 }
+  if (-not (Test-InsideProject '{project}/.context-locker/project-generation')) { return 1 }
+  $generationPath = Join-Path $Script:ProjectRoot '.context-locker/project-generation'
+  if (Test-Path -LiteralPath $generationPath -PathType Leaf) {
+    $generation = (Read-Text $generationPath).Trim()
+    if ($generation -cmatch '^[0-9]{1,9}$' -and [int]$generation -gt $Version) { return 1 }
+  }
+  Read-NotesRecords
+  $records = @($LockLines | Where-Object { $_.StartsWith('wrote ') }) + @($Script:NotesRecords)
+  $failed = $false
+  foreach ($line in $records) {
+    $f = $line.Split(' ')
+    if ($f.Length -lt 4 -or $f[0] -cne 'wrote') { continue }
+    $kind=$f[1]; $target=$f[3]
+    if (-not $target.StartsWith('{project}/')) { continue }
+    if (-not (Test-Allowed $target $kind) -or -not (Test-InsideProject $target)) { $failed=$true; continue }
+    $path = Resolve-Target $target
+    if (-not $path) { $failed=$true; continue }
+    if (-not (Test-Path -LiteralPath $path)) { continue }
+    try {
+      if ($kind -eq 'skill') {
+        $markerPath = Join-Path $path '.ctx-managed'
+        if (-not (Test-Path -LiteralPath $path -PathType Container) -or -not (Test-Path -LiteralPath $markerPath -PathType Leaf) -or (Test-Link $markerPath)) { throw 'Unmanaged copy' }
+        $marker=Get-SkillMarker $markerPath
+        $expected = ''
+        foreach ($entry in $LockLines) { $ef=$entry.Split(' '); if ($ef.Length -ge 6 -and $ef[0] -ceq 'entry' -and $ef[1] -ceq 'skill' -and $ef[3] -ceq $target) { $expected=$ef[4]; break } }
+        if (-not $expected -or -not $marker -or $marker.Item -cne $expected) { throw 'Different managed copy' }
+      } elseif (@('block','note','file') -notcontains $kind -or -not (Test-Path -LiteralPath $path -PathType Leaf)) { throw 'Unrecognised file' }
+      if (-not (Backup-Item $path "removed-project-$Id-$target")) { throw 'Backup failed' }
+      if ($kind -eq 'block') { if ((Remove-Block $path $target) -ne 0) { throw 'Block removal failed' } }
+      else { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop; if ($kind -eq 'skill') { $Script:SkillsChanged=$true } }
+    } catch { $failed=$true }
+  }
+  Remove-Item -LiteralPath "$State.context" -Force -ErrorAction SilentlyContinue
+  if ($failed) { Warn "some managed copies couldn't be removed safely; cleanup stays waiting."; return 1 }
+  [IO.File]::AppendAllText("$State.cleaned", "$Id $(Get-Sha256Text $Script:ProjectRoot)`n", $Utf8)
+  $Script:Said.Add("Context Locker: removed this playbook's managed copies. Original files and backups stay.")
+  return 0
+}
+
+function Confirm-ProjectRemovals {
+  if ($Mode -ne 'sync' -or $Script:RemovalsPaused) { return }
+  foreach ($removal in $Script:ProjectRemovals) {
+    $state=Join-Path $AppDir "projects/$($removal.Project)"
+    Remove-Item -LiteralPath "$state.context" -Force -ErrorAction SilentlyContinue
+    $roots=@()
+    if ($Script:ProjectId -ceq $removal.Project -and $Script:ProjectRoot) { $roots += $Script:ProjectRoot }
+    $registry=Join-Path $ClHome 'projects'
+    if (Test-Path -LiteralPath $registry -PathType Leaf) {
+      foreach ($line in [IO.File]::ReadAllLines($registry)) {
+        if ($line -cmatch '^([0-9a-f-]{36}) (.+)$' -and $Matches[1] -ceq $removal.Project) { $roots += $Matches[2] }
+      }
+    }
+    $waiting=$false
+    if (-not $roots.Count -and (Test-Path -LiteralPath "$state.lock") -and (Read-Text "$state.lock") -match '(?m)^wrote ') { $waiting=$true }
+    $receipts=@()
+    if (Test-Path -LiteralPath "$state.cleaned" -PathType Leaf) { $receipts=@([IO.File]::ReadAllLines("$state.cleaned")) }
+    foreach ($root in ($roots | Select-Object -Unique)) {
+      if (-not (Test-Path -LiteralPath $root -PathType Container) -or $receipts -cnotcontains "$($removal.Id) $(Get-Sha256Text $root)") { $waiting=$true; break }
+    }
+    if (-not $waiting) { [void](Invoke-Api 'POST' "/v1/sync/removals/$($removal.Id)" ($Utf8.GetBytes("done`nRemoved this playbook from every known project folder.`n")) 'text/plain') }
+  }
+}
+
 function Sync-Scope([string]$Query, [string]$State) {
   $lockfile = "$State.lock"
   $lockLines = @()
@@ -1265,11 +1468,18 @@ function Sync-Scope([string]$Query, [string]$State) {
     foreach ($line in $entries) { if ($line -match '^workspace ([0-9a-f-]{36})$') { $Script:WorkspaceId = $Matches[1] } }
   }
 
+  if ($Mode -eq 'sync') { Get-Removals }
+  if ($Mode -eq 'sync' -and -not $Now -and ($entries -ccontains 'auto-sync off') -and ($Script:Removals.Count -or $Script:ProjectRemovals.Count)) {
+    $Script:RemovalsPaused = $true
+    $Script:ChangesWaiting = $true
+    return 0
+  }
+
   # With auto sync off, a sync that would change the app's files says so,
-  # once, and leaves them as they are until the app syncs with -Now. The
-  # first sync here writes them all the same, as there's nothing yet to leave
-  # as it is, and one that changes no file goes ahead.
-  if ($Mode -eq 'sync' -and $fresh -and $oldEtag -and -not $Now -and -not $Daily -and ($entries -ccontains 'auto-sync off')) {
+  # once, and leaves them as they are until the app syncs with -Now, a daily
+  # job's run too. The first sync here writes them all the same, as there's
+  # nothing yet to leave as it is, and one that changes no file goes ahead.
+  if ($Mode -eq 'sync' -and $fresh -and $oldEtag -and -not $Now -and ($entries -ccontains 'auto-sync off')) {
     $waiting = Get-FilesChange $entries $lockLines
     if ($waiting) {
       if (Test-NotTold $waiting $State) { $Script:ChangesWaiting = $true }
@@ -1277,6 +1487,30 @@ function Sync-Scope([string]$Query, [string]$State) {
       return 0
     }
   }
+
+  if ($Script:Scope -eq 'project') {
+    foreach ($line in $entries) {
+      if ($line -cmatch '^removed-project ([0-9a-f-]{36}) ([0-9]{1,9})$') {
+        return (Remove-ProjectCopies $Matches[1] ([int]$Matches[2]) $State $lockLines)
+      }
+    }
+    foreach ($line in $entries) {
+      if ($Mode -eq 'sync' -and $line -cmatch '^project-generation ([0-9]{1,9})$') {
+        $generation=[int]$Matches[1]
+        if (-not (Test-InsideProject '{project}/.context-locker/project-generation')) { return 1 }
+        $generationPath=Join-Path $Script:ProjectRoot '.context-locker/project-generation'
+        if (Test-Path -LiteralPath $generationPath -PathType Leaf) {
+          $current=(Read-Text $generationPath).Trim()
+          if ($current -cmatch '^[0-9]{1,9}$' -and [int]$current -gt $generation) { return 1 }
+        }
+        [void](New-Item -ItemType Directory -Path (Split-Path -Parent $generationPath) -Force)
+        Write-Into $generationPath "$generation`n"
+        Set-FolderLink $Script:ProjectId $Script:ProjectRoot
+      }
+    }
+  }
+
+  Remove-ScopeCopies
 
   # A project's notes folder, when this sync keeps it: what's in it and what
   # Context Locker last wrote there. Edited notes and new files go up before
@@ -1361,6 +1595,14 @@ function Sync-Scope([string]$Query, [string]$State) {
         $order.Add($f[3])
       }
       $plan[$f[3]].R = $f[2]; $plan[$f[3]].RId = $f[4]; $plan[$f[3]].RVer = $f[5]
+    }
+  }
+  # Skill write records predate item/version fields. Their previous manifest
+  # entry supplies that identity, including when a newer session restored it.
+  foreach ($line in $lockLines) {
+    $f = $line.Split(' ')
+    if ($f.Length -ge 6 -and $f[0] -eq 'entry' -and $f[1] -eq 'skill' -and $plan.ContainsKey($f[3])) {
+      $plan[$f[3]].RId = $f[4]; $plan[$f[3]].RVer = $f[5]
     }
   }
   foreach ($line in $lockLines) {
@@ -1486,6 +1728,24 @@ function Sync-Scope([string]$Query, [string]$State) {
       }
       continue
     }
+    if ($kind -eq 'skill' -and $S -eq '-' -and $L -ne 'none') {
+      $marker = Get-SkillMarker (Join-Path $path '.ctx-managed')
+      if ($marker -and @($Script:Removals | Where-Object { $_.Item -ceq $marker.Item }).Count) {
+        $wrote.Add("wrote $kind $R $t")
+        continue
+      }
+      if ($marker -and $p.RId -ne '-' -and ($marker.Item -cne $p.RId -or ($p.RVer -match '^[0-9]{1,9}$' -and $marker.Version -gt [int]$p.RVer))) {
+        $wrote.Add("wrote $kind $R $t")
+        continue
+      }
+    }
+    if ($kind -eq 'skill' -and $S -ne '-' -and $L -ne 'none') {
+      $marker = Get-SkillMarker (Join-Path $path '.ctx-managed')
+      if ($marker -and $marker.Item -ceq $p.Item -and $p.Ver -match '^[0-9]{1,9}$' -and $marker.Version -gt [int]$p.Ver) {
+        if ($R -ne '-') { $wrote.Add("wrote $kind $R $t") }
+        continue
+      }
+    }
     $isHeld = $p.Holds -contains $L
     $backups = Join-Path $ClHome 'backups'
 
@@ -1508,6 +1768,13 @@ function Sync-Scope([string]$Query, [string]$State) {
 
     $write = @{ Action = 'write'; Target = $t; Kind = $kind; Hash = $S; Item = $p.Item; Ver = $p.Ver; Keep = $false }
     if ($L -eq $S) {
+      if ($kind -eq 'skill' -and $Mode -eq 'sync') {
+        $markerPath = Join-Path $path '.ctx-managed'
+        $marker = Get-SkillMarker $markerPath
+        if ($marker -and $marker.Item -ceq $p.Item) {
+          [IO.File]::WriteAllText($markerPath, "Managed by Context Locker: skill $($p.Item), version $($p.Ver).`nEdits here go to Context Locker at the next sync.`n$S`n", $Utf8)
+        }
+      }
       Add-Planned "Up to date: $what."
       $wrote.Add("wrote $kind $S $t")
     } elseif ($isHeld) {
@@ -2429,6 +2696,277 @@ function Write-HookPlan {
   }
 }
 
+# --- How this app runs the sync (G1-87) ---------------------------------------
+
+# Hermes and OpenClaw can also run the sync once a day from their own
+# schedulers, with no model call, so they keep up between sessions. Claude
+# Code and Codex can't run anything in the background, so they sync on their
+# hooks' events only. The job has one name everywhere, and runs at a minute
+# past 9 that comes from this computer's id, so computers don't all sync at
+# once. Reading the id never creates it.
+$DailyJob = 'contextlocker-daily'
+$DailyJobFile = Join-Path $AppDir 'daily-job'
+$ScheduleSent = Join-Path $AppDir 'schedule-sent'
+$ScheduleFailed = Join-Path $AppDir 'schedule-failed'
+
+function Get-JobMinute {
+  $id = Get-MachineId -Saved
+  if (-not $id) { $id = Get-Sha256Text ([Environment]::MachineName) }
+  return ([Convert]::ToInt32($id.Substring(0, 4), 16) % 60).ToString('00', $Invariant)
+}
+
+# This computer's time zone, as a name such as Pacific/Auckland, or local
+function Get-TimeZoneName {
+  $name = ''
+  try {
+    $name = [TimeZoneInfo]::Local.Id
+    if ($name -notmatch '/') {
+      $iana = $null
+      if ([TimeZoneInfo]::TryConvertWindowsIdToIanaId($name, [ref]$iana)) { $name = $iana }
+    }
+  } catch { }
+  $name = ($name -replace ' ', '_') -replace '[^A-Za-z0-9_+./-]', ''
+  if ($name.Length -gt 64) { $name = $name.Substring(0, 64) }
+  if ($name -cmatch '^[A-Za-z]') { return $name }
+  return 'local'
+}
+
+# The daily job as its app's scheduler lists it: its id, whether it's on, and
+# its time when the listing says, or nothing when there's none. When the
+# scheduler can't be asked, $Script:SchedulerAnswered is $false, so a second
+# job is never added.
+function Get-DailyJob {
+  $Script:SchedulerAnswered = $false
+  $Script:JobsListed = ''
+  if (@('hermes', 'openclaw') -notcontains $Harness -or -not (Get-Command $Harness -ErrorAction SilentlyContinue)) { return $null }
+  if ($Harness -eq 'hermes') {
+    # A paragraph a job: its id and state, then lines such as Name: and
+    # Schedule:
+    $listed = Invoke-Native 'hermes' @('cron', 'list', '--all')
+    if ($listed.Code -ne 0) { return $null }
+    $Script:SchedulerAnswered = $true
+    $Script:JobsListed = $listed.Output
+    $plain = $listed.Output -replace "$([char]27)\[[0-9;]*m", ''
+    foreach ($job in ($plain -split '\r?\n(?:[ \t]*\r?\n)+')) {
+      if ($job -notmatch "Name:\s*$DailyJob(\s|$)" -and $job -notmatch 'Script:\s*contextlocker-sync\.sh') { continue }
+      $words = @($job.Trim() -split '\s+')
+      $time = ''
+      if ($job -match 'Schedule:\s*(\d+)\s+(\d+)\s+\*\s+\*\s+\*' -and [int]$Matches[1] -lt 60 -and [int]$Matches[2] -lt 24) {
+        $time = ([int]$Matches[2]).ToString('00', $Invariant) + ':' + ([int]$Matches[1]).ToString('00', $Invariant)
+      }
+      return @{ Id = (Get-Clean $words[0]); On = ($words.Count -gt 1 -and $words[1] -ceq '[active]'); Time = $time }
+    }
+    return $null
+  }
+  # OpenClaw lists its jobs as JSON
+  $listed = Invoke-Native 'openclaw' @('cron', 'list', '--all', '--json')
+  if ($listed.Code -ne 0) { return $null }
+  $reply = $null
+  try { $reply = $listed.Output | ConvertFrom-Json } catch { return $null }
+  $Script:SchedulerAnswered = $true
+  foreach ($job in @(Get-Property $reply 'jobs')) {
+    if ((Get-Field $job 'name') -cne $DailyJob) { continue }
+    $time = ''
+    if ((Get-Field (Get-Property $job 'schedule') 'expr') -match '^(\d+) (\d+) \* \* \*$' -and [int]$Matches[1] -lt 60 -and [int]$Matches[2] -lt 24) {
+      $time = ([int]$Matches[2]).ToString('00', $Invariant) + ':' + ([int]$Matches[1]).ToString('00', $Invariant)
+    }
+    return @{ Id = (Get-Clean (Get-Field $job 'id')); On = ((Get-Field $job 'enabled') -ne 'False'); Time = $time }
+  }
+  return $null
+}
+
+# The daily job this computer last heard of from its app's scheduler: its id,
+# then its time when that's known. The sync's own reports read this rather
+# than ask the scheduler, as OpenClaw's gateway can't answer while it waits
+# for its own hook.
+function Get-SavedDailyJob {
+  try {
+    if (-not (Test-Path -LiteralPath $DailyJobFile -PathType Leaf)) { return '' }
+    $line = ((Read-Text $DailyJobFile) -split '\r?\n')[0] -replace '[^A-Za-z0-9._:@/ -]', ''
+    if ($line.Length -gt 210) { $line = $line.Substring(0, 210) }
+    return $line
+  } catch { return '' }
+}
+
+# Asks the scheduler, as Get-DailyJob does, and keeps what it says of a job
+# that's on. When the scheduler can't be asked, what's kept stays.
+function Update-DailyJob {
+  $job = Get-DailyJob
+  if (-not $Script:SchedulerAnswered) { return $null }
+  if ($job -and $job.On -and $job.Id) {
+    $time = $job.Time
+    $saved = @((Get-SavedDailyJob) -split ' ')
+    if (-not $time -and $saved[0] -ceq $job.Id -and $saved.Count -gt 1) { $time = $saved[1] }
+    $line = if ($time) { "$($job.Id) $time" } else { $job.Id }
+    try { [IO.File]::WriteAllText($DailyJobFile, "$line`n", $Utf8) } catch { }
+  } else {
+    Remove-Item -LiteralPath $DailyJobFile -Force -ErrorAction SilentlyContinue
+  }
+  return $job
+}
+
+# What to say of a daily job that's there but doesn't run
+function Get-JobOff([string]$Id) {
+  if ($Harness -eq 'hermes') { return "Hermes's daily job, $Id, is paused or turned off, so it doesn't run. To run it again: hermes cron resume $Id" }
+  return "OpenClaw's daily job, $Id, is turned off, so it doesn't run. To turn it back on: openclaw cron enable $Id"
+}
+
+# The plan's step for the daily job, which needs the person's yes of its own
+$Script:PlanJob = $false
+function Write-DailyJobPlan {
+  if (@('hermes', 'openclaw') -notcontains $Harness) { return }
+  $job = Get-DailyJob
+  if ($job -and $job.On) { Say "`nDaily job: $AppName already runs the sync once a day, as job $($job.Id)." }
+  elseif ($job) { Say "`nDaily job: $(Get-JobOff $job.Id)" }
+  else {
+    $Script:PlanJob = $true
+    Say "`nDaily job: so $AppName keeps up between sessions, it can also run the sync once a day at 09:$(Get-JobMinute), from its own scheduler, with no model call. It stays quiet when the sync works, and says so when it fails. Ask the person, and only if they say yes, run:`n`n    $Run daily-job $Harness"
+  }
+}
+
+# What this app has set up to run the sync, as Context Locker's report has
+# it: its hooks' events, once its hooks are in place, and its daily job
+function Get-ScheduleReport {
+  $hooked = $false
+  switch ($Harness) {
+    'claude-code' { $hooked = Test-HookIn (Join-Path (Get-RootDir 'claude') 'settings.json') }
+    'codex' {
+      $dir = Get-RootDir 'codex'
+      $hooked = (Test-HookIn (Join-Path $dir 'hooks.json')) -or (Test-HookIn (Join-Path $dir 'config.toml'))
+    }
+    'hermes' { $hooked = Test-HermesHooksIn (Join-Path (Get-RootDir 'hermes') 'config.yaml') }
+    'openclaw' { $hooked = Test-OpenClawHookIn }
+  }
+  $report = if ($hooked) { "hooks $((Get-HookEvents $Harness) -join ' ')`n" } else { "hooks`n" }
+  if (@('claude-code', 'codex') -contains $Harness) { return $report + "job unsupported`n" }
+  $saved = @((Get-SavedDailyJob) -split ' ')
+  $id = $saved[0]
+  if ($id.Length -gt 200) { $id = $id.Substring(0, 200) }
+  if (-not $id) { return $report + "job none`n" }
+  if ($saved.Count -gt 1 -and $saved[$saved.Count - 1] -match '^[0-2][0-9]:[0-5][0-9]$') {
+    return $report + "job daily $id $($saved[$saved.Count - 1]) $(Get-TimeZoneName)`n"
+  }
+  return $report + "job daily $id`n"
+}
+
+# Tells Context Locker how this app runs the sync, so its connection's page
+# can say: what's set up, the last scheduled run that failed, and with ran,
+# that this run its daily job started worked. A sync tells it when that
+# changed, when it hasn't for a day, or when a failure waits to be told; the
+# doctor, adding the daily job, and the end of a daily run always do.
+function Send-Schedule([string]$Why = 'check') {
+  try {
+    $report = Get-ScheduleReport
+    if ($Why -eq 'check' -and (Test-Path -LiteralPath $ScheduleSent -PathType Leaf) -and
+      -not (Test-Path -LiteralPath $ScheduleFailed -PathType Leaf) -and
+      ((Read-Text $ScheduleSent) -ceq $report) -and
+      (Get-Item -LiteralPath $ScheduleSent).LastWriteTimeUtc -gt [DateTime]::UtcNow.AddDays(-1)) {
+      return
+    }
+    $body = $report
+    if (Test-Path -LiteralPath $ScheduleFailed -PathType Leaf) { $body += ((Read-Text $ScheduleFailed) -split '\r?\n')[0] + "`n" }
+    if ($Why -eq 'ran') { $body += "ran`n" }
+    $reply = Invoke-Api 'POST' '/v1/sync/schedule' ($Utf8.GetBytes($body)) 'text/plain' @{}
+    if ($reply.Status -eq 200) {
+      [IO.File]::WriteAllText($ScheduleSent, $report, $Utf8)
+      Remove-Item -LiteralPath $ScheduleFailed -Force -ErrorAction SilentlyContinue
+    } elseif ($reply.Status -ne 0 -and $reply.Status -lt 500) {
+      # Refused, as by a Context Locker older than this: tomorrow's sync
+      # tries again, or one after what's set up changes
+      [IO.File]::WriteAllText($ScheduleSent, $report, $Utf8)
+    }
+  } catch { }
+}
+
+# A daily run that failed, kept to tell Context Locker when it can: when it
+# failed, and the first thing it said
+function Save-FailedRun {
+  $said = ''
+  if ($Script:Warnings.Count -gt 0) { $said = Get-Clean ($Script:Warnings[0] -replace '^Context Locker: ', '') }
+  if ($said.Length -gt 400) { $said = $said.Substring(0, 400) }
+  if (-not $said.Trim()) { $said = "The sync didn't finish." }
+  try { [IO.File]::WriteAllText($ScheduleFailed, "failed $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', $Invariant)) $said`n", $Utf8) } catch { }
+}
+
+# Adds the daily job to Hermes's or OpenClaw's own scheduler, as the person
+# said yes to, once: a job that's there already stays as it is
+function Invoke-DailyJob {
+  if (@('claude-code', 'codex') -contains $Harness) {
+    [Console]::Error.WriteLine("Context Locker: $AppName can't run a job in the background, so it syncs on its hooks' events: when a session starts, resumes or is cleared, and when it's compacted.")
+    return 1
+  }
+  if (-not (Get-Command $Harness -ErrorAction SilentlyContinue)) {
+    [Console]::Error.WriteLine("Context Locker: the $Harness command isn't on this account's PATH, so the daily job wasn't added.")
+    return 1
+  }
+  $job = Update-DailyJob
+  if (-not $Script:SchedulerAnswered) {
+    $gateway = if ($Harness -eq 'openclaw') { ' Is its gateway running?' } else { '' }
+    [Console]::Error.WriteLine("Context Locker: couldn't list $AppName's jobs, so the daily job wasn't added, as it may be there already.$gateway")
+    return 1
+  }
+  if ($job -and $job.On) {
+    Say "$AppName already runs the sync once a day, as job $($job.Id)."
+    Send-Schedule 'now'
+    return 0
+  }
+  if ($job) {
+    [Console]::Error.WriteLine("Context Locker: $(Get-JobOff $job.Id)")
+    return 1
+  }
+  $minute = Get-JobMinute
+  # The scheduler's minute has no leading zero
+  $cron = "$([int]$minute) 9 * * *"
+  if ($Harness -eq 'hermes') {
+    # Hermes runs a script from its own scripts folder, so the job runs one
+    # there that runs this one
+    $scripts = Join-Path (Get-RootDir 'hermes') 'scripts'
+    $wrapper = Join-Path $scripts 'contextlocker-sync.sh'
+    $command = if ($OnWindows) { "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$Installed`" hermes -Daily" } else { "$Run hermes -Daily" }
+    try {
+      [void](New-Item -ItemType Directory -Force -Path $scripts)
+      [IO.File]::WriteAllText($wrapper, "#!/bin/sh`nexec $command`n", $Utf8)
+    } catch {
+      [Console]::Error.WriteLine("Context Locker: couldn't write $wrapper, so the daily job wasn't added.")
+      return 1
+    }
+    $added = Invoke-Native 'hermes' @('cron', 'create', $cron, '--no-agent', '--script', 'contextlocker-sync.sh', '--name', $DailyJob, '--deliver', 'origin') -Errors
+  } else {
+    $add = @('cron', 'add', '--name', $DailyJob, '--cron', $cron)
+    if ($OnWindows) {
+      # --command runs through sh, which Windows doesn't have, so give the
+      # program and its arguments exactly. Windows PowerShell, and a .cmd
+      # launcher, drop the quotes inside an argument unless they're \"
+      $argv = '[' + ((@('powershell.exe') + $RunArgs + @('openclaw', '-Daily') | ForEach-Object { ConvertTo-JsonText $_ }) -join ',') + ']'
+      $launcher = [string](Get-Command openclaw).Source
+      if ($PSVersionTable.PSVersion.Major -lt 7 -or $launcher -match '\.(cmd|bat)$') { $argv = $argv.Replace('"', '\"') }
+      $add += @('--command-argv', $argv)
+    } else {
+      $add += @('--command', "$Run openclaw -Daily")
+    }
+    $added = Invoke-Native 'openclaw' $add -Errors
+  }
+  $job = Update-DailyJob
+  if (-not ($job -and $job.On)) {
+    $said = (Get-Clean (($added.Output -replace "$([char]27)\[[0-9;]*m", '') -replace '\s+', ' ')).Trim()
+    if ($said.Length -gt 300) { $said = $said.Substring(0, 300) }
+    if ($added.Code -ne 0) {
+      $more = if ($said) { ": $said" } else { '' }
+      [Console]::Error.WriteLine("Context Locker: $AppName didn't add the daily job$more")
+    } else {
+      [Console]::Error.WriteLine("Context Locker: $AppName said it added the daily job, but doesn't list it. Check with: $Harness cron list")
+    }
+    return 1
+  }
+  # A job setup made runs at the time it gave it
+  if ((Get-SavedDailyJob) -notmatch ' [0-2][0-9]:[0-5][0-9]$') {
+    [IO.File]::WriteAllText($DailyJobFile, "$($job.Id) 09:$minute`n", $Utf8)
+  }
+  Send-Schedule 'now'
+  Say "$AppName runs the sync once a day now, at 09:$minute ($((Get-TimeZoneName) -replace '_', ' ')), as job $($job.Id), with no model call. It stays quiet when the sync works, and says so when it fails. To stop it: $Harness cron remove $($job.Id)"
+  return 0
+}
+
 # What's already there that setup leaves alone
 function Write-ExistingFiles {
   $found = $false
@@ -2476,23 +3014,27 @@ function Invoke-Plan {
   foreach ($line in $Script:PlanOut) { Say "- $line" }
   Say ''
   Write-HookPlan
+  Write-DailyJobPlan
   Say "`nAlready here, and left as it is:"
   Write-ExistingFiles
   Say "`nIf this looks right, approve it once. Then:"
   if (-not (Test-Path -LiteralPath $Installed -PathType Leaf)) { Say "- Save this script as $Installed." }
   Say "- Write the files: $Run $Harness"
   Say "- Add the $Trigger shown above."
+  if ($Script:PlanJob) { Say "- Only if the person said yes to the daily job, add it: $Run daily-job $Harness" }
   Say "- Check everything: $Run doctor $Harness"
   return 0
 }
 
-# Runs another program, never stopping on what it writes to stderr
-function Invoke-Native([string]$Command, [string[]]$Arguments) {
+# Runs another program, never stopping on what it writes to stderr, which
+# -Errors keeps with what it prints
+function Invoke-Native([string]$Command, [string[]]$Arguments, [switch]$Errors) {
   $ErrorActionPreference = 'Continue'
   $output = ''
   $code = 1
   try {
-    $output = (& $Command @Arguments 2>$null | Out-String)
+    if ($Errors) { $output = (& $Command @Arguments 2>&1 | ForEach-Object { "$_" } | Out-String) }
+    else { $output = (& $Command @Arguments 2>$null | Out-String) }
     $code = $LASTEXITCODE
   } catch { }
   return @{ Output = $output; Code = $code }
@@ -2823,22 +3365,6 @@ function Invoke-Doctor {
       } else {
         Fail "Hermes's hooks don't run the sync. Run: $Run plan $Harness, and add the hooks it shows to $config."
       }
-      # The daily job from before the hooks, which they replace. `hermes cron
-      # list --all` prints a paragraph per job, starting with its id.
-      if (Get-Command hermes -ErrorAction SilentlyContinue) {
-        $listed = Invoke-Native 'hermes' @('cron', 'list', '--all')
-        $plain = $listed.Output -replace "$([char]27)\[[0-9;]*m", ''
-        $jobs = @($plain -split '(?:\r?\n){2,}' | Where-Object { $_ -match 'contextlocker-sync\.sh' })
-        if ($listed.Code -eq 0 -and $jobs.Count -gt 0) {
-          $job = Get-Clean (($jobs[0].Trim() -split '\s+')[0])
-          $wrapper = Join-Path (Join-Path (Get-RootDir 'hermes') 'scripts') 'contextlocker-sync.sh'
-          if (Test-Path -LiteralPath $wrapper -PathType Leaf) {
-            Warning "Hermes still has the daily job that ran the sync, which the hooks replace. Remove it with: hermes cron remove $job, then delete $wrapper."
-          } else {
-            Warning "Hermes still has the daily job that ran the sync, which the hooks replace. Remove it with: hermes cron remove $job"
-          }
-        }
-      }
     }
     'openclaw' {
       if (Test-OpenClawHookIn) {
@@ -2851,20 +3377,33 @@ function Invoke-Doctor {
       } else {
         Fail "OpenClaw's hook doesn't run the sync. Run: $Run plan $Harness, and save the hook it shows in $OpenClawHook."
       }
-      # The daily job from before the hook, which it replaces
-      if (Get-Command openclaw -ErrorAction SilentlyContinue) {
-        $listed = Invoke-Native 'openclaw' @('cron', 'list', '--all', '--json')
-        if ($listed.Code -eq 0) {
-          foreach ($chunk in ($listed.Output -split '\{')) {
-            if ($chunk -match "contextlocker-daily|$ScriptPattern" -and $chunk -match '"id"\s*:\s*"([^"]*)"') {
-              Warning "OpenClaw still has the daily job that ran the sync, which the hook replaces. Remove it with: openclaw cron remove $(Get-Clean $Matches[1])"
-              break
-            }
-          }
-        }
-      }
     }
   }
+
+  # The daily job, which Hermes's and OpenClaw's schedulers can run
+  if (@('hermes', 'openclaw') -contains $Harness) {
+    $job = Update-DailyJob
+    if ($Script:SchedulerAnswered) {
+      if ($job -and $job.On) {
+        $saved = @((Get-SavedDailyJob) -split ' ')
+        $at = if ($saved.Count -gt 1) { " at $($saved[1])" } else { '' }
+        Pass "$AppName runs the sync once a day$at, as job $($job.Id) in its scheduler."
+        if ($Harness -eq 'hermes' -and $Script:JobsListed -match 'Scheduler is not ready') {
+          Warning "Hermes says its scheduler isn't running, so the daily job doesn't run. Check with: hermes cron status"
+        }
+      } elseif ($job) {
+        Warning (Get-JobOff $job.Id)
+      } else {
+        Pass "$AppName syncs on its hooks' events, with no daily job. For one, ask the person, and only if they say yes, run: $Run daily-job $Harness"
+      }
+    } elseif (Test-Path -LiteralPath $DailyJobFile -PathType Leaf) {
+      $gateway = if ($Harness -eq 'openclaw') { ' Is its gateway running?' } else { '' }
+      Warning "Couldn't ask $AppName's scheduler about its daily job, $(@((Get-SavedDailyJob) -split ' ')[0]).$gateway"
+    }
+  }
+
+  # How this app runs the sync, for its connection's page
+  if ($connected) { Send-Schedule 'now' }
 
   # One line to sum it up, and exit 1 when something failed
   if ($Script:Fails -gt 0) {
@@ -4444,6 +4983,7 @@ if ($Mode -ne 'sync') {
       'export' { $exitCode = Invoke-Export }
       'notes-move-out' { $exitCode = Invoke-NotesMoveOut }
       'fix' { $exitCode = Invoke-Fix }
+      'daily-job' { $exitCode = Invoke-DailyJob }
     }
   } catch {
     [Console]::Error.WriteLine("Context Locker: $($_.Exception.Message)")
@@ -4483,6 +5023,12 @@ try {
   } elseif ($globalOk -eq 0) {
     Sync-DailyProjects
   }
+  Confirm-Removals
+  Confirm-ProjectRemovals
+  # How this app runs the sync, for its connection's page, when that changed
+  # or a day has passed, after a sync that worked. A daily run says so as it
+  # ends.
+  if (-not $Daily -and $globalOk -eq 0 -and -not $Script:Failed) { Send-Schedule 'check' }
 } catch {
   Warn "sync stopped: $($_.Exception.Message)"
   $Script:Failed = $true
@@ -4528,11 +5074,17 @@ foreach ($line in $Script:Said) { $changed.Add($line) }
 if ($changed.Count -gt 0) { $contextParts.Add(((@($changed) | ForEach-Object { "$_`n" }) -join '')) }
 $context = $contextParts -join "`n"
 
+# A daily run tells Context Locker it finished, or why it failed. Context
+# Locker counts the run when the word arrives, which a computer that's off,
+# or an app that's closed, can't send.
 if ($Daily) {
   if ($Script:Failed) {
+    Save-FailedRun
+    Send-Schedule 'now'
     foreach ($line in $Script:Warnings) { [Console]::Out.WriteLine($line) }
     exit 1
   }
+  Send-Schedule 'ran'
   exit 0
 }
 

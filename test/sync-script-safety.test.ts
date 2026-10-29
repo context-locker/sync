@@ -256,7 +256,7 @@ describe("the sync script's checks", () => {
         // Not applied, so not reported as applied
         assert.deepEqual(
           fake.requests.map((request) => request.split("?")[0]),
-          ["GET /v1/sync", "POST /v1/sync/blobs"],
+          ["GET /v1/sync", "GET /v1/sync/removals", "POST /v1/sync/blobs"],
         );
       });
 

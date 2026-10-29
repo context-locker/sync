@@ -7,6 +7,9 @@
 //   workspace <workspace id>
 //   auto-sync off                                    only when it's off: a check that finds changes
 //                                                    says so, and leaves the files as they are
+//   access none                                      a project the app's connection can't use: the
+//                                                    manifest is empty, so what it was given there
+//                                                    goes, and a script can say why
 //   script <version>                                 the newest sync script, in the global manifest
 //   block <sha256> <target>                          a managed block
 //   skill <tree hash> <target> <item id> <version>   a skill folder
@@ -30,7 +33,7 @@ export const MANIFEST_HEADER = "context-locker-sync 1";
  * The newest version of the sync scripts, as their SCRIPT_VERSION says. The
  * global manifest names it, so an older script can say a newer one is out.
  */
-export const SYNC_SCRIPT_VERSION = 15;
+export const SYNC_SCRIPT_VERSION = 18;
 
 export type ManifestEntry =
   | { kind: "block"; hash: string; target: string }
@@ -108,6 +111,8 @@ function checkRepoPath(path: string): string {
 export function buildManifest(input: {
   workspaceId: string;
   outputs: readonly Output[];
+  projectGeneration?: number;
+  removedProject?: { id: string; version: number };
   holds: readonly Hold[];
   /** The newest sync script's version, for the global manifest */
   script?: number;
@@ -115,6 +120,8 @@ export function buildManifest(input: {
   links?: readonly RepoLink[];
   /** Whether a check that finds changes brings them in at once, which is the default */
   autoSync?: boolean;
+  /** For a project the app's connection can't use, which gets nothing */
+  access?: "none";
 }): Manifest {
   if (!UUID.test(input.workspaceId)) {
     throw new Error("The workspace id must be a UUID");
@@ -211,7 +218,27 @@ export function buildManifest(input: {
   ];
 
   const lines = [MANIFEST_HEADER, `workspace ${input.workspaceId}`];
+  if (input.projectGeneration !== undefined) {
+    if (
+      !Number.isSafeInteger(input.projectGeneration) ||
+      input.projectGeneration < 1
+    )
+      throw new Error("Invalid project generation");
+    lines.push(`project-generation ${input.projectGeneration}`);
+  }
+  if (input.removedProject) {
+    if (
+      !UUID.test(input.removedProject.id) ||
+      !Number.isSafeInteger(input.removedProject.version) ||
+      input.removedProject.version < 1
+    )
+      throw new Error("Invalid project removal");
+    lines.push(
+      `removed-project ${input.removedProject.id} ${input.removedProject.version}`,
+    );
+  }
   if (input.autoSync === false) lines.push("auto-sync off");
+  if (input.access === "none") lines.push("access none");
   for (const entry of entries) {
     switch (entry.kind) {
       case "script":
@@ -252,6 +279,8 @@ export function buildManifest(input: {
 export function parseManifest(text: string): {
   workspaceId: string | null;
   autoSync: boolean;
+  /** Whether the app's connection can use the project, as access none says it can't */
+  access: boolean;
   entries: ManifestEntry[];
 } {
   const [header, ...lines] = text.split("\n");
@@ -260,12 +289,14 @@ export function parseManifest(text: string): {
   }
   let workspaceId: string | null = null;
   let autoSync = true;
+  let access = true;
   const entries: ManifestEntry[] = [];
   for (const line of lines) {
     const fields = line.split(" ");
     const [kind, hash, target, id, version] = fields;
     if (kind === "workspace" && hash) workspaceId = hash;
     else if (line === "auto-sync off") autoSync = false;
+    else if (line === "access none") access = false;
     else if (kind === "block" && hash && target) {
       entries.push({ kind, hash, target });
     } else if (
@@ -297,5 +328,5 @@ export function parseManifest(text: string): {
       entries.push({ kind, hash, target });
     }
   }
-  return { workspaceId, autoSync, entries };
+  return { workspaceId, autoSync, access, entries };
 }
