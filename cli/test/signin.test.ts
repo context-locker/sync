@@ -186,6 +186,48 @@ describe("signing in with a device code", () => {
     assert.equal(readToken(place, "claude-code"), TOKEN_A);
   });
 
+  it("says what the person picked for the import to read, leaving out names it doesn't know (G1-11)", async () => {
+    const { place } = computer();
+    const clock = { now: 1_000_000 };
+    const api = fakeApi(
+      {
+        "/oauth/device_authorization": [started],
+        "/oauth/token": [
+          [
+            200,
+            {
+              access_token: TOKEN_A,
+              bring_in: true,
+              bring_in_apps: ["project", "safari", "codex", 7],
+            },
+          ],
+        ],
+      },
+      clock,
+    );
+    const run = () =>
+      deviceSignin({
+        place,
+        api: API,
+        apps: ["claude-code"],
+        out: () => {},
+        wait: "auto",
+        open: () => false,
+        now: () => clock.now,
+        sleep: async (ms) => {
+          clock.now += ms;
+        },
+        fetch: api.fetchImpl,
+      });
+    assert.deepEqual(await run(), { kind: "waiting" });
+    clock.now += 30_000;
+    assert.deepEqual(await run(), {
+      kind: "connected",
+      bringIn: true,
+      bringInApps: ["codex", "project"],
+    });
+  });
+
   it("can read the legacy multi-app response, with separate tokens", async () => {
     const { place } = computer();
     const clock = { now: 1_000_000 };

@@ -18,7 +18,7 @@ export const RESERVED_SKILL_PREFIX = "context-locker-";
  * playbook: the version goes up whenever the steps change.
  */
 export const GATHER_SKILL_ID = "c0de0000-6a7e-4e00-8000-000000000001";
-export const GATHER_SKILL_VERSION = 12;
+export const GATHER_SKILL_VERSION = 13;
 
 /**
  * What the skill may take. The Agent Skills format and Hermes allow a
@@ -306,7 +306,7 @@ function skillMd(harness: CompiledHarness | "mcp"): string {
     "",
     ...collect(harness),
     "",
-    "If the person asked for one app, use only that app's sources.",
+    "If the person asked for some of their apps, or the session start or setup named the ones they picked, use only those apps' sources. A sync script that can reads only those, with the `--apps` the session start gives.",
     "",
     "## 2. Sort",
     "",

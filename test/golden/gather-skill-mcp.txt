@@ -36,7 +36,7 @@ It copies every AI app's instructions, skills and memories on this computer into
 
 It follows no link, and lists each one it skipped. Read a linked file yourself only after the person says yes to that file, and never a link inside a repo. The copies are deleted once the plan is in.
 
-If the person asked for one app, use only that app's sources.
+If the person asked for some of their apps, or the session start or setup named the ones they picked, use only those apps' sources. A sync script that can reads only those, with the `--apps` the session start gives.
 
 ## 2. Sort
 

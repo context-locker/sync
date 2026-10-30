@@ -34,7 +34,7 @@ It follows no link, and lists each one it skipped. Read a linked file yourself o
 
 A chat app that can't run commands works from what it remembers about the person, in its memories and custom instructions, or from an export the person pastes from another app. Name each source by your app (`claude`, `chatgpt`, `grok` or `other`), with the path `memories` or `pasted export` and today's date. To see what the playbook already holds, call `get_context`.
 
-If the person asked for one app, use only that app's sources.
+If the person asked for some of their apps, or the session start or setup named the ones they picked, use only those apps' sources. A sync script that can reads only those, with the `--apps` the session start gives.
 
 ## 2. Sort
 

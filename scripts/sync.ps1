@@ -1,8 +1,8 @@
-# Context Locker sync, version 21. MIT licence.
+# Context Locker sync, version 22. MIT licence.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 map <app> [-All]
-#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 gather <app>
+#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 gather <app> [-Apps <names>]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 gather-submit <app> <plan.json>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 keep <app> <file or folder>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 export <app> [-To <folder>]
@@ -60,7 +60,10 @@
 # read, for the Gather skill to sort into one plan. It only reads the apps'
 # files, never changes or deletes them, follows no link in their folders and
 # lists every one it skipped, and never copies anything that looks like a
-# secret. gather-submit sends the plan the person approved to Context Locker,
+# secret. With -Apps, such as claude-code,codex, it reads only those, as the
+# person picked: claude-code, codex, hermes, openclaw, grok-build, agents (the
+# skills folder Codex and OpenClaw share) and project (the project's own
+# files). gather-submit sends the plan the person approved to Context Locker,
 # then deletes Gather's working sets.
 #
 # keep is the person's answer when the doctor asks about a file, or a folder
@@ -120,7 +123,7 @@
 #
 # The same steps as sync.sh, for Windows PowerShell 5.1 and PowerShell 7.
 # sync.sh's spellings of the options (--daily, --now, --hook, --project,
-# --wait, --all, --to, --done, --skip, --reason and --code) work too.
+# --wait, --all, --to, --done, --skip, --reason, --code and --apps) work too.
 param(
   [Parameter(Position = 0)][string]$First = '',
   [Parameter(Position = 1)][string]$Second = '',
@@ -135,6 +138,7 @@ param(
   [string]$Skip = '',
   [string]$Reason = '',
   [string]$Code = '',
+  [string]$Apps = '',
   [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest = @()
 )
 
@@ -142,7 +146,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 21
+$ScriptVersion = 22
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -176,6 +180,7 @@ $FixAs = ''
 $FixId = ''
 $FixMarks = 0
 $ReasonSet = $PSBoundParameters.ContainsKey('Reason')
+$AppsSet = $PSBoundParameters.ContainsKey('Apps')
 if ($PSBoundParameters.ContainsKey('Done')) { $FixAs = 'done'; $FixId = $Done; $FixMarks++ }
 if ($PSBoundParameters.ContainsKey('Skip')) { $FixAs = 'skipped'; $FixId = $Skip; $FixMarks++ }
 for ($i = 0; $i -lt $extra.Count; $i++) {
@@ -192,6 +197,7 @@ for ($i = 0; $i -lt $extra.Count; $i++) {
   elseif ($option -eq '--skip' -and $value) { $FixAs = 'skipped'; $FixId = $value; $FixMarks++; $i++ }
   elseif ($option -eq '--reason' -and $value) { $Reason = $value; $ReasonSet = $true; $i++ }
   elseif ($option -eq '--code' -and $value) { $Code = $value; $i++ }
+  elseif ($option -eq '--apps' -and $value) { $Apps = $value; $AppsSet = $true; $i++ }
   else { $badOption = $true }
 }
 # -To is for export and notes-move-out, which needs it
@@ -207,8 +213,13 @@ else { $ReasonSet }
 $badCode = $Code -and (($Mode -ne 'signin') -or ($Code -cnotmatch '^ctxl_ic_[A-Za-z0-9_-]{43}$'))
 # -Now and -Hook are for a sync
 $badSync = ($Mode -ne 'sync') -and ($Now -or $Hook)
-if ($badOption -or $badTo -or $badFix -or $badCode -or $badSync -or (@('claude-code', 'codex', 'hermes', 'openclaw') -notcontains $Harness) -or $Wait -lt 0 -or ($Mode -eq 'gather-submit' -and -not $PlanFile) -or ($Mode -eq 'keep' -and -not $KeepPath)) {
-  [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 gather <app>`n       sync.ps1 gather-submit <app> <plan.json>`n       sync.ps1 keep <app> <file or folder>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder>`n       sync.ps1 fix <app> [-All]`n       sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text>`n       sync.ps1 signin <app> [-Code <code>]`n       sync.ps1 plan|doctor|readback|daily-job <app>`n       sync.ps1 update <app>`n<app> is claude-code, codex, hermes or openclaw.")
+# -Apps is for gather: the apps the person picked for it to read, at least
+# one, each one Import reads (G1-11)
+$GatherApps = @('claude-code', 'codex', 'hermes', 'openclaw', 'grok-build', 'agents', 'project')
+$PickedApps = @($Apps.Split(',') | Where-Object { $_ -ne '' })
+$badApps = $AppsSet -and (($Mode -ne 'gather') -or $PickedApps.Count -eq 0 -or @($PickedApps | Where-Object { $GatherApps -cnotcontains $_ }).Count -gt 0)
+if ($badOption -or $badTo -or $badFix -or $badCode -or $badSync -or $badApps -or (@('claude-code', 'codex', 'hermes', 'openclaw') -notcontains $Harness) -or $Wait -lt 0 -or ($Mode -eq 'gather-submit' -and -not $PlanFile) -or ($Mode -eq 'keep' -and -not $KeepPath)) {
+  [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 gather <app> [-Apps <names>]`n       sync.ps1 gather-submit <app> <plan.json>`n       sync.ps1 keep <app> <file or folder>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder>`n       sync.ps1 fix <app> [-All]`n       sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text>`n       sync.ps1 signin <app> [-Code <code>]`n       sync.ps1 plan|doctor|readback|daily-job <app>`n       sync.ps1 update <app>`n<app> is claude-code, codex, hermes or openclaw.")
   exit 2
 }
 $AppName = @{ 'claude-code' = 'Claude Code'; 'codex' = 'Codex'; 'hermes' = 'Hermes'; 'openclaw' = 'OpenClaw' }[$Harness]
@@ -4573,6 +4584,29 @@ function Clear-GatherSets {
   if ($deleted -gt 0) { Say "Context Locker deleted Import's working copies from this computer, in $(ConvertTo-HomePath $root), now that the plan is in." }
 }
 
+# Whether gather reads an app's files: every app's, unless the person picked
+# some with -Apps (G1-11)
+function Test-Picked([string]$App) { return (-not $AppsSet) -or ($PickedApps -ccontains $App) }
+
+# The apps picked, or the ones left unpicked, by name, in Import's order:
+# "Claude Code, Codex and the project"
+function Get-PickedNames([bool]$Picked) {
+  $names = @(foreach ($app in $GatherApps) {
+      if ((Test-Picked $app) -ne $Picked) { continue }
+      switch ($app) {
+        'claude-code' { 'Claude Code' }
+        'codex' { 'Codex' }
+        'hermes' { 'Hermes' }
+        'openclaw' { 'OpenClaw' }
+        'grok-build' { 'Grok Build' }
+        'agents' { 'the skills folder Codex and OpenClaw share' }
+        'project' { 'the project' }
+      }
+    })
+  if ($names.Count -le 1) { return ($names -join '') }
+  return (($names[0..($names.Count - 2)] -join ', ') + ' and ' + $names[$names.Count - 1])
+}
+
 function Invoke-Gather {
   $root = Join-Path $ClHome 'gather'
   $existing = Get-Item -LiteralPath $root -Force -ErrorAction SilentlyContinue
@@ -4626,13 +4660,14 @@ function Invoke-Gather {
   $Script:GatherProject = ''
 
   try {
-    Copy-GatherClaudeCode
-    Copy-GatherCodex
-    Copy-GatherSkills 'agents' (Join-Path $UserHome '.agents') 'skills' 'agents'
-    Copy-GatherHermes
-    Copy-GatherOpenClaw
-    Copy-GatherGrok
-    Copy-GatherProject
+    # Only the apps the person picked, when they picked some (G1-11)
+    if (Test-Picked 'claude-code') { Copy-GatherClaudeCode }
+    if (Test-Picked 'codex') { Copy-GatherCodex }
+    if (Test-Picked 'agents') { Copy-GatherSkills 'agents' (Join-Path $UserHome '.agents') 'skills' 'agents' }
+    if (Test-Picked 'hermes') { Copy-GatherHermes }
+    if (Test-Picked 'openclaw') { Copy-GatherOpenClaw }
+    if (Test-Picked 'grok-build') { Copy-GatherGrok }
+    if (Test-Picked 'project') { Copy-GatherProject }
   } catch {
     [Console]::Error.WriteLine("Context Locker: couldn't write the working set: $($_.Exception.Message)")
     Remove-Item -LiteralPath $set -Recurse -Force -ErrorAction SilentlyContinue
@@ -4666,6 +4701,7 @@ function Invoke-Gather {
   [void]$readme.Append("- plan.json: the plan to fill in, with its plan_id.`n")
   [void]$readme.Append("- claude-code, codex, agents (the skills folder Codex and OpenClaw share), hermes, openclaw, grok-build and project: the copies, where each app had them.`n`n")
   if ($Script:GatherProject) { [void]$readme.Append("The project is $(ConvertTo-HomePath $Script:GatherProject).`n`n") }
+  if ($AppsSet) { [void]$readme.Append("The person picked what this import reads: $(Get-PickedNames $true). Nothing else was read.`n`n") }
   [void]$readme.Append("Submit the plan the person approves with:`n`n    $Run gather-submit $Harness $shownSet/plan.json`n")
   & $write 'README.md' $readme.ToString()
   # Only this account can read what's here
@@ -4685,8 +4721,11 @@ function Invoke-Gather {
       'project' { "This project, $(Get-Clean (ConvertTo-HomePath $Script:GatherProject))" }
     }
     if ($app -eq 'project' -and -not $Script:GatherProject) { continue }
+    if (-not (Test-Picked $app)) { continue }
     Say "- ${name}: $(Get-GatherCounts $app)"
   }
+  $unpicked = Get-PickedNames $false
+  if ($AppsSet -and $unpicked) { Say "Not read, as the person didn't pick it: $unpicked." }
   if ($Script:GatherOut.Count -gt 0) {
     Say "`nLeft out, $($Script:GatherOut.Count):"
     # Every link it didn't follow, then each source left out for what it holds
@@ -5237,7 +5276,7 @@ function Invoke-NotesMoveOut {
   if ($moved.Count -gt 0) {
     Say "Moved $(Get-Plural $moved.Count 'note' 'notes') from Context Locker into ${rel}:"
     foreach ($file in $moved) { Say "- $rel/$file" }
-    Say "Each one is a pointer in Context Locker now, to its file here, with the same id, and History says where each one went. Restoring an earlier version in Context Locker brings a note's text back."
+    Say "Each one is a pointer in Context Locker now, to its file here, with the same id, and Activity says where each one went. Restoring an earlier version in Context Locker brings a note's text back."
     switch ($was) {
       'notes' { Say "The docs home for $name is $place now, instead of Notes." }
       'place' { Say "The docs home for $name is $place now, instead of the place it had." }

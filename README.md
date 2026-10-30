@@ -8,9 +8,9 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v26`](setup/v26), using `context-locker@0.1.10`.
+Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v27`](setup/v27), using `context-locker@0.1.11`.
 
-Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.10 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
+Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.11 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
 
 The browser approval names that app, lets you name the connection, and asks whether it runs on a Computer or in the Cloud. A supported cloud runtime can suggest the location, or pass `--environment computer` or `--environment cloud`. Unknown environments need a human choice. The command writes the selected app's files, adds its sync hook and runs the doctor. Gather is a separate import with an agreed scope and approval; reading another app's information does not connect or configure it. When you tick Bring in as you approve the connection, or as you make its one-time code, setup's last line tells the app to import now, and a Claude Code or Codex session start says so once. The import waits in your inbox, where you pick what comes in. Existing connections and hooks are never removed automatically.
 
@@ -59,10 +59,11 @@ Gather brings in what your AI apps already know:
 
 ```sh
 sh ~/.contextlocker/sync.sh gather codex                     # copies every AI app's sources into a private working set
+sh ~/.contextlocker/sync.sh gather codex --apps codex,project # only the apps the person picked
 sh ~/.contextlocker/sync.sh gather-submit codex <plan.json>  # stages the plan for you to pick from in the inbox
 ```
 
-`gather` only reads. It copies each app's instructions, skills and memories, and the project's own, into a folder only this account can read, and lists every source with its app, kind, path, date and hash. It follows no links, leaves out files over 4 MB and anything past 64 MB in all, as one plan holds, and never copies a file with a password, key or token that could work. A placeholder, such as `your-api-key-here`, or a value cut short or masked, such as `sk-live-abc...`, doesn't count: Context Locker checks those when the plan comes in, as it does for every change. Every file it leaves out is listed with the reason. Your agent merges the sources into one plan with the `context-locker-gather` skill and stages it with `gather-submit`. The plan waits in your inbox and nothing in the playbook changes until you pick what to bring in. The working sets are deleted once the plan is submitted.
+`gather` only reads. It copies each app's instructions, skills and memories, and the project's own, or with `--apps` only those of the apps the person picked where they ticked Bring in or chose Import again, into a folder only this account can read, and lists every source with its app, kind, path, date and hash. It follows no links, leaves out files over 4 MB and anything past 64 MB in all, as one plan holds, and never copies a file with a password, key or token that could work. A placeholder, such as `your-api-key-here`, or a value cut short or masked, such as `sk-live-abc...`, doesn't count: Context Locker checks those when the plan comes in, as it does for every change. Every file it leaves out is listed with the reason. Your agent merges the sources into one plan with the `context-locker-gather` skill and stages it with `gather-submit`. The plan waits in your inbox and nothing in the playbook changes until you pick what to bring in. The working sets are deleted once the plan is submitted.
 
 Two more modes take things out:
 
