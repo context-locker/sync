@@ -1,9 +1,10 @@
-# Context Locker sync, version 20. MIT licence.
+# Context Locker sync, version 21. MIT licence.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 map <app> [-All]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 gather <app>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 gather-submit <app> <plan.json>
+#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 keep <app> <file or folder>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 export <app> [-To <folder>]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 notes-move-out <app> -To <folder>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 fix <app> [-All]
@@ -62,6 +63,12 @@
 # secret. gather-submit sends the plan the person approved to Context Locker,
 # then deletes Gather's working sets.
 #
+# keep is the person's answer when the doctor asks about a file, or a folder
+# of memories, with lines outside Context Locker: they stay in the app only,
+# and the doctor asks about them again only once something in them is new
+# or changed. The other answer is Import, and what an Import read counts the
+# same way once its plan is in. The answers stay on this computer.
+#
 # export downloads everything in the playbook, as plain files with the
 # history as JSON Lines, into a new folder, "Context Locker export <date>" in
 # the current one unless -To names another. It never writes into a folder
@@ -100,10 +107,11 @@
 #   plan      shows what a sync would write, and the hooks to add. It changes
 #             nothing.
 #   doctor    checks the connection, the files, the hooks and the daily job,
-#             how full the playbook's limits are, instruction files Context
-#             Locker doesn't manage, and anything that has drifted since the
-#             last sync. It tells Context Locker how the app runs the sync,
-#             for the connection's page. It exits 1 when a check fails.
+#             how full the playbook's limits are, and anything that has
+#             drifted since the last sync, and asks about instruction and
+#             memory files Context Locker doesn't manage. It tells Context
+#             Locker how the app runs the sync, for the connection's page. It
+#             exits 1 when a check fails.
 #   daily-job adds a daily job to Hermes's or OpenClaw's own scheduler that
 #             runs the sync once a day, with no model call, once the person
 #             says yes. One that's there already stays as it is. Claude Code
@@ -134,7 +142,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 20
+$ScriptVersion = 21
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -148,16 +156,17 @@ if ($Second.StartsWith('-')) {
 }
 $Mode = 'sync'
 $Harness = $First
-if (@('signin', 'plan', 'doctor', 'readback', 'map', 'gather', 'gather-submit', 'export', 'notes-move-out', 'fix', 'daily-job', 'update') -contains $First) {
+if (@('signin', 'plan', 'doctor', 'readback', 'map', 'gather', 'gather-submit', 'keep', 'export', 'notes-move-out', 'fix', 'daily-job', 'update') -contains $First) {
   $Mode = $First
   $Harness = $Second
 } elseif ($Second) {
   $Harness = ''
 }
-# gather-submit's plan comes before any option
+# gather-submit's plan, and the file or folder to keep, come before any option
 $PlanFile = ''
-if ($Mode -eq 'gather-submit' -and $extra.Count -gt 0 -and -not $extra[0].StartsWith('-')) {
-  $PlanFile = $extra[0]
+$KeepPath = ''
+if (($Mode -eq 'gather-submit' -or $Mode -eq 'keep') -and $extra.Count -gt 0 -and -not $extra[0].StartsWith('-')) {
+  if ($Mode -eq 'keep') { $KeepPath = $extra[0] } else { $PlanFile = $extra[0] }
   $extra = @($extra | Select-Object -Skip 1)
 }
 $badOption = $false
@@ -198,8 +207,8 @@ else { $ReasonSet }
 $badCode = $Code -and (($Mode -ne 'signin') -or ($Code -cnotmatch '^ctxl_ic_[A-Za-z0-9_-]{43}$'))
 # -Now and -Hook are for a sync
 $badSync = ($Mode -ne 'sync') -and ($Now -or $Hook)
-if ($badOption -or $badTo -or $badFix -or $badCode -or $badSync -or (@('claude-code', 'codex', 'hermes', 'openclaw') -notcontains $Harness) -or $Wait -lt 0 -or ($Mode -eq 'gather-submit' -and -not $PlanFile)) {
-  [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 gather <app>`n       sync.ps1 gather-submit <app> <plan.json>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder>`n       sync.ps1 fix <app> [-All]`n       sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text>`n       sync.ps1 signin <app> [-Code <code>]`n       sync.ps1 plan|doctor|readback|daily-job <app>`n       sync.ps1 update <app>`n<app> is claude-code, codex, hermes or openclaw.")
+if ($badOption -or $badTo -or $badFix -or $badCode -or $badSync -or (@('claude-code', 'codex', 'hermes', 'openclaw') -notcontains $Harness) -or $Wait -lt 0 -or ($Mode -eq 'gather-submit' -and -not $PlanFile) -or ($Mode -eq 'keep' -and -not $KeepPath)) {
+  [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 gather <app>`n       sync.ps1 gather-submit <app> <plan.json>`n       sync.ps1 keep <app> <file or folder>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder>`n       sync.ps1 fix <app> [-All]`n       sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text>`n       sync.ps1 signin <app> [-Code <code>]`n       sync.ps1 plan|doctor|readback|daily-job <app>`n       sync.ps1 update <app>`n<app> is claude-code, codex, hermes or openclaw.")
   exit 2
 }
 $AppName = @{ 'claude-code' = 'Claude Code'; 'codex' = 'Codex'; 'hermes' = 'Hermes'; 'openclaw' = 'OpenClaw' }[$Harness]
@@ -3169,27 +3178,146 @@ function Write-CapsDoctor {
   }
 }
 
-# How many lines of a file that aren't blank sit outside Context Locker's blocks
-function Get-LinesOutside([string]$Path) {
+# --- Files Context Locker doesn't manage (G1-115) ----------------------------
+
+# The doctor asks once about each instruction file, or folder of memories,
+# with lines outside Context Locker's blocks: bring them into the playbook
+# with Import, or keep them in the app only. The answers stay on this
+# computer, in $Sources, a line for each file: the answer, keep or import,
+# the day, the SHA-256 of the file's lines outside Context Locker's blocks,
+# and its path. What an Import read is its answer once its plan is in. The
+# doctor asks again only about a file that's new or changed since.
+$Sources = Join-Path $ClHome 'sources'
+$SourcesHeader = 'context-locker-sources 1'
+$PathComparer = if ($OnWindows) { [StringComparer]::OrdinalIgnoreCase } else { [StringComparer]::Ordinal }
+$PathComparison = if ($OnWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+
+# A file's lines outside Context Locker's blocks that aren't blank, without
+# the carriage return of a Windows line end: what the doctor asks about, as
+# an Import's copy of the file holds them
+function Get-OutsideLines([string]$Path) {
   $inside = $false
-  $count = 0
-  foreach ($line in (Get-Lines (Read-Text $Path))) {
-    if ($line -cmatch $StartLine) { $inside = $true; continue }
-    if ($line -cmatch $EndLine) { $inside = $false; continue }
-    if (-not $inside -and $line -match '[^ \t\r]') { $count++ }
-  }
-  return $count
+  [string[]]$found = @(foreach ($line in (Get-Lines (Read-Text $Path))) {
+      if ($line -cmatch $StartLine) { $inside = $true; continue }
+      if ($line -cmatch $EndLine) { $inside = $false; continue }
+      if (-not $inside -and $line -match '[^ \t\r]') { $line -replace "`r\z", '' }
+    })
+  return , $found
 }
 
-# An instruction or memory file with lines Context Locker doesn't manage: a
-# warning with where it is, how many lines, and how to bring them in. A link
-# isn't followed, as Gather doesn't follow one.
+# How many of those lines a file has, and their SHA-256, by which the doctor
+# knows whether it changed since an answer: as sync.sh hashes them, a line
+# break after each
+function Get-OutsideOf([string]$Path) {
+  $lines = Get-OutsideLines $Path
+  $text = if ($lines.Length -gt 0) { ($lines -join "`n") + "`n" } else { '' }
+  return @{ Lines = $lines.Length; Sha = (Get-Sha256Text $text) }
+}
+
+# A path as the doctor and keep compare it, in full
+function Get-FullPath([string]$Path) { return [IO.Path]::GetFullPath($Path) }
+
+# The answers kept so far, one line each
+function Get-SourceAnswers {
+  if (-not (Test-Path -LiteralPath $Sources -PathType Leaf) -or (Test-Link $Sources)) { return , @() }
+  $lines = @()
+  try { $lines = Get-Lines (Read-Text $Sources) } catch { return , @() }
+  if ($lines.Length -eq 0 -or $lines[0] -cne $SourcesHeader) { return , @() }
+  [string[]]$found = @($lines | Select-Object -Skip 1 | Where-Object { $_.Split("`t").Length -eq 4 })
+  return , $found
+}
+
+# Records an answer, keep or import, for files, each @{ Sha; Path }, over any
+# earlier one for the same path. Answers for files that are gone go.
+function Save-SourceAnswers([string]$Answer, [object[]]$Files) {
+  if ($Files.Length -eq 0) { return $true }
+  if (Test-Link $Sources) { return $false }
+  $day = [DateTime]::UtcNow.ToString('yyyy-MM-dd', $Invariant)
+  $fresh = New-Object 'System.Collections.Generic.HashSet[string]' $PathComparer
+  foreach ($file in $Files) { [void]$fresh.Add($file.Path) }
+  $out = New-Object System.Text.StringBuilder
+  [void]$out.Append("$SourcesHeader`n")
+  foreach ($line in (Get-SourceAnswers)) {
+    $path = $line.Split("`t")[3]
+    if ($fresh.Contains($path) -or -not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+    [void]$out.Append("$line`n")
+  }
+  foreach ($file in $Files) { [void]$out.Append("$Answer`t$day`t$($file.Sha)`t$($file.Path)`n") }
+  $next = "$Sources.$PID.next"
+  try {
+    [IO.File]::WriteAllText($next, $out.ToString(), $Utf8)
+    Move-Item -LiteralPath $next -Destination $Sources -Force
+  } catch {
+    Remove-Item -LiteralPath $next -Force -ErrorAction SilentlyContinue
+    return $false
+  }
+  return $true
+}
+
+# What's known of a source, a file or a folder, from its files, each
+# @{ Lines; Sha; Path }: how many are new or changed since an answer, with
+# how many lines, and the newest answer about the source, with its day
+function Get-SourceState([string]$Path, [bool]$Folder, [object[]]$Files) {
+  $known = New-Object 'System.Collections.Generic.HashSet[string]' $PathComparer
+  $answer = ''
+  $day = ''
+  $under = $Path.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+  foreach ($line in (Get-SourceAnswers)) {
+    $fields = $line.Split("`t")
+    [void]$known.Add("$($fields[3])`t$($fields[2])")
+    if ($fields[3].Equals($Path, $PathComparison) -or ($Folder -and $fields[3].StartsWith($under, $PathComparison))) {
+      if (-not $day -or [string]::CompareOrdinal($fields[1], $day) -gt 0) { $day = $fields[1]; $answer = $fields[0] }
+    }
+  }
+  $new = 0
+  $lines = 0
+  foreach ($file in $Files) {
+    if (-not $known.Contains("$($file.Path)`t$($file.Sha)")) { $new++; $lines += $file.Lines }
+  }
+  return @{ New = $new; Lines = $lines; Answer = $answer; Day = $day }
+}
+
+# Quotes a word for the shell the person runs the script's commands in
+function ConvertTo-CommandText([string]$Text) {
+  if (-not $OnWindows) { return (ConvertTo-ShellText $Text) }
+  if ($Text -match '^[A-Za-z0-9/\\._~:-]+$') { return $Text }
+  return "'" + ($Text -replace "'", "''") + "'"
+}
+
+# Asks about one source, a file or a folder, by its files, unless nothing in
+# it is new since the person answered, and then says what they chose
+function Write-SourceDoctor([string]$Name, [string]$Path, [bool]$Folder, [object[]]$Files) {
+  $state = Get-SourceState $Path $Folder $Files
+  $choice = "Bring them into your playbook with Import ($Run gather $Harness), or keep them in $AppName only ($Run keep $Harness $(ConvertTo-CommandText (ConvertTo-HomePath $Path)))."
+  if (-not $state.Answer) {
+    if ($Folder) { Warning "$Name, $(Get-Plural $Files.Length 'file holds' 'files hold') $(Get-Plural $state.Lines 'line' 'lines') outside Context Locker. $choice" }
+    else { Warning "$Name has $(Get-Plural $state.Lines 'line' 'lines') outside Context Locker's block. $choice" }
+    return
+  }
+  $when = (Format-Time "$($state.Day)T00:00:00Z") -replace ' at .*', ''
+  if ($state.New -gt 0) {
+    if ($Folder) {
+      $since = if ($state.Answer -eq 'keep') { "you kept them in $AppName" } else { 'an Import read them' }
+      Warning "$Name, have $(Get-Plural $state.New 'new or changed file' 'new or changed files') since $since on $when, with $(Get-Plural $state.Lines 'line' 'lines') outside Context Locker. $choice"
+    } else {
+      $since = if ($state.Answer -eq 'keep') { "you kept it in $AppName" } else { 'an Import read it' }
+      Warning "$Name has changed since $since on $when, and has $(Get-Plural $state.Lines 'line' 'lines') outside Context Locker's block. $choice"
+    }
+  } elseif ($state.Answer -eq 'keep') {
+    if ($Folder) { Pass "$Name, stay in $AppName only, as you chose on $when." }
+    else { Pass "$Name stays in $AppName only, as you chose on $when." }
+  } elseif ($Folder) { Pass "$Name, went into an Import on $when, and nothing in them is new since." }
+  else { Pass "$Name went into an Import on $when, and hasn't changed since." }
+}
+
+# An instruction or memory file with lines Context Locker doesn't manage, as
+# a source to ask about. A link isn't followed, as Import doesn't follow one.
 function Write-UnmanagedFile([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf) -or (Test-Link $Path) -or (Test-Link (Split-Path -Parent $Path))) { return }
-  $count = 0
-  try { $count = Get-LinesOutside $Path } catch { return }
-  if ($count -le 0) { return }
-  Warning "$(Get-Clean (ConvertTo-HomePath $Path)) has $(Get-Plural $count 'line' 'lines') outside Context Locker's block. To bring them into your playbook, run Import: $Run gather $Harness"
+  $path = Get-FullPath $Path
+  try { $of = Get-OutsideOf $path } catch { return }
+  if ($of.Lines -le 0) { return }
+  Write-SourceDoctor (Get-Clean (ConvertTo-HomePath $path)) $path $false @(@{ Lines = $of.Lines; Sha = $of.Sha; Path = $path })
 }
 
 # The text files under a folder, down to <depth>, as paths from it: hidden
@@ -3203,28 +3331,95 @@ function Get-TextFiles([string]$Dir, [int]$Depth, [string]$Names) {
   return , $found
 }
 
-# A folder of memories, such as Codex's: one warning for the lines its text
-# files hold outside Context Locker, and how many files hold them. Hidden
-# files and links are left out.
-function Write-UnmanagedFolder([string]$Name, [string]$Shown, [int]$Depth, [string[]]$Dirs) {
-  $files = 0
-  $lines = 0
-  foreach ($dir in $Dirs) {
-    foreach ($rel in (Get-TextFiles $dir $Depth '\.(md|markdown|mdx|mdc|txt)\z')) {
-      $count = 0
-      try { $count = Get-LinesOutside (Join-Path $dir ($rel -replace '/', [IO.Path]::DirectorySeparatorChar)) } catch { continue }
-      if ($count -le 0) { continue }
-      $files++
-      $lines += $count
+# A folder's text files with lines outside Context Locker, each
+# @{ Lines; Sha; Path }
+function Get-FolderSources([string]$Dir, [int]$Depth) {
+  [object[]]$found = @(foreach ($rel in (Get-TextFiles $Dir $Depth '\.(md|markdown|mdx|mdc|txt)\z')) {
+      $file = Join-Path $Dir ($rel -replace '/', [IO.Path]::DirectorySeparatorChar)
+      try { $of = Get-OutsideOf $file } catch { continue }
+      if ($of.Lines -gt 0) { @{ Lines = $of.Lines; Sha = $of.Sha; Path = $file } }
+    })
+  return , $found
+}
+
+# A folder of memories, such as Codex's, as one source to ask about: its text
+# files with lines outside Context Locker. Hidden files and links are left out.
+function Write-UnmanagedFolder([string]$Name, [string]$Dir, [int]$Depth) {
+  $item = Get-Item -LiteralPath $Dir -Force -ErrorAction SilentlyContinue
+  if (-not $item -or -not $item.PSIsContainer -or (Test-ReparsePoint $item)) { return }
+  $dir = Get-FullPath $Dir
+  $files = Get-FolderSources $dir $Depth
+  if ($files.Length -eq 0) { return }
+  Write-SourceDoctor "$Name, in $(Get-Clean (ConvertTo-HomePath $dir))" $dir $true $files
+}
+
+# The files in the project its playbook links to, from the last sync's link
+# lines
+function Get-LinkedFiles {
+  $linked = New-Object 'System.Collections.Generic.HashSet[string]' $PathComparer
+  if (-not $Script:ProjectId -or -not $Script:ProjectRoot) { return , $linked }
+  $lock = Join-Path (Join-Path $AppDir 'projects') "$($Script:ProjectId).lock"
+  if (-not (Test-Path -LiteralPath $lock -PathType Leaf)) { return , $linked }
+  foreach ($line in (Get-Lines (Read-Text $lock))) {
+    if ($line -cmatch '^entry link [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12} (.+)$') {
+      $file = Join-Path $Script:ProjectRoot ($Matches[1] -replace '/', [IO.Path]::DirectorySeparatorChar)
+      if (Test-Path -LiteralPath $file -PathType Leaf) { [void]$linked.Add((Get-FullPath $file)) }
     }
   }
-  if ($lines -le 0) { return }
-  Warning "$Name, in $(Get-Clean (ConvertTo-HomePath $Shown)), $(Get-Plural $files 'file holds' 'files hold') $(Get-Plural $lines 'line' 'lines') outside Context Locker. To bring them into your playbook, run Import: $Run gather $Harness"
+  return , $linked
+}
+
+# Whether a file only points at files the playbook links to, as a CLAUDE.md
+# that imports AGENTS.md does: it imports at least one, with a line of @ and
+# its path, and every other line outside Context Locker's blocks is one of
+# those imports, a heading or a line that names a file it imports. Gives the
+# names of the files it imports, or nothing.
+function Get-PointsOnly([string]$Path, $Linked) {
+  if ($Linked.Count -eq 0) { return '' }
+  $dir = Split-Path -Parent $Path
+  [string[]]$lines = @(foreach ($line in (Get-OutsideLines $Path)) { $line.Trim([char[]]@(' ', "`t")) })
+  $names = New-Object System.Collections.Generic.List[string]
+  foreach ($line in $lines) {
+    if (-not $line.StartsWith('@')) { continue }
+    $target = $line.Substring(1)
+    if (-not $target -or $target -match '[ \t]') { return '' }
+    if ($target.StartsWith('~/')) { $target = Join-Path $UserHome $target.Substring(2) }
+    elseif (-not [IO.Path]::IsPathRooted($target)) { $target = Join-Path $dir $target }
+    $target = $target -replace '/', [IO.Path]::DirectorySeparatorChar
+    if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { return '' }
+    $full = Get-FullPath $target
+    if (-not $Linked.Contains($full)) { return '' }
+    $names.Add([IO.Path]::GetFileName($full))
+  }
+  if ($names.Count -eq 0) { return '' }
+  foreach ($line in $lines) {
+    if ($line.StartsWith('#') -or $line.StartsWith('@')) { continue }
+    $named = $false
+    foreach ($name in $names) { if ($line.Contains($name)) { $named = $true } }
+    if (-not $named) { return '' }
+  }
+  return (@($names | Sort-Object -Unique -CaseSensitive) -join ' and ')
+}
+
+# One of the instruction files in the project's top folder: nothing to ask
+# when the playbook links to it, or it only points at files the playbook
+# links to
+function Write-ProjectFile([string]$Path, $Linked) {
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf) -or (Test-Link $Path) -or (Test-Link (Split-Path -Parent $Path))) { return }
+  $path = Get-FullPath $Path
+  try { $of = Get-OutsideOf $path } catch { return }
+  if ($of.Lines -le 0) { return }
+  $shown = Get-Clean (ConvertTo-HomePath $path)
+  if ($Linked.Contains($path)) { Pass "$shown is in your playbook as a link."; return }
+  $names = Get-PointsOnly $path $Linked
+  if ($names) { Pass "$shown only points at $names, which your playbook links to."; return }
+  Write-SourceDoctor $shown $path $false @(@{ Lines = $of.Lines; Sha = $of.Sha; Path = $path })
 }
 
 # This app's instruction and memory files with lines outside Context
 # Locker's blocks, and instruction files in the project's top folder that it
-# doesn't manage, which Gather can bring into the playbook
+# doesn't manage, which Import can bring into the playbook: each one, or each
+# folder of memories, is a source the doctor asks about
 function Write-UnmanagedDoctor {
   $sep = [IO.Path]::DirectorySeparatorChar
   switch ($Harness) {
@@ -3233,32 +3428,33 @@ function Write-UnmanagedDoctor {
       Write-UnmanagedFile (Join-Path $root 'CLAUDE.md')
       $rules = Join-Path $root 'rules'
       foreach ($rel in (Get-TextFiles $rules 4 '\.(md|mdc|txt)\z')) { Write-UnmanagedFile (Join-Path $rules ($rel -replace '/', $sep)) }
-      $memories = @()
+      # Each project's memory is a source of its own
       $projects = Join-Path $root 'projects'
       $item = Get-Item -LiteralPath $projects -Force -ErrorAction SilentlyContinue
       if ($item -and $item.PSIsContainer -and -not (Test-ReparsePoint $item)) {
-        foreach ($folder in @(Get-ChildItem -LiteralPath $projects -Directory -Force -ErrorAction SilentlyContinue | Sort-Object -Property Name)) {
+        foreach ($folder in @(Get-ChildItem -LiteralPath $projects -Directory -Force -ErrorAction SilentlyContinue | Sort-Object -Property Name -CaseSensitive)) {
           $memory = Join-Path $folder.FullName 'memory'
-          if (-not (Test-ReparsePoint $folder) -and (Test-Path -LiteralPath $memory -PathType Container)) { $memories += $memory }
+          if (-not (Test-ReparsePoint $folder) -and (Test-Path -LiteralPath $memory -PathType Container)) {
+            Write-UnmanagedFolder "Claude Code's memory" $memory 3
+          }
         }
       }
-      if ($memories.Count -gt 0) { Write-UnmanagedFolder "Claude Code's memory" $projects 3 $memories }
     }
     'codex' {
       $root = Get-RootDir 'codex'
       Write-UnmanagedFile (Join-Path $root 'AGENTS.md')
       Write-UnmanagedFile (Join-Path $root 'AGENTS.override.md')
-      Write-UnmanagedFolder "Codex's memories" (Join-Path $root 'memories') 3 @((Join-Path $root 'memories'))
+      Write-UnmanagedFolder "Codex's memories" (Join-Path $root 'memories') 3
     }
     'hermes' {
       $root = Get-RootDir 'hermes'
       foreach ($name in @('SOUL.md', 'USER.md', 'MEMORY.md')) { Write-UnmanagedFile (Join-Path $root $name) }
-      Write-UnmanagedFolder "Hermes's memories" (Join-Path $root 'memories') 1 @((Join-Path $root 'memories'))
+      Write-UnmanagedFolder "Hermes's memories" (Join-Path $root 'memories') 1
     }
     'openclaw' {
       $root = Get-RootDir 'openclaw'
       foreach ($name in @('AGENTS.md', 'SOUL.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md')) { Write-UnmanagedFile (Join-Path $root $name) }
-      Write-UnmanagedFolder "OpenClaw's daily memory logs" (Join-Path $root 'memory') 2 @((Join-Path $root 'memory'))
+      Write-UnmanagedFolder "OpenClaw's daily memory logs" (Join-Path $root 'memory') 2
     }
   }
   # The project's top folder: the project this folder is in, or the top of
@@ -3267,9 +3463,94 @@ function Write-UnmanagedDoctor {
   if (-not $top) { $top = Get-GitTop $Start }
   if (-not $top) { $top = $Start }
   if (-not $top -or $top.TrimEnd($sep) -eq $UserHome.TrimEnd($sep) -or $top -eq [IO.Path]::GetPathRoot($top)) { return }
+  $linked = Get-LinkedFiles
   foreach ($name in @('AGENTS.md', 'AGENTS.override.md', 'CLAUDE.md', 'CLAUDE.local.md', '.claude/CLAUDE.md')) {
-    Write-UnmanagedFile (Join-Path $top ($name -replace '/', $sep))
+    Write-ProjectFile (Join-Path $top ($name -replace '/', $sep)) $linked
   }
+}
+
+# Keeps a file, or a folder's files, in the app only, as the person chose:
+# the doctor asks about them again only once they're new or changed
+function Invoke-Keep {
+  $given = $KeepPath
+  if ($given -eq '~') { $path = $UserHome }
+  elseif ($given.StartsWith('~/') -or $given.StartsWith('~\')) { $path = Join-Path $UserHome $given.Substring(2) }
+  elseif ([IO.Path]::IsPathRooted($given)) { $path = $given }
+  else { $path = Join-Path (Get-Location).ProviderPath $given }
+  $path = Get-FullPath ($path -replace '/', [IO.Path]::DirectorySeparatorChar)
+  if ($path.Length -gt 1 -and $path -ne [IO.Path]::GetPathRoot($path)) { $path = $path.TrimEnd([IO.Path]::DirectorySeparatorChar) }
+  $shown = Get-Clean (ConvertTo-HomePath $path)
+  $item = Get-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+  if ($item -and (Test-ReparsePoint $item)) {
+    [Console]::Error.WriteLine("Context Locker: $shown is a link, and Context Locker doesn't follow links, so nothing was kept.")
+    return 1
+  }
+  if (-not $item) {
+    [Console]::Error.WriteLine("Context Locker: there's no file or folder at $shown, so nothing was kept.")
+    return 1
+  }
+  if ($item.PSIsContainer) {
+    $files = Get-FolderSources $path 4
+  } else {
+    $files = @()
+    try {
+      $of = Get-OutsideOf $path
+      if ($of.Lines -gt 0) { $files = @(@{ Lines = $of.Lines; Sha = $of.Sha; Path = $path }) }
+    } catch { }
+  }
+  if ($files.Length -eq 0) {
+    Say "$shown holds nothing outside Context Locker's blocks, so there's nothing to keep."
+    return 0
+  }
+  if (-not (Save-SourceAnswers 'keep' $files)) {
+    [Console]::Error.WriteLine("Context Locker: couldn't write $(ConvertTo-HomePath $Sources), so nothing was kept.")
+    return 1
+  }
+  if ($item.PSIsContainer) {
+    Say "Kept in $AppName only: $(Get-Plural $files.Length 'file' 'files') in $shown. The doctor asks about them again only once one is new or changes. To bring them into your playbook later, run Import: $Run gather $Harness"
+  } else {
+    Say "Kept in $AppName only: $shown. The doctor asks about it again only once it changes. To bring it into your playbook later, run Import: $Run gather $Harness"
+  }
+  return 0
+}
+
+# Once a plan is in, what its Import copied counts as read, so the doctor
+# asks about those files again only once they're new or changed. The working
+# set is the one whose plan has the same id.
+function Save-ImportRead([string]$Plan) {
+  $id = ''
+  try {
+    if ((Read-Text $Plan) -match '"plan_id"\s*:\s*"([0-9a-f-]+)"') { $id = $Matches[1] }
+  } catch { return }
+  if (-not $id) { return }
+  $root = Join-Path $ClHome 'gather'
+  $set = ''
+  foreach ($found in (Get-GatherSets $root)) {
+    $candidate = Join-Path $root $found.Name
+    try {
+      if ((Read-Text (Join-Path $candidate 'plan.json')) -match '"plan_id"\s*:\s*"([0-9a-f-]+)"' -and $Matches[1] -ceq $id) { $set = $candidate; break }
+    } catch { }
+  }
+  if (-not $set) { return }
+  $table = Join-Path $set 'sources.tsv'
+  if (-not (Test-Path -LiteralPath $table -PathType Leaf)) { return }
+  $sep = [IO.Path]::DirectorySeparatorChar
+  # Get-Lines gives its lines as one array, so they're piped from a variable,
+  # which passes them on one at a time
+  $rows = Get-Lines (Read-Text $table)
+  [object[]]$files = @(foreach ($line in ($rows | Select-Object -Skip 1)) {
+      $fields = $line.Split("`t")
+      if ($fields.Length -lt 8 -or $fields[1] -eq 'skill') { continue }
+      $path = $fields[2]
+      if ($path.StartsWith('~/')) { $path = Join-Path $UserHome ($path.Substring(2) -replace '/', $sep) }
+      elseif (-not [IO.Path]::IsPathRooted($path)) { continue }
+      if (('/' + $fields[6] + '/') -match '/\.\./') { continue }
+      $copy = Join-Path $set ($fields[6] -replace '/', $sep)
+      if (-not (Test-Path -LiteralPath $copy -PathType Leaf) -or (Test-Link $copy)) { continue }
+      try { $of = Get-OutsideOf $copy } catch { continue }
+      @{ Sha = $of.Sha; Path = (Get-FullPath $path) }
+    })
+  [void](Save-SourceAnswers 'import' $files)
 }
 
 function Invoke-Doctor {
@@ -4472,7 +4753,7 @@ function Invoke-GatherSubmit {
   # Tabs and line breaks stay; other control characters never show
   $text = $Utf8.GetString($reply.Body) -replace '[\x00-\x08\x0b-\x1f\x7f]', ''
   switch ($reply.Status) {
-    200 { Write-Out $text; Clear-GatherSets; return 0 }
+    200 { Write-Out $text; Save-ImportRead $plan; Clear-GatherSets; return 0 }
     0 { [Console]::Error.WriteLine("Context Locker: can't reach $Api, so the plan wasn't sent. Try again in a minute."); return 1 }
     401 { [Console]::Error.WriteLine("Context Locker: this computer's connection for $AppName was revoked or has expired. Set it up again at context.locker/setup."); return 1 }
     403 { [Console]::Error.WriteLine("Context Locker: this computer's connection for $AppName can only read, so it can't bring in a plan."); return 1 }
@@ -5120,6 +5401,7 @@ if ($Mode -ne 'sync') {
       'map' { $exitCode = Invoke-Map }
       'gather' { $exitCode = Invoke-Gather }
       'gather-submit' { $exitCode = Invoke-GatherSubmit }
+      'keep' { $exitCode = Invoke-Keep }
       'export' { $exitCode = Invoke-Export }
       'notes-move-out' { $exitCode = Invoke-NotesMoveOut }
       'fix' { $exitCode = Invoke-Fix }

@@ -719,27 +719,28 @@ describe("the sync scripts' tools", () => {
             cwd: repo,
           });
           assert.equal(doctor.status, 0, doctor.stdout + doctor.stderr);
-          const gather = escape(
-            `To bring them into your playbook, run Import: ${runLine(shell)} gather codex`,
-          );
+          const choice = (path: string) =>
+            escape(
+              `Bring them into your playbook with Import (${runLine(shell)} gather codex), or keep them in Codex only (${runLine(shell)} keep codex ${path}).`,
+            );
           assert.match(
             doctor.stdout,
             new RegExp(
-              `^WARN {2}~/\\.codex/AGENTS\\.md has 2 lines outside Context Locker's block\\. ${gather}$`,
+              `^WARN {2}~/\\.codex/AGENTS\\.md has 2 lines outside Context Locker's block\\. ${choice("~/.codex/AGENTS.md")}$`,
               "m",
             ),
           );
           assert.match(
             doctor.stdout,
             new RegExp(
-              `^WARN {2}Codex's memories, in ~/\\.codex/memories, 2 files hold 4 lines outside Context Locker\\. ${gather}$`,
+              `^WARN {2}Codex's memories, in ~/\\.codex/memories, 2 files hold 4 lines outside Context Locker\\. ${choice("~/.codex/memories")}$`,
               "m",
             ),
           );
           assert.match(
             doctor.stdout,
             new RegExp(
-              `^WARN {2}~/repo/CLAUDE\\.md has 2 lines outside Context Locker's block\\. ${gather}$`,
+              `^WARN {2}~/repo/CLAUDE\\.md has 2 lines outside Context Locker's block\\. ${choice("~/repo/CLAUDE.md")}$`,
               "m",
             ),
           );
@@ -751,6 +752,248 @@ describe("the sync scripts' tools", () => {
           );
         },
       );
+
+      it("asks about each source once, and again only once something in it is new or changed (G1-115)", async () => {
+        const machine = computer(shell);
+        assert.equal((await run(shell, machine)).status, 0);
+        addHook(machine.home, shell);
+        const memories = join(machine.home, ".codex", "memories");
+        mkdirSync(memories, { recursive: true });
+        writeFileSync(join(memories, "notes.md"), "One.\nTwo.\n");
+        writeFileSync(join(memories, "tools.md"), "Three.\n");
+        const today = escape(dayOf(new Date()));
+        const choice = (path: string) =>
+          escape(
+            `Bring them into your playbook with Import (${runLine(shell)} gather codex), or keep them in Codex only (${runLine(shell)} keep codex ${path}).`,
+          );
+        const memoriesAsked = (what: string) =>
+          new RegExp(
+            `^WARN {2}Codex's memories, in ~/\\.codex/memories, ${what} ${choice("~/.codex/memories")}$`,
+            "m",
+          );
+        const memoriesKept = new RegExp(
+          `^PASS {2}Codex's memories, in ~/\\.codex/memories, stay in Codex only, as you chose on ${today}\\.$`,
+          "m",
+        );
+
+        const asked = await run(shell, machine, { mode: "doctor" });
+        assert.equal(asked.status, 0, asked.stdout + asked.stderr);
+        assert.match(
+          asked.stdout,
+          memoriesAsked("2 files hold 3 lines outside Context Locker\\."),
+        );
+        assert.ok(
+          asked.stdout.endsWith("\nWorking, with 1 warning.\n"),
+          asked.stdout,
+        );
+
+        // Kept in Codex only, by the path the doctor gave
+        const kept = await run(shell, machine, {
+          mode: "keep",
+          args: ["~/.codex/memories"],
+        });
+        assert.equal(kept.status, 0, kept.stdout + kept.stderr);
+        assert.equal(
+          kept.stdout,
+          `Kept in Codex only: 2 files in ~/.codex/memories. The doctor asks about them again only once one is new or changes. To bring them into your playbook later, run Import: ${runLine(shell)} gather codex\n`,
+        );
+        const sources = read(join(machine.home, ".contextlocker", "sources"))
+          .split("\n")
+          .filter(Boolean);
+        const day = new Date().toISOString().slice(0, 10);
+        assert.deepEqual(
+          sources.sort(),
+          [
+            "context-locker-sources 1",
+            `keep\t${day}\t${sha256("One.\nTwo.\n")}\t${join(memories, "notes.md")}`,
+            `keep\t${day}\t${sha256("Three.\n")}\t${join(memories, "tools.md")}`,
+          ].sort(),
+        );
+        const settled = await run(shell, machine, { mode: "doctor" });
+        assert.match(settled.stdout, memoriesKept);
+        assert.ok(
+          settled.stdout.endsWith("\nAll checks passed.\n"),
+          settled.stdout,
+        );
+
+        // Blank lines and Windows line ends aren't a change, and a file
+        // that's gone isn't something new
+        writeFileSync(join(memories, "notes.md"), "One.\r\n\r\nTwo.\r\n");
+        rmSync(join(memories, "tools.md"));
+        assert.match(
+          (await run(shell, machine, { mode: "doctor" })).stdout,
+          memoriesKept,
+        );
+
+        // A new file is, and so is a changed one
+        writeFileSync(join(memories, "people.md"), "Ada leads.\nBo reviews.\n");
+        assert.match(
+          (await run(shell, machine, { mode: "doctor" })).stdout,
+          memoriesAsked(
+            `have 1 new or changed file since you kept them in Codex on ${today}, with 2 lines outside Context Locker\\.`,
+          ),
+        );
+        writeFileSync(join(memories, "notes.md"), "One.\nTwo, now.\n");
+        assert.match(
+          (await run(shell, machine, { mode: "doctor" })).stdout,
+          memoriesAsked(
+            `have 2 new or changed files since you kept them in Codex on ${today}, with 4 lines outside Context Locker\\.`,
+          ),
+        );
+
+        // A file of its own, kept by its full path, with only what's outside
+        // Context Locker's block counted
+        const agents = join(machine.home, ".codex", "AGENTS.md");
+        writeFileSync(agents, `# Mine\n\nKeep this.\n\n${read(agents)}`);
+        assert.match(
+          (await run(shell, machine, { mode: "doctor" })).stdout,
+          new RegExp(
+            `^WARN {2}~/\\.codex/AGENTS\\.md has 2 lines outside Context Locker's block\\. ${choice("~/.codex/AGENTS.md")}$`,
+            "m",
+          ),
+        );
+        const keptFile = await run(shell, machine, {
+          mode: "keep",
+          args: [agents],
+        });
+        assert.equal(keptFile.status, 0, keptFile.stdout + keptFile.stderr);
+        assert.equal(
+          keptFile.stdout,
+          `Kept in Codex only: ~/.codex/AGENTS.md. The doctor asks about it again only once it changes. To bring it into your playbook later, run Import: ${runLine(shell)} gather codex\n`,
+        );
+        assert.match(
+          (await run(shell, machine, { mode: "doctor" })).stdout,
+          /^PASS {2}~\/\.codex\/AGENTS\.md stays in Codex only, as you chose on .+\.$/m,
+        );
+        writeFileSync(
+          agents,
+          read(agents).replace("Keep this.", "Keep this, please."),
+        );
+        assert.match(
+          (await run(shell, machine, { mode: "doctor" })).stdout,
+          new RegExp(
+            `^WARN {2}~/\\.codex/AGENTS\\.md has changed since you kept it in Codex on ${today}, and has 2 lines outside Context Locker's block\\. ${choice("~/.codex/AGENTS.md")}$`,
+            "m",
+          ),
+        );
+
+        // Nothing to keep, nothing there, a link, or no path at all
+        writeFileSync(
+          join(machine.home, "ours.md"),
+          "<!-- context-locker:start -->\nOurs.\n<!-- context-locker:end -->\n\n",
+        );
+        const ours = await run(shell, machine, {
+          mode: "keep",
+          args: ["~/ours.md"],
+        });
+        assert.equal(ours.status, 0, ours.stdout + ours.stderr);
+        assert.equal(
+          ours.stdout,
+          "~/ours.md holds nothing outside Context Locker's blocks, so there's nothing to keep.\n",
+        );
+        const nothing = await run(shell, machine, {
+          mode: "keep",
+          args: ["~/nowhere"],
+        });
+        assert.equal(nothing.status, 1);
+        assert.match(
+          nothing.stderr,
+          /there's no file or folder at ~\/nowhere, so nothing was kept\./,
+        );
+        symlinkSync(memories, join(machine.home, "linked"));
+        const linked = await run(shell, machine, {
+          mode: "keep",
+          args: ["~/linked"],
+        });
+        assert.equal(linked.status, 1);
+        assert.match(
+          linked.stderr,
+          /~\/linked is a link, and Context Locker doesn't follow links, so nothing was kept\./,
+        );
+        const bare = await run(shell, machine, { mode: "keep" });
+        assert.equal(bare.status, 2);
+      });
+
+      it("doesn't ask about a project file its playbook links to, or one that only points at one (G1-115)", async () => {
+        const machine = computer(shell);
+        assert.equal((await run(shell, machine)).status, 0);
+        addHook(machine.home, shell);
+        const repo = project(machine.home);
+        writeFileSync(
+          join(repo, "AGENTS.md"),
+          "# Agents\n\nRun the tests.\nUse plain words.\n",
+        );
+        writeFileSync(
+          join(repo, "CLAUDE.md"),
+          "# CLAUDE.md\n\nClaude Code reads this file instead of AGENTS.md, so it imports AGENTS.md.\n\n@AGENTS.md\n",
+        );
+        mkdirSync(join(repo, ".claude"));
+        writeFileSync(join(repo, ".claude", "CLAUDE.md"), "@../AGENTS.md\n");
+        writeFileSync(
+          join(repo, "CLAUDE.local.md"),
+          "@AGENTS.md\nDeploy on Fridays.\n",
+        );
+        const lock = join(
+          machine.home,
+          ".contextlocker",
+          "codex",
+          "projects",
+          `${PROJECT}.lock`,
+        );
+        mkdirSync(join(lock, ".."), { recursive: true });
+        writeFileSync(
+          lock,
+          `context-locker-lock 1\nentry link ${randomUUID()} AGENTS.md\n`,
+        );
+        const choice = (path: string) =>
+          escape(
+            `Bring them into your playbook with Import (${runLine(shell)} gather codex), or keep them in Codex only (${runLine(shell)} keep codex ${path}).`,
+          );
+
+        const linked = await run(shell, machine, { mode: "doctor", cwd: repo });
+        assert.match(
+          linked.stdout,
+          /^PASS {2}~\/repo\/AGENTS\.md is in your playbook as a link\.$/m,
+        );
+        assert.match(
+          linked.stdout,
+          /^PASS {2}~\/repo\/CLAUDE\.md only points at AGENTS\.md, which your playbook links to\.$/m,
+        );
+        assert.match(
+          linked.stdout,
+          /^PASS {2}~\/repo\/\.claude\/CLAUDE\.md only points at AGENTS\.md, which your playbook links to\.$/m,
+        );
+        // A line of its own besides the import is something to ask about
+        assert.match(
+          linked.stdout,
+          new RegExp(
+            `^WARN {2}~/repo/CLAUDE\\.local\\.md has 2 lines outside Context Locker's block\\. ${choice("~/repo/CLAUDE.local.md")}$`,
+            "m",
+          ),
+        );
+
+        // Without the link, each one is asked about
+        writeFileSync(lock, "context-locker-lock 1\n");
+        const unlinked = await run(shell, machine, {
+          mode: "doctor",
+          cwd: repo,
+        });
+        assert.match(
+          unlinked.stdout,
+          new RegExp(
+            `^WARN {2}~/repo/AGENTS\\.md has 3 lines outside Context Locker's block\\. ${choice("~/repo/AGENTS.md")}$`,
+            "m",
+          ),
+        );
+        assert.match(
+          unlinked.stdout,
+          new RegExp(
+            `^WARN {2}~/repo/CLAUDE\\.md has 3 lines outside Context Locker's block\\. ${choice("~/repo/CLAUDE.md")}$`,
+            "m",
+          ),
+        );
+        assert.doesNotMatch(unlinked.stdout, /points at/);
+      });
 
       it("says what drifted since the last sync, and fails without the hook", async () => {
         const machine = computer(shell);
