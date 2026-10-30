@@ -938,6 +938,51 @@ describe("gather, and gather-submit", () => {
         assert.ok(existsSync(join(elsewhere, ".context-locker-gather")));
       });
 
+      it("reads only the apps the person picked, with --apps, and says which it didn't read (G1-11)", async () => {
+        const { home, repo } = computer();
+        const picked = await run(
+          shell,
+          home,
+          ["gather", "claude-code", "--apps", "codex,project"],
+          repo,
+        );
+        assert.equal(picked.status, 0, picked.stderr);
+        const set = workingSet(home);
+        const apps = new Set(
+          rows(join(set, "sources.tsv")).map((row) => row.app),
+        );
+        assert.deepEqual([...apps].sort(), ["codex", "project"]);
+        assert.deepEqual(
+          readdirSync(set)
+            .filter((name) => !name.includes("."))
+            .sort(),
+          ["codex", "project"],
+        );
+        // What it read, and what it didn't, by name
+        assert.match(picked.stdout, /^- Codex: /m);
+        assert.doesNotMatch(picked.stdout, /^- (Claude Code|Hermes): /m);
+        assert.match(
+          picked.stdout,
+          /^Not read, as the person didn't pick it: Claude Code, Hermes, OpenClaw, Grok Build and the skills folder Codex and OpenClaw share\.$/m,
+        );
+        assert.match(
+          readFileSync(join(set, "README.md"), "utf8"),
+          /^The person picked what this import reads: Codex and the project\. Nothing else was read\.$/m,
+        );
+
+        // A name that isn't one, none at all, or --apps for anything but
+        // gather is a mistake in the command
+        for (const args of [
+          ["gather", "claude-code", "--apps", "safari"],
+          ["gather", "claude-code", "--apps", ","],
+          ["gather", "claude-code", "--apps", ""],
+          ["doctor", "claude-code", "--apps", "codex"],
+        ]) {
+          const refused = await run(shell, home, args, repo);
+          assert.equal(refused.status, 2, args.join(" "));
+        }
+      });
+
       it("refuses to run when the app isn't connected", async () => {
         const { home, repo } = computer();
         rmSync(join(home, ".contextlocker", "claude-code", "token"));

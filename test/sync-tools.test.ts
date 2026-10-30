@@ -1311,7 +1311,7 @@ describe("the sync scripts' tools", () => {
           [
             "Moved 1 note from Context Locker into docs/decisions:",
             "- docs/decisions/release-plan.md",
-            "Each one is a pointer in Context Locker now, to its file here, with the same id, and History says where each one went. Restoring an earlier version in Context Locker brings a note's text back.",
+            "Each one is a pointer in Context Locker now, to its file here, with the same id, and Activity says where each one went. Restoring an earlier version in Context Locker brings a note's text back.",
             "The docs home for Docs site is docs/decisions now, instead of Notes.",
             "1 note changed in Context Locker while it was moving, so it stays there: dark-mode.md. The file this move wrote for it came out again. Run this again to move it.",
             "",

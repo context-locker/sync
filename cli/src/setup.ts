@@ -4,7 +4,11 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { GATHER_SKILL_NAME, hookRun } from "@internal/compilers";
-import type { Environment } from "@internal/shared";
+import {
+  importPickWords,
+  type Environment,
+  type ImportApp,
+} from "@internal/shared";
 import { appName, selectApp, namesOf, type App } from "./apps.js";
 import { canOpenBrowser, openBrowser } from "./browser.js";
 import { stamp } from "./files.js";
@@ -51,6 +55,30 @@ const plural = (count: number, one: string, many: string) =>
 
 /** A line from the sync script, under its app's name */
 const indented = (line: string) => (line ? `  ${line}` : "");
+
+/**
+ * Setup's last line on importing: now, as the person ticked Bring in (G1-89),
+ * reading only what they picked when they picked some, with the command that
+ * does (G1-11), or how to when they want to
+ */
+export function importNext(
+  bringIn: boolean,
+  apps: readonly ImportApp[],
+  gather: string,
+): string {
+  if (!bringIn) {
+    return `To bring in what your AI apps on this computer already know, ask your AI app to follow Context Locker's Import skill, ${GATHER_SKILL_NAME}. The import waits in your inbox, and nothing changes until you pick from it.`;
+  }
+  const what =
+    apps.length === 0
+      ? "what their AI apps on this computer already know"
+      : `what ${importPickWords(apps)} on this computer already know`;
+  const collect =
+    apps.length === 0
+      ? ""
+      : `, collecting with \`${gather} --apps ${apps.join(",")}\`, which reads only those`;
+  return `Next, the person asked for ${what} to come into Context Locker. If they're with you, follow Context Locker's Import skill, ${GATHER_SKILL_NAME}, now${collect}. The import waits in their inbox, and nothing in their playbook changes until they pick from it.`;
+}
 
 export async function setup(options: SetupOptions): Promise<number> {
   const { place, out } = options;
@@ -99,6 +127,8 @@ export async function setup(options: SetupOptions): Promise<number> {
 
   // Whether the person ticked Bring in as they approved it (G1-89)
   let bringIn = false;
+  // What it reads, as they picked: none for every app (G1-11)
+  let bringInApps: ImportApp[] = [];
   if (toConnect.length > 0) {
     out("");
     const result = options.code
@@ -131,6 +161,7 @@ export async function setup(options: SetupOptions): Promise<number> {
       return FAILED;
     }
     bringIn = result.bringIn === true;
+    bringInApps = result.bringInApps ?? [];
     for (const app of toConnect) {
       const connection = await connectionOf(place, api, app, options.fetch);
       out(
@@ -192,11 +223,14 @@ export async function setup(options: SetupOptions): Promise<number> {
   // Gather is for an app's first setup; setting up again needn't repeat it.
   // The person ticked Bring in as they approved it, so the app imports now,
   // and its session start says so until it has (G1-89)
-  if (toConnect.length > 0) {
+  const [importer] = toConnect;
+  if (importer) {
     out(
-      bringIn
-        ? `Next, the person asked for what their AI apps on this computer already know to come into Context Locker. If they're with you, follow Context Locker's Import skill, ${GATHER_SKILL_NAME}, now. The import waits in their inbox, and nothing in their playbook changes until they pick from it.`
-        : `To bring in what your AI apps on this computer already know, ask your AI app to follow Context Locker's Import skill, ${GATHER_SKILL_NAME}. The import waits in your inbox, and nothing changes until you pick from it.`,
+      importNext(
+        bringIn,
+        bringInApps,
+        `${hookRun(hookTargetOf(place))} gather ${importer}`,
+      ),
     );
   }
   return problems === 0 ? DONE : FAILED;

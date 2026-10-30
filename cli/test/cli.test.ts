@@ -7,6 +7,7 @@ import { after, describe, it } from "node:test";
 import { appList, namesOf, selectApp } from "../src/apps.js";
 import { main, parse } from "../src/cli.js";
 import { apiOf, placeFrom, shown } from "../src/place.js";
+import { importNext } from "../src/setup.js";
 
 const work = mkdtempSync(join(tmpdir(), "ctx-cli-unit-"));
 after(() => rmSync(work, { recursive: true, force: true }));
@@ -163,5 +164,27 @@ describe("selecting just the invoking app", () => {
       { app: "hermes" },
     );
     assert.ok("problem" in selectApp(["codex", "hermes"], {}));
+  });
+});
+
+describe("setup's last line on importing", () => {
+  const gather = "sh ~/.contextlocker/sync.sh gather claude-code";
+
+  it("says how to import, unless the person ticked Bring in (G1-89)", () => {
+    assert.match(
+      importNext(false, [], gather),
+      /^To bring in what your AI apps on this computer already know, ask your AI app to follow Context Locker's Import skill, context-locker-gather\./,
+    );
+    assert.match(
+      importNext(true, [], gather),
+      /^Next, the person asked for what their AI apps on this computer already know to come into Context Locker\. If they're with you, follow Context Locker's Import skill, context-locker-gather, now\. The import waits in their inbox/,
+    );
+  });
+
+  it("names what the person picked, with the command that reads only those (G1-11)", () => {
+    assert.equal(
+      importNext(true, ["codex", "project"], gather),
+      "Next, the person asked for what Codex and the project on this computer already know to come into Context Locker. If they're with you, follow Context Locker's Import skill, context-locker-gather, now, collecting with `sh ~/.contextlocker/sync.sh gather claude-code --apps codex,project`, which reads only those. The import waits in their inbox, and nothing in their playbook changes until they pick from it.",
+    );
   });
 });

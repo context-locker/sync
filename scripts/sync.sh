@@ -1,9 +1,9 @@
 #!/bin/sh
-# Context Locker sync, version 21. MIT licence.
+# Context Locker sync, version 22. MIT licence.
 #
 #   sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]
 #   sh sync.sh map <app> [--all]
-#   sh sync.sh gather <app>
+#   sh sync.sh gather <app> [--apps <names>]
 #   sh sync.sh gather-submit <app> <plan.json>
 #   sh sync.sh keep <app> <file or folder>
 #   sh sync.sh export <app> [--to <folder>]
@@ -61,7 +61,10 @@
 # read, for the Gather skill to sort into one plan. It only reads the apps'
 # files, never changes or deletes them, follows no link in their folders and
 # lists every one it skipped, and never copies anything that looks like a
-# secret. gather-submit sends the plan the person approved to Context Locker,
+# secret. With --apps, such as claude-code,codex, it reads only those, as the
+# person picked: claude-code, codex, hermes, openclaw, grok-build, agents (the
+# skills folder Codex and OpenClaw share) and project (the project's own
+# files). gather-submit sends the plan the person approved to Context Locker,
 # then deletes Gather's working sets.
 #
 # keep is the person's answer when the doctor asks about a file, or a folder
@@ -124,7 +127,7 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=21
+SCRIPT_VERSION=22
 MODE=sync
 case ${1:-} in
   signin | plan | doctor | readback | map | gather | gather-submit | keep | export | notes-move-out | fix | daily-job | update)
@@ -150,6 +153,8 @@ REASON=
 REASON_SET=0
 CODE=
 KEEP_PATH=
+APPS=
+APPS_SET=0
 # gather-submit's plan, and the file or folder to keep, come before any option
 if { [ "$MODE" = gather-submit ] || [ "$MODE" = keep ]; } && [ $# -gt 0 ]; then
   case $1 in
@@ -198,6 +203,11 @@ while [ $# -gt 0 ]; do
       CODE=${2:-}
       [ $# -gt 1 ] && shift
       ;;
+    --apps)
+      APPS=${2:-}
+      APPS_SET=1
+      [ $# -gt 1 ] && shift
+      ;;
     *)
       printf 'Context Locker: unknown option %s\n' "$1" >&2
       exit 2
@@ -207,7 +217,7 @@ while [ $# -gt 0 ]; do
 done
 
 usage() {
-  printf 'Usage: sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh gather <app>\n       sh sync.sh gather-submit <app> <plan.json>\n       sh sync.sh keep <app> <file or folder>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder>\n       sh sync.sh fix <app> [--all]\n       sh sync.sh fix <app> --done <id> | --skip <id> --reason <text>\n       sh sync.sh signin <app> [--code <code>]\n       sh sync.sh plan|doctor|readback|daily-job <app>\n       sh sync.sh update <app>\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
+  printf 'Usage: sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh gather <app> [--apps <names>]\n       sh sync.sh gather-submit <app> <plan.json>\n       sh sync.sh keep <app> <file or folder>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder>\n       sh sync.sh fix <app> [--all]\n       sh sync.sh fix <app> --done <id> | --skip <id> --reason <text>\n       sh sync.sh signin <app> [--code <code>]\n       sh sync.sh plan|doctor|readback|daily-job <app>\n       sh sync.sh update <app>\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
   exit 2
 }
 case $HARNESS in
@@ -216,6 +226,18 @@ case $HARNESS in
 esac
 [ "$MODE" = gather-submit ] && [ -z "$PLAN_FILE" ] && usage
 [ "$MODE" = keep ] && [ -z "$KEEP_PATH" ] && usage
+# --apps is for gather: the apps the person picked for it to read, at least
+# one, each one Import reads (G1-11)
+GATHER_APPS='claude-code codex hermes openclaw grok-build agents project'
+if [ "$APPS_SET" = 1 ]; then
+  [ "$MODE" = gather ] || usage
+  printf '%s\n' "$APPS" | tr ',' '\n' | awk -v known="$GATHER_APPS" '
+    BEGIN { n = split(known, names, " "); for (i = 1; i <= n; i++) ok[names[i]] = 1 }
+    $0 == "" { next }
+    !($0 in ok) { bad = 1 }
+    { seen++ }
+    END { exit (bad || seen == 0) }' || usage
+fi
 # --now and --hook are for a sync
 [ "$MODE" != sync ] && { [ "$NOW" = 1 ] || [ "$HOOK" = 1 ]; } && usage
 # Hermes's and OpenClaw's hooks don't read what a sync prints, and a daily
@@ -4597,6 +4619,36 @@ g_clear() {
   return 0
 }
 
+# Whether gather reads an app's files: every app's, unless the person picked
+# some with --apps (G1-11)
+picked() {
+  [ "$APPS_SET" = 0 ] && return 0
+  case ",$APPS," in *",$1,"*) return 0 ;; esac
+  return 1
+}
+
+# The apps picked, or the ones left unpicked, by name, in Import's order:
+# "Claude Code, Codex and the project"
+g_names() {
+  gn_all=
+  for gn_app in $GATHER_APPS; do
+    if picked "$gn_app"; then gn_is=picked; else gn_is=unpicked; fi
+    [ "$gn_is" = "$1" ] || continue
+    case $gn_app in
+      claude-code) gn_name='Claude Code' ;;
+      codex) gn_name=Codex ;;
+      hermes) gn_name=Hermes ;;
+      openclaw) gn_name=OpenClaw ;;
+      grok-build) gn_name='Grok Build' ;;
+      agents) gn_name='the skills folder Codex and OpenClaw share' ;;
+      project) gn_name='the project' ;;
+    esac
+    gn_all="$gn_all$(printf '%s\n' "$gn_name")
+"
+  done
+  printf '%s' "$gn_all" | awk 'NF { names[++n] = $0 } END { for (i = 1; i <= n; i++) printf "%s%s", (i == 1 ? "" : (i == n ? " and " : ", ")), names[i] }'
+}
+
 gather() {
   G_ROOT=$CL_HOME/gather
   if [ -L "$G_ROOT" ] || { [ -e "$G_ROOT" ] && [ ! -d "$G_ROOT" ]; }; then
@@ -4643,13 +4695,14 @@ gather() {
   G_TOTAL=0 G_FULL=0 G_BROKE=0 G_PROJECT=
   g_secret_patterns
 
-  g_claude_code
-  g_codex
-  g_skills agents "$HOME/.agents" skills agents
-  g_hermes
-  g_openclaw
-  g_grok
-  g_project
+  # Only the apps the person picked, when they picked some (G1-11)
+  picked claude-code && g_claude_code
+  picked codex && g_codex
+  picked agents && g_skills agents "$HOME/.agents" skills agents
+  picked hermes && g_hermes
+  picked openclaw && g_openclaw
+  picked grok-build && g_grok
+  picked project && g_project
   if [ "$G_BROKE" = 1 ]; then
     rm -rf "$G_WS"
     return 1
@@ -4675,6 +4728,7 @@ gather() {
     printf -- '- plan.json: the plan to fill in, with its plan_id.\n'
     printf -- '- claude-code, codex, agents (the skills folder Codex and OpenClaw share), hermes, openclaw, grok-build and project: the copies, where each app had them.\n\n'
     [ -n "$G_PROJECT" ] && printf 'The project is %s.\n\n' "$(home_path "$G_PROJECT")"
+    [ "$APPS_SET" = 1 ] && printf 'The person picked what this import reads: %s. Nothing else was read.\n\n' "$(g_names picked)"
     printf 'Submit the plan the person approves with:\n\n    %s gather-submit %s %s/plan.json\n' "$RUN" "$HARNESS" "$(home_path "$G_WS")"
   } >"$G_WS/README.md"
   # Only this account can read what's here
@@ -4686,6 +4740,7 @@ gather() {
   printf 'Context Locker gathered %s into %s, which only this account can read. No app'"'"'s files changed, and nothing left this computer.\n' \
     "$(plural "$g_sources" source sources)" "$(home_path "$G_WS")"
   for g_app in claude-code codex agents hermes openclaw grok-build project; do
+    picked "$g_app" || continue
     case $g_app in
       claude-code) g_name='Claude Code' ;;
       codex) g_name=Codex ;;
@@ -4700,6 +4755,8 @@ gather() {
     esac
     printf -- '- %s: %s\n' "$g_name" "$(g_counts "$g_app")"
   done
+  [ "$APPS_SET" = 1 ] && [ -n "$(g_names unpicked)" ] &&
+    printf 'Not read, as the person didn'"'"'t pick it: %s.\n' "$(g_names unpicked)"
   g_left=$(($(wc -l <"$G_WS/left-out.tsv") - 1))
   if [ "$g_left" -gt 0 ]; then
     printf '\nLeft out, %s:\n' "$g_left"
@@ -5189,7 +5246,7 @@ notes_move_out() {
   if [ "$mo_count" -gt 0 ]; then
     printf 'Moved %s from Context Locker into %s:\n' "$(plural "$mo_count" note notes)" "$mo_rel"
     while IFS= read -r mo_file; do printf -- '- %s/%s\n' "$mo_rel" "$mo_file"; done <"$TMP/move-moved"
-    printf "Each one is a pointer in Context Locker now, to its file here, with the same id, and History says where each one went. Restoring an earlier version in Context Locker brings a note's text back.\n"
+    printf "Each one is a pointer in Context Locker now, to its file here, with the same id, and Activity says where each one went. Restoring an earlier version in Context Locker brings a note's text back.\n"
     case $mo_was in
       notes) printf "The docs home for %s is %s now, instead of Notes.\n" "$mo_name" "$mo_place" ;;
       place) printf "The docs home for %s is %s now, instead of the place it had.\n" "$mo_name" "$mo_place" ;;
