@@ -1095,6 +1095,103 @@ describe("gather, and gather-submit", () => {
         assert.match(usage.stderr, /gather-submit <app> <plan\.json>/);
       });
 
+      it("counts what an Import read once its plan is in, so the doctor asks about it again only once it's new or changed (G1-115)", async () => {
+        const { home, repo } = computer();
+        const gathered = await run(
+          shell,
+          home,
+          ["gather", "claude-code"],
+          repo,
+        );
+        assert.equal(gathered.status, 0, gathered.stderr);
+        const plan = join(workingSet(home), "plan.json");
+        answer = {
+          status: 200,
+          type: "text/plain; charset=utf-8",
+          body: "Brought in 2 items with Gather.\n",
+        };
+        const submitted = await run(
+          shell,
+          home,
+          ["gather-submit", "claude-code", plan],
+          repo,
+        );
+        assert.equal(submitted.status, 0, submitted.stderr);
+
+        const [header, ...lines] = readFileSync(
+          join(home, ".contextlocker", "sources"),
+          "utf8",
+        )
+          .split("\n")
+          .filter(Boolean);
+        assert.equal(header, "context-locker-sources 1");
+        const day = new Date().toISOString().slice(0, 10);
+        const read = new Map(
+          lines.map((line) => {
+            const [answer, when, sha, path = ""] = line.split("\t");
+            return [path, `${answer} ${when} ${sha}`];
+          }),
+        );
+        const memory = join(home, ".claude", "projects", "-home-ada-repo");
+        assert.equal(
+          read.get(join(memory, "memory", "MEMORY.md")),
+          `import ${day} ${sha256("- The repo deploys from main.\n")}`,
+        );
+        // What's outside Context Locker's block, past blank lines
+        assert.equal(
+          read.get(join(home, ".claude", "CLAUDE.md")),
+          `import ${day} ${sha256("# Mine\nUse plain words.\n")}`,
+        );
+        assert.equal(
+          read.get(join(repo, "CLAUDE.md")),
+          `import ${day} ${sha256("Read AGENTS.md.\n")}`,
+        );
+        // Not a skill, nor what it left out, such as a secret
+        const paths = [...read.keys()];
+        assert.ok(
+          !paths.some((path) => path.includes("/skills/")),
+          paths.join("\n"),
+        );
+        assert.ok(
+          !read.has(join(home, ".codex", "memories", "secrets", "aws.md")),
+        );
+        assert.ok(!read.has(join(home, ".codex", "memories", "big.md")));
+
+        // The doctor says so, until something in it is new
+        const today = new Date();
+        const months = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(
+          " ",
+        );
+        const shown = `${today.getUTCDate()} ${months[today.getUTCMonth()]} ${today.getUTCFullYear()}`;
+        const doctor = await run(shell, home, ["doctor", "claude-code"], repo);
+        assert.match(
+          doctor.stdout,
+          new RegExp(
+            `^PASS {2}Claude Code's memory, in ~/\\.claude/projects/-home-ada-repo/memory, went into an Import on ${shown}, and nothing in them is new since\\.$`,
+            "m",
+          ),
+        );
+        assert.match(
+          doctor.stdout,
+          new RegExp(
+            `^PASS {2}~/\\.claude/CLAUDE\\.md went into an Import on ${shown}, and hasn't changed since\\.$`,
+            "m",
+          ),
+        );
+        put(
+          join(memory, "memory", "deploys.md"),
+          "- Deploys wait for the checks.\n",
+        );
+        const later = await run(shell, home, ["doctor", "claude-code"], repo);
+        assert.match(
+          later.stdout,
+          new RegExp(
+            `^WARN {2}Claude Code's memory, in ~/\\.claude/projects/-home-ada-repo/memory, have 1 new or changed file since an Import read them on ${shown}, with 1 line outside Context Locker\\. Bring them into your playbook with Import \\(.+ gather claude-code\\), or keep them in Claude Code only \\(.+ keep claude-code ~/\\.claude/projects/-home-ada-repo/memory\\)\\.$`,
+            "m",
+          ),
+        );
+      });
+
       it("gather-submit sends a plan over 4 MB in parts, then names the upload", async () => {
         const { home, repo } = computer();
         const plan = join(home, "plan.json");

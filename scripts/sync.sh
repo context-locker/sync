@@ -1,10 +1,11 @@
 #!/bin/sh
-# Context Locker sync, version 20. MIT licence.
+# Context Locker sync, version 21. MIT licence.
 #
 #   sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]
 #   sh sync.sh map <app> [--all]
 #   sh sync.sh gather <app>
 #   sh sync.sh gather-submit <app> <plan.json>
+#   sh sync.sh keep <app> <file or folder>
 #   sh sync.sh export <app> [--to <folder>]
 #   sh sync.sh notes-move-out <app> --to <folder>
 #   sh sync.sh fix <app> [--all]
@@ -63,6 +64,12 @@
 # secret. gather-submit sends the plan the person approved to Context Locker,
 # then deletes Gather's working sets.
 #
+# keep is the person's answer when the doctor asks about a file, or a folder
+# of memories, with lines outside Context Locker: they stay in the app only,
+# and the doctor asks about them again only once something in them is new
+# or changed. The other answer is Import, and what an Import read counts the
+# same way once its plan is in. The answers stay on this computer.
+#
 # export downloads everything in the playbook, as plain files with the
 # history as JSON Lines, into a new folder, "Context Locker export <date>" in
 # the current one unless --to names another. It never writes into a folder
@@ -101,10 +108,11 @@
 #   plan      shows what a sync would write, and the hooks to add. It changes
 #             nothing.
 #   doctor    checks the connection, the files, the hooks and the daily job,
-#             how full the playbook's limits are, instruction files Context
-#             Locker doesn't manage, and anything that has drifted since the
-#             last sync. It tells Context Locker how the app runs the sync,
-#             for the connection's page. It exits 1 when a check fails.
+#             how full the playbook's limits are, and anything that has
+#             drifted since the last sync, and asks about instruction and
+#             memory files Context Locker doesn't manage. It tells Context
+#             Locker how the app runs the sync, for the connection's page. It
+#             exits 1 when a check fails.
 #   daily-job adds a daily job to Hermes's or OpenClaw's own scheduler that
 #             runs the sync once a day, with no model call, once the person
 #             says yes. One that's there already stays as it is. Claude Code
@@ -116,10 +124,10 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=20
+SCRIPT_VERSION=21
 MODE=sync
 case ${1:-} in
-  signin | plan | doctor | readback | map | gather | gather-submit | export | notes-move-out | fix | daily-job | update)
+  signin | plan | doctor | readback | map | gather | gather-submit | keep | export | notes-move-out | fix | daily-job | update)
     MODE=$1
     shift
     ;;
@@ -141,12 +149,13 @@ FIX_MARKS=0
 REASON=
 REASON_SET=0
 CODE=
-# gather-submit's plan comes before any option
-if [ "$MODE" = gather-submit ] && [ $# -gt 0 ]; then
+KEEP_PATH=
+# gather-submit's plan, and the file or folder to keep, come before any option
+if { [ "$MODE" = gather-submit ] || [ "$MODE" = keep ]; } && [ $# -gt 0 ]; then
   case $1 in
     -*) ;;
     *)
-      PLAN_FILE=$1
+      if [ "$MODE" = keep ]; then KEEP_PATH=$1; else PLAN_FILE=$1; fi
       shift
       ;;
   esac
@@ -198,7 +207,7 @@ while [ $# -gt 0 ]; do
 done
 
 usage() {
-  printf 'Usage: sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh gather <app>\n       sh sync.sh gather-submit <app> <plan.json>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder>\n       sh sync.sh fix <app> [--all]\n       sh sync.sh fix <app> --done <id> | --skip <id> --reason <text>\n       sh sync.sh signin <app> [--code <code>]\n       sh sync.sh plan|doctor|readback|daily-job <app>\n       sh sync.sh update <app>\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
+  printf 'Usage: sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh gather <app>\n       sh sync.sh gather-submit <app> <plan.json>\n       sh sync.sh keep <app> <file or folder>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder>\n       sh sync.sh fix <app> [--all]\n       sh sync.sh fix <app> --done <id> | --skip <id> --reason <text>\n       sh sync.sh signin <app> [--code <code>]\n       sh sync.sh plan|doctor|readback|daily-job <app>\n       sh sync.sh update <app>\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
   exit 2
 }
 case $HARNESS in
@@ -206,6 +215,7 @@ case $HARNESS in
   *) usage ;;
 esac
 [ "$MODE" = gather-submit ] && [ -z "$PLAN_FILE" ] && usage
+[ "$MODE" = keep ] && [ -z "$KEEP_PATH" ] && usage
 # --now and --hook are for a sync
 [ "$MODE" != sync ] && { [ "$NOW" = 1 ] || [ "$HOOK" = 1 ]; } && usage
 # Hermes's and OpenClaw's hooks don't read what a sync prints, and a daily
@@ -3152,51 +3162,238 @@ caps_doctor() {
   done <"$TMP/caps-lines"
 }
 
-# How many lines of a file that aren't blank sit outside Context Locker's blocks
-lines_outside() {
+# --- Files Context Locker doesn't manage (G1-115) ----------------------------
+
+# The doctor asks once about each instruction file, or folder of memories,
+# with lines outside Context Locker's blocks: bring them into the playbook
+# with Import, or keep them in the app only. The answers stay on this
+# computer, in $SOURCES, a line for each file: the answer, keep or import,
+# the day, the SHA-256 of the file's lines outside Context Locker's blocks,
+# and its path. What an Import read is its answer once its plan is in. The
+# doctor asks again only about a file that's new or changed since.
+SOURCES=$CL_HOME/sources
+SOURCES_HEADER='context-locker-sources 1'
+TAB=$(printf '\t')
+
+# A file's lines outside Context Locker's blocks that aren't blank, without
+# the carriage return of a Windows line end: what the doctor asks about, as
+# an Import's copy of the file holds them
+outside_lines() {
   awk '
     /^<!-- context-locker:start( v[0-9]+)? -->[ \t\r]*$/ { inside = 1; next }
     /^<!-- context-locker:end -->[ \t\r]*$/ { inside = 0; next }
-    !inside && /[^ \t\r]/ { lines++ }
-    END { print lines + 0 }' "$1" 2>/dev/null
+    !inside && /[^ \t\r]/ { sub(/\r$/, ""); print }' "$1" 2>/dev/null
 }
 
-# An instruction or memory file with lines Context Locker doesn't manage: a
-# warning with where it is, how many lines, and how to bring them in. A link
-# isn't followed, as Gather doesn't follow one.
+# How many of those lines a file has, into $OF_LINES, and their SHA-256, into
+# $OF_SHA, by which the doctor knows whether it changed since an answer
+outside_of() {
+  outside_lines "$1" >"$TMP/outside"
+  OF_LINES=$(wc -l <"$TMP/outside" | tr -d ' ')
+  OF_SHA=$(sha_file "$TMP/outside")
+}
+
+# A day, 2026-10-29, as people read it: 29 Oct 2026
+nice_day() { nice_time "${1}T00:00:00Z" | sed 's/ at .*//'; }
+
+# Records an answer, keep or import, for the files in "<sha256>\t<path>"
+# lines on stdin, over any earlier one for the same path. Answers for files
+# that are gone go.
+answer_sources() {
+  awk -F '\t' -v OFS='\t' -v answer="$1" -v day="$(date -u +%Y-%m-%d)" 'NF == 2 { print answer, day, $1, $2 }' >"$TMP/answers-new"
+  [ -s "$TMP/answers-new" ] || return 0
+  [ -L "$SOURCES" ] && return 1
+  {
+    printf '%s\n' "$SOURCES_HEADER"
+    if [ -f "$SOURCES" ] && [ "$(head -n 1 "$SOURCES" 2>/dev/null)" = "$SOURCES_HEADER" ]; then
+      awk -F '\t' 'FILENAME == ARGV[1] { fresh[$4] = 1; next } FNR > 1 && NF == 4 && !($4 in fresh)' \
+        "$TMP/answers-new" "$SOURCES" >"$TMP/answers-old"
+      while IFS= read -r as_line; do
+        [ -f "${as_line##*"$TAB"}" ] && printf '%s\n' "$as_line"
+      done <"$TMP/answers-old"
+    fi
+    cat "$TMP/answers-new"
+  } >"$TMP/sources.next" && mv -f "$TMP/sources.next" "$SOURCES"
+}
+
+# What's known of a source, $1, a file, or a folder when $2 is 1, from its
+# files' "<lines>\t<sha256>\t<path>" lines in $TMP/source-files: how many are
+# new or changed since an answer, with how many lines, and the newest answer
+# about the source, with its day, or - for none
+source_state() {
+  ss_known=/dev/null
+  [ -f "$SOURCES" ] && [ ! -L "$SOURCES" ] && [ "$(head -n 1 "$SOURCES" 2>/dev/null)" = "$SOURCES_HEADER" ] &&
+    ss_known=$SOURCES
+  awk -F '\t' -v source="$1" -v folder="$2" '
+    FILENAME == ARGV[1] {
+      if (FNR == 1 || NF != 4) next
+      known[$4 "\t" $3] = 1
+      if ($4 == source || (folder == 1 && index($4, source "/") == 1)) {
+        if (day == "" || $2 > day) { day = $2; answer = $1 }
+      }
+      next
+    }
+    !(($3 "\t" $2) in known) { fresh++; lines += $1 }
+    END { printf "%d %d %s %s\n", fresh, lines, (answer == "" ? "-" : answer), (day == "" ? "-" : day) }' \
+    "$ss_known" "$TMP/source-files"
+}
+
+# Asks about one source, a file or a folder, by its files in
+# $TMP/source-files, unless nothing in it is new since the person answered,
+# and then says what they chose. $1 is what to call it, $2 its path, and $3
+# is 1 for a folder.
+source_doctor() {
+  sd_name=$1 sd_path=$2 sd_folder=$3
+  set -- $(source_state "$sd_path" "$sd_folder")
+  sd_new=$1 sd_lines=$2 sd_answer=$3 sd_day=$4
+  sd_choice="Bring them into your playbook with Import ($RUN gather $HARNESS), or keep them in $APP_NAME only ($RUN keep $HARNESS $(shell_quote "$(home_path "$sd_path")"))."
+  if [ "$sd_answer" = - ]; then
+    sd_files=$(wc -l <"$TMP/source-files" | tr -d ' ')
+    if [ "$sd_folder" = 1 ]; then
+      check_warn "$sd_name, $(plural "$sd_files" 'file holds' 'files hold') $(plural "$sd_lines" line lines) outside Context Locker. $sd_choice"
+    else
+      check_warn "$sd_name has $(plural "$sd_lines" line lines) outside Context Locker's block. $sd_choice"
+    fi
+    return 0
+  fi
+  sd_when=$(nice_day "$sd_day")
+  if [ "$sd_new" -gt 0 ]; then
+    if [ "$sd_folder" = 1 ]; then
+      if [ "$sd_answer" = keep ]; then sd_since="you kept them in $APP_NAME"; else sd_since='an Import read them'; fi
+      check_warn "$sd_name, have $(plural "$sd_new" 'new or changed file' 'new or changed files') since $sd_since on $sd_when, with $(plural "$sd_lines" line lines) outside Context Locker. $sd_choice"
+    else
+      if [ "$sd_answer" = keep ]; then sd_since="you kept it in $APP_NAME"; else sd_since='an Import read it'; fi
+      check_warn "$sd_name has changed since $sd_since on $sd_when, and has $(plural "$sd_lines" line lines) outside Context Locker's block. $sd_choice"
+    fi
+  elif [ "$sd_answer" = keep ]; then
+    if [ "$sd_folder" = 1 ]; then
+      check_pass "$sd_name, stay in $APP_NAME only, as you chose on $sd_when."
+    else
+      check_pass "$sd_name stays in $APP_NAME only, as you chose on $sd_when."
+    fi
+  elif [ "$sd_folder" = 1 ]; then
+    check_pass "$sd_name, went into an Import on $sd_when, and nothing in them is new since."
+  else
+    check_pass "$sd_name went into an Import on $sd_when, and hasn't changed since."
+  fi
+}
+
+# An instruction or memory file with lines Context Locker doesn't manage, as
+# a source to ask about. A link isn't followed, as Import doesn't follow one.
 unmanaged_file() {
   [ -f "$1" ] && [ ! -L "$1" ] && [ ! -L "${1%/*}" ] || return 0
-  uf_lines=$(lines_outside "$1")
-  case $uf_lines in '' | 0 | *[!0-9]*) return 0 ;; esac
-  check_warn "$(home_path "$1" | clean) has $(plural "$uf_lines" line lines) outside Context Locker's block. To bring them into your playbook, run Import: $RUN gather $HARNESS"
+  case $1 in *"$TAB"*) return 0 ;; esac
+  outside_of "$1"
+  case $OF_LINES in '' | 0 | *[!0-9]*) return 0 ;; esac
+  printf '%s\t%s\t%s\n' "$OF_LINES" "$OF_SHA" "$1" >"$TMP/source-files"
+  source_doctor "$(home_path "$1" | clean)" "$1" 0
 }
 
-# A folder of memories, such as Codex's: one warning for the lines its text
-# files hold outside Context Locker, and how many files hold them. Hidden
-# files and links are left out.
+# The text files in a folder, down to a depth, into $TMP/folder-files, by
+# their paths. Hidden files and links are left out, as Import leaves them.
+folder_files() {
+  : >"$TMP/folder-files"
+  (cd "$1" 2>/dev/null && find . -maxdepth "$2" \( ! -name . -name '.*' \) -prune -o \
+    -type f \( -name '*.md' -o -name '*.markdown' -o -name '*.mdx' -o -name '*.mdc' -o -name '*.txt' \) -print) \
+    >"$TMP/folder-found"
+  while IFS= read -r ff_rel; do
+    printf '%s/%s\n' "$1" "${ff_rel#./}" >>"$TMP/folder-files"
+  done <"$TMP/folder-found"
+}
+
+# A folder of memories, such as Codex's, as one source to ask about: its text
+# files with lines outside Context Locker
 unmanaged_folder() {
-  ufo_name=$1 ufo_shown=$2 ufo_depth=$3
-  shift 3
-  ufo_files=0 ufo_lines=0
-  for ufo_dir in "$@"; do
-    [ -d "$ufo_dir" ] && [ ! -L "$ufo_dir" ] || continue
-    (cd "$ufo_dir" 2>/dev/null && find . -maxdepth "$ufo_depth" \( ! -name . -name '.*' \) -prune -o \
-      -type f \( -name '*.md' -o -name '*.markdown' -o -name '*.mdx' -o -name '*.mdc' -o -name '*.txt' \) -print) \
-      >"$TMP/unmanaged-files"
-    while IFS= read -r ufo_rel; do
-      ufo_count=$(lines_outside "$ufo_dir/${ufo_rel#./}")
-      case $ufo_count in '' | 0 | *[!0-9]*) continue ;; esac
-      ufo_files=$((ufo_files + 1))
-      ufo_lines=$((ufo_lines + ufo_count))
-    done <"$TMP/unmanaged-files"
-  done
-  [ "$ufo_lines" -gt 0 ] || return 0
-  check_warn "$ufo_name, in $(home_path "$ufo_shown" | clean), $(plural "$ufo_files" 'file holds' 'files hold') $(plural "$ufo_lines" line lines) outside Context Locker. To bring them into your playbook, run Import: $RUN gather $HARNESS"
+  ufo_name=$1 ufo_dir=$2
+  [ -d "$ufo_dir" ] && [ ! -L "$ufo_dir" ] || return 0
+  folder_files "$ufo_dir" "$3"
+  : >"$TMP/source-files"
+  while IFS= read -r ufo_file; do
+    case $ufo_file in *"$TAB"*) continue ;; esac
+    outside_of "$ufo_file"
+    case $OF_LINES in '' | 0 | *[!0-9]*) continue ;; esac
+    printf '%s\t%s\t%s\n' "$OF_LINES" "$OF_SHA" "$ufo_file" >>"$TMP/source-files"
+  done <"$TMP/folder-files"
+  [ -s "$TMP/source-files" ] || return 0
+  source_doctor "$ufo_name, in $(home_path "$ufo_dir" | clean)" "$ufo_dir" 1
+}
+
+# Where a file really is, past any link to its folder, or nothing when it
+# isn't a file
+real_path() {
+  [ -f "$1" ] || return 0
+  rp_dir=$(cd -P "${1%/*}" 2>/dev/null && pwd -P) || return 0
+  printf '%s/%s\n' "$rp_dir" "${1##*/}"
+}
+
+# The files in the project its playbook links to, where they really are, from
+# the last sync's link lines, into $TMP/linked
+linked_files() {
+  : >"$TMP/linked"
+  [ -n "$PROJECT_ID" ] && [ -n "$PROJECT_ROOT" ] || return 0
+  lf_root=$(cd -P "$PROJECT_ROOT" 2>/dev/null && pwd -P) || return 0
+  sed -n "s/^entry link $UUID //p" "$APP_DIR/projects/$PROJECT_ID.lock" 2>/dev/null >"$TMP/link-paths"
+  while IFS= read -r lf_path; do
+    real_path "$lf_root/$lf_path"
+  done <"$TMP/link-paths" >"$TMP/linked"
+}
+
+# Whether a file only points at files the playbook links to, as a CLAUDE.md
+# that imports AGENTS.md does: it imports at least one, with a line of @ and
+# its path, and every other line outside Context Locker's blocks is one of
+# those imports, a heading or a line that names a file it imports. Prints
+# the names of the files it imports.
+points_only() {
+  [ -s "$TMP/linked" ] || return 1
+  po_dir=$(cd -P "${1%/*}" 2>/dev/null && pwd -P) || return 1
+  outside_lines "$1" | awk '{ sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); print }' >"$TMP/points"
+  : >"$TMP/point-names"
+  while IFS= read -r po_line; do
+    case $po_line in @*) ;; *) continue ;; esac
+    po_target=${po_line#@}
+    case $po_target in '' | *' '* | *"$TAB"*) return 1 ;; esac
+    case $po_target in
+      '~/'*) po_target=$HOME/${po_target#\~/} ;;
+      /*) ;;
+      *) po_target=$po_dir/$po_target ;;
+    esac
+    po_real=$(real_path "$po_target")
+    [ -n "$po_real" ] && grep -qxF "$po_real" "$TMP/linked" || return 1
+    printf '%s\n' "${po_real##*/}" >>"$TMP/point-names"
+  done <"$TMP/points"
+  [ -s "$TMP/point-names" ] || return 1
+  while IFS= read -r po_line; do
+    case $po_line in '#'* | @*) continue ;; esac
+    po_named=0
+    while IFS= read -r po_name; do
+      case $po_line in *"$po_name"*) po_named=1 ;; esac
+    done <"$TMP/point-names"
+    [ "$po_named" = 1 ] || return 1
+  done <"$TMP/points"
+  LC_ALL=C sort -u "$TMP/point-names" | awk '{ printf "%s%s", (NR > 1 ? " and " : ""), $0 }'
+}
+
+# One of the instruction files in the project's top folder: nothing to ask
+# when the playbook links to it, or it only points at files the playbook
+# links to
+project_file() {
+  [ -f "$1" ] && [ ! -L "$1" ] && [ ! -L "${1%/*}" ] || return 0
+  outside_of "$1"
+  case $OF_LINES in '' | 0 | *[!0-9]*) return 0 ;; esac
+  pf_real=$(real_path "$1")
+  if [ -n "$pf_real" ] && grep -qxF "$pf_real" "$TMP/linked"; then
+    check_pass "$(home_path "$1" | clean) is in your playbook as a link."
+  elif pf_names=$(points_only "$1"); then
+    check_pass "$(home_path "$1" | clean) only points at $pf_names, which your playbook links to."
+  else
+    unmanaged_file "$1"
+  fi
 }
 
 # This app's instruction and memory files with lines outside Context
 # Locker's blocks, and instruction files in the project's top folder that it
-# doesn't manage, which Gather can bring into the playbook
+# doesn't manage, which Import can bring into the playbook: each one, or each
+# folder of memories, is a source the doctor asks about
 unmanaged_doctor() {
   case $HARNESS in
     claude-code)
@@ -3209,29 +3406,29 @@ unmanaged_doctor() {
           unmanaged_file "$ud_root/rules/$ud_rule"
         done <"$TMP/rule-files"
       fi
-      set --
+      # Each project's memory is a source of its own
       if [ -d "$ud_root/projects" ] && [ ! -L "$ud_root/projects" ]; then
         for ud_memory in "$ud_root/projects"/*/memory; do
-          [ -d "$ud_memory" ] && [ ! -L "${ud_memory%/memory}" ] && set -- "$@" "$ud_memory"
+          [ -d "$ud_memory" ] && [ ! -L "${ud_memory%/memory}" ] || continue
+          unmanaged_folder "Claude Code's memory" "$ud_memory" 3
         done
       fi
-      [ $# -gt 0 ] && unmanaged_folder "Claude Code's memory" "$ud_root/projects" 3 "$@"
       ;;
     codex)
       ud_root=$(root_dir codex)
       unmanaged_file "$ud_root/AGENTS.md"
       unmanaged_file "$ud_root/AGENTS.override.md"
-      unmanaged_folder "Codex's memories" "$ud_root/memories" 3 "$ud_root/memories"
+      unmanaged_folder "Codex's memories" "$ud_root/memories" 3
       ;;
     hermes)
       ud_root=$(root_dir hermes)
       for ud_name in SOUL.md USER.md MEMORY.md; do unmanaged_file "$ud_root/$ud_name"; done
-      unmanaged_folder "Hermes's memories" "$ud_root/memories" 1 "$ud_root/memories"
+      unmanaged_folder "Hermes's memories" "$ud_root/memories" 1
       ;;
     openclaw)
       ud_root=$(root_dir openclaw)
       for ud_name in AGENTS.md SOUL.md IDENTITY.md USER.md MEMORY.md; do unmanaged_file "$ud_root/$ud_name"; done
-      unmanaged_folder "OpenClaw's daily memory logs" "$ud_root/memory" 2 "$ud_root/memory"
+      unmanaged_folder "OpenClaw's daily memory logs" "$ud_root/memory" 2
       ;;
   esac
   # The project's top folder: the project this folder is in, or the top of
@@ -3239,9 +3436,87 @@ unmanaged_doctor() {
   ud_project=$PROJECT_ROOT
   [ -n "$ud_project" ] || ud_project=$(git_top "$START") || ud_project=$START
   case $ud_project in '' | / | "$HOME") return 0 ;; esac
+  linked_files
   for ud_name in AGENTS.md AGENTS.override.md CLAUDE.md CLAUDE.local.md .claude/CLAUDE.md; do
-    unmanaged_file "$ud_project/$ud_name"
+    project_file "$ud_project/$ud_name"
   done
+}
+
+# Keeps a file, or a folder's files, in the app only, as the person chose:
+# the doctor asks about them again only once they're new or changed
+keep_mode() {
+  case $KEEP_PATH in
+    '~') km_path=$HOME ;;
+    '~/'*) km_path=$HOME/${KEEP_PATH#\~/} ;;
+    /*) km_path=$KEEP_PATH ;;
+    *) km_path=$PWD/$KEEP_PATH ;;
+  esac
+  case $km_path in ?*/) km_path=${km_path%/} ;; esac
+  km_shown=$(home_path "$km_path" | clean)
+  if [ -L "$km_path" ]; then
+    printf "Context Locker: %s is a link, and Context Locker doesn't follow links, so nothing was kept.\n" "$km_shown" >&2
+    return 1
+  elif [ -f "$km_path" ]; then
+    printf '%s\n' "$km_path" >"$TMP/folder-files"
+  elif [ -d "$km_path" ]; then
+    folder_files "$km_path" 4
+  else
+    printf "Context Locker: there's no file or folder at %s, so nothing was kept.\n" "$km_shown" >&2
+    return 1
+  fi
+  : >"$TMP/keep-files"
+  while IFS= read -r km_file; do
+    case $km_file in *"$TAB"*) continue ;; esac
+    outside_of "$km_file"
+    case $OF_LINES in '' | 0 | *[!0-9]*) continue ;; esac
+    printf '%s\t%s\n' "$OF_SHA" "$km_file" >>"$TMP/keep-files"
+  done <"$TMP/folder-files"
+  km_count=$(wc -l <"$TMP/keep-files" | tr -d ' ')
+  if [ "$km_count" = 0 ]; then
+    printf "%s holds nothing outside Context Locker's blocks, so there's nothing to keep.\n" "$km_shown"
+    return 0
+  fi
+  if ! answer_sources keep <"$TMP/keep-files"; then
+    printf "Context Locker: couldn't write %s, so nothing was kept.\n" "$(home_path "$SOURCES")" >&2
+    return 1
+  fi
+  if [ -d "$km_path" ]; then
+    printf 'Kept in %s only: %s in %s. The doctor asks about them again only once one is new or changes. To bring them into your playbook later, run Import: %s gather %s\n' \
+      "$APP_NAME" "$(plural "$km_count" file files)" "$km_shown" "$RUN" "$HARNESS"
+  else
+    printf 'Kept in %s only: %s. The doctor asks about it again only once it changes. To bring it into your playbook later, run Import: %s gather %s\n' \
+      "$APP_NAME" "$km_shown" "$RUN" "$HARNESS"
+  fi
+}
+
+# Once a plan is in, what its Import copied counts as read, so the doctor
+# asks about those files again only once they're new or changed. The working
+# set is the one whose plan has the same id.
+sources_read() {
+  sr_id=$(sed -n 's/.*"plan_id"[[:space:]]*:[[:space:]]*"\([0-9a-f-]*\)".*/\1/p' "$PLAN_FILE" 2>/dev/null | head -n 1)
+  [ -n "$sr_id" ] || return 0
+  G_ROOT=$CL_HOME/gather
+  [ -d "$G_ROOT" ] && [ ! -L "$G_ROOT" ] || return 0
+  g_sets
+  sr_ws=
+  while IFS= read -r sr_name; do
+    if [ "$(sed -n 's/.*"plan_id"[[:space:]]*:[[:space:]]*"\([0-9a-f-]*\)".*/\1/p' "$G_ROOT/$sr_name/plan.json" 2>/dev/null | head -n 1)" = "$sr_id" ]; then
+      sr_ws=$G_ROOT/$sr_name
+      break
+    fi
+  done <"$TMP/g-sets"
+  [ -n "$sr_ws" ] && [ -f "$sr_ws/sources.tsv" ] || return 0
+  # Each copied file, by its path and its copy here, but not a skill's
+  awk -F '\t' -v OFS='\t' 'NR > 1 && NF >= 8 && $2 != "skill" { print $3, $7 }' "$sr_ws/sources.tsv" >"$TMP/read-sources"
+  : >"$TMP/read-files"
+  while IFS="$TAB" read -r sr_path sr_copy; do
+    case $sr_path in '~/'*) sr_path=$HOME/${sr_path#\~/} ;; /*) ;; *) continue ;; esac
+    case /$sr_copy/ in */../*) continue ;; esac
+    [ -f "$sr_ws/$sr_copy" ] && [ ! -L "$sr_ws/$sr_copy" ] || continue
+    outside_of "$sr_ws/$sr_copy"
+    printf '%s\t%s\n' "$OF_SHA" "$sr_path" >>"$TMP/read-files"
+  done <"$TMP/read-sources"
+  answer_sources import <"$TMP/read-files" || true
 }
 
 doctor() {
@@ -4489,6 +4764,7 @@ gather_submit() {
   case $gs_code in
     200)
       tr -d '\000-\010\013-\037\177' <"$TMP/gather-reply"
+      sources_read
       g_clear
       return 0
       ;;
@@ -5067,6 +5343,7 @@ if [ "$MODE" != sync ]; then
     map) map ;;
     gather) gather ;;
     gather-submit) gather_submit ;;
+    keep) keep_mode ;;
     export) export_mode ;;
     notes-move-out) notes_move_out ;;
     fix) fix_mode ;;
