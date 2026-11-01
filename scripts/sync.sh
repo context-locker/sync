@@ -127,7 +127,9 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=22
+SCRIPT_VERSION=23
+FIX_OFFSET=0
+FIX_OFFSET_SET=0
 MODE=sync
 case ${1:-} in
   signin | plan | doctor | readback | map | gather | gather-submit | keep | export | notes-move-out | fix | daily-job | update)
@@ -194,6 +196,21 @@ while [ $# -gt 0 ]; do
       FIX_MARKS=$((FIX_MARKS + 1))
       [ $# -gt 1 ] && shift
       ;;
+    --waiting | --allow-auto-approve | --request)
+      case $1 in
+        --waiting) FIX_AS=waiting ;;
+        --allow-auto-approve) FIX_AS=auto_approve_allowed ;;
+        --request) FIX_AS=read ;;
+      esac
+      FIX_ID=${2:-}
+      FIX_MARKS=$((FIX_MARKS + 1))
+      [ $# -gt 1 ] && shift
+      ;;
+    --offset)
+      FIX_OFFSET=${2:-}
+      FIX_OFFSET_SET=1
+      [ $# -gt 1 ] && shift
+      ;;
     --reason)
       REASON=${2:-}
       REASON_SET=1
@@ -220,6 +237,8 @@ usage() {
   printf 'Usage: sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh gather <app> [--apps <names>]\n       sh sync.sh gather-submit <app> <plan.json>\n       sh sync.sh keep <app> <file or folder>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder>\n       sh sync.sh fix <app> [--all]\n       sh sync.sh fix <app> --done <id> | --skip <id> --reason <text>\n       sh sync.sh signin <app> [--code <code>]\n       sh sync.sh plan|doctor|readback|daily-job <app>\n       sh sync.sh update <app>\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
   exit 2
 }
+case $FIX_OFFSET in '' | *[!0-9]*) usage ;; esac
+if [ "$FIX_OFFSET_SET" = 1 ] && [ "$FIX_AS" != read ]; then usage; fi
 case $HARNESS in
   claude-code | codex | hermes | openclaw) ;;
   *) usage ;;
@@ -271,7 +290,7 @@ if [ "$MODE" = fix ]; then
         [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
         *) usage ;;
       esac
-      if [ "$FIX_AS" = skipped ]; then
+      if [ "$FIX_AS" = skipped ] || [ "$FIX_AS" = waiting ] || [ "$FIX_AS" = auto_approve_allowed ]; then
         [ -n "$(printf '%s' "$REASON" | tr -d '[:space:]')" ] || usage
       else
         [ "$REASON_SET" = 1 ] && usage
@@ -3950,11 +3969,13 @@ G_LINK="it's a link, and Import doesn't follow links"
 # or outside a project. --done and --skip mark one item, and print what
 # Context Locker said.
 fix_mode() {
-  if [ -n "$FIX_AS" ]; then
+  if [ "$FIX_AS" = read ]; then
+    code=$(status_of "$(http GET "/v1/sync/fixes?request=$FIX_ID&offset=$FIX_OFFSET" "$TMP/fix" '' '' '' '' '')")
+  elif [ -n "$FIX_AS" ]; then
     if [ "$FIX_AS" = done ]; then
       printf 'done\n' >"$TMP/fix-body"
     else
-      printf 'skipped\n%s\n' "$REASON" >"$TMP/fix-body"
+      printf '%s\n%s\n' "$FIX_AS" "$REASON" >"$TMP/fix-body"
     fi
     code=$(status_of "$(http POST "/v1/sync/fixes/$FIX_ID" "$TMP/fix" "$TMP/fix-body" 'text/plain; charset=utf-8' '' '' '')")
   else

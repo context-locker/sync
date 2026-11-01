@@ -8,9 +8,9 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v27`](setup/v27), using `context-locker@0.1.11`.
+Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v28`](setup/v28), using `context-locker@0.1.12`.
 
-Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.11 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
+Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.12 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
 
 The browser approval names that app, lets you name the connection, and asks whether it runs on a Computer or in the Cloud. A supported cloud runtime can suggest the location, or pass `--environment computer` or `--environment cloud`. Unknown environments need a human choice. The command writes the selected app's files, adds its sync hook and runs the doctor. Gather is a separate import with an agreed scope and approval; reading another app's information does not connect or configure it. When you tick Bring in as you approve the connection, or as you make its one-time code, setup's last line tells the app to import now, and a Claude Code or Codex session start says so once. The import waits in your inbox, where you pick what comes in. Existing connections and hooks are never removed automatically.
 
@@ -81,11 +81,14 @@ Tidy-up lists what in your playbook may need a look, such as a preference nobody
 ```sh
 sh ~/.contextlocker/sync.sh fix codex                                # the project's items and the ones everywhere
 sh ~/.contextlocker/sync.sh fix codex --all                          # every item
+sh ~/.contextlocker/sync.sh fix codex --request <id> --offset 0      # read the original proposal
+sh ~/.contextlocker/sync.sh fix codex --waiting <id> --reason "<question or blocker>"
+sh ~/.contextlocker/sync.sh fix codex --allow-auto-approve <id> --reason "<explicit human instruction>"
 sh ~/.contextlocker/sync.sh fix codex --done <id>                    # once it's fixed
 sh ~/.contextlocker/sync.sh fix codex --skip <id> --reason "<why>"   # left for you to decide
 ```
 
-`fix` prints the list as Context Locker words it, each item with its id, the evidence, a fix and its risk, and how the app makes a change: in the files the sync writes, which the next sync sends back. The app works through it with you. `--done` checks the item again at once, and `--skip` leaves it in Tidy-up with the app's reason.
+`fix` prints the list as Context Locker words it, each item with its id, the evidence, a fix and its risk, and how the app makes a change: in the files the sync writes, which the next sync sends back. The app reads requests immediately and resolves authorised work or proposes the concrete next step. Questions and temporary failures stay open. A revision responding to feedback waits for review by default, even with Auto-approve on. Only an explicit human instruction recorded for that response permits the normal approval checks; it never bypasses risk checks. Repeated submissions return the same linked revision. A configured scheduled agent follows the same workflow at its existing cadence and stays quiet when nothing needs attention. A plain file-sync job is not an agent. `--done` checks the item again at once, and `--skip` leaves it in Tidy-up with the app's reason.
 
 When changes wait for your approval, the script says so once at the start of a Claude Code or Codex session, with a link to your inbox, and again only when a newer one comes in. `map` and `fix` end with a line when the playbook changed since the app last synced, once for each change. When you ask the app to work through Tidy-up, the session start says so, with the `fix` command, for up to 24 hours. When a newer script is out, the session start and the doctor say so, and nothing changes on its own. From script 20, when only the script changed, they name one command, which the app runs once you say yes:
 
@@ -138,7 +141,7 @@ For the other modes:
 
 - `GET /v1/sync/caps` answers a `PASS`, `WARN` or `FAIL` line for each of the playbook's limits, which the doctor prints as they are.
 - `GET /v1/sync/script` answers the global manifest's lines about the newest script, for `update`, without a sync.
-- `GET /v1/sync/fixes[?project=<id>]` answers Tidy-up as text: the project's items and the ones that apply everywhere, or with no project every item. `POST /v1/sync/fixes/<id>` with `done`, or `skipped` and the reason on the next line, marks one.
+- `GET /v1/sync/fixes[?project=<id>]` answers assigned requests and Tidy-up as text: the project's items and the ones that apply everywhere, or with no project every item. `?request=<id>&offset=0` reads a bounded page of one original proposal. `POST /v1/sync/fixes/<id>` with `done`, or `skipped` and the reason on the next line, marks one. `waiting` keeps it open with a question or temporary blocker; `auto_approve_allowed` records the person's explicit words for that feedback response only.
 - `POST /v1/gather` takes the plan `gather-submit` sends, checks it whole, and stages it in the inbox for the person to pick from.
 - `POST /v1/sync/schedule` records the app's reported hooks and daily job separately from the result of a scheduled run. A completed daily run reports `ran`; a failed run reports why when Context Locker can next be reached.
 - One request to Context Locker holds at most 4.5 MB, so a body over 4 MB, a skill's bundle or a Gather plan, goes up in parts. `POST /v1/uploads` with its purpose (`sync-edit` or `gather`), size, SHA-256 and number of parts answers the upload's id, `PUT /v1/uploads/<id>/parts/<n>` sends each part of up to 4 MB, and the request that would have carried the body names the upload with `Context-Locker-Upload: <id>` instead. Context Locker checks the parts add up to the size and hash it was given, uses the upload once and deletes it. An upload runs out an hour after it starts.

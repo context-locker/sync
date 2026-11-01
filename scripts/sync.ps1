@@ -137,6 +137,10 @@ param(
   [string]$Done = '',
   [string]$Skip = '',
   [string]$Reason = '',
+  [string]$Waiting = '',
+  [string]$AllowAutoApprove = '',
+  [string]$Request = '',
+  [int]$Offset = 0,
   [string]$Code = '',
   [string]$Apps = '',
   [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest = @()
@@ -146,7 +150,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 22
+$ScriptVersion = 23
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -183,6 +187,10 @@ $ReasonSet = $PSBoundParameters.ContainsKey('Reason')
 $AppsSet = $PSBoundParameters.ContainsKey('Apps')
 if ($PSBoundParameters.ContainsKey('Done')) { $FixAs = 'done'; $FixId = $Done; $FixMarks++ }
 if ($PSBoundParameters.ContainsKey('Skip')) { $FixAs = 'skipped'; $FixId = $Skip; $FixMarks++ }
+$OffsetSet = $PSBoundParameters.ContainsKey('Offset')
+if ($PSBoundParameters.ContainsKey('Waiting')) { $FixAs = 'waiting'; $FixId = $Waiting; $FixMarks++ }
+if ($PSBoundParameters.ContainsKey('AllowAutoApprove')) { $FixAs = 'auto_approve_allowed'; $FixId = $AllowAutoApprove; $FixMarks++ }
+if ($PSBoundParameters.ContainsKey('Request')) { $FixAs = 'read'; $FixId = $Request; $FixMarks++ }
 for ($i = 0; $i -lt $extra.Count; $i++) {
   $option = $extra[$i]
   $value = if ($i + 1 -lt $extra.Count) { $extra[$i + 1] } else { '' }
@@ -195,6 +203,10 @@ for ($i = 0; $i -lt $extra.Count; $i++) {
   elseif ($option -eq '--to' -and $value) { $To = $value; $ToSet = $true; $i++ }
   elseif ($option -eq '--done' -and $value) { $FixAs = 'done'; $FixId = $value; $FixMarks++; $i++ }
   elseif ($option -eq '--skip' -and $value) { $FixAs = 'skipped'; $FixId = $value; $FixMarks++; $i++ }
+  elseif ($option -eq '--waiting' -and $value) { $FixAs = 'waiting'; $FixId = $value; $FixMarks++; $i++ }
+  elseif ($option -eq '--allow-auto-approve' -and $value) { $FixAs = 'auto_approve_allowed'; $FixId = $value; $FixMarks++; $i++ }
+  elseif ($option -eq '--request' -and $value) { $FixAs = 'read'; $FixId = $value; $FixMarks++; $i++ }
+  elseif ($option -eq '--offset' -and $value -match '^\d{1,9}$') { $Offset = [int]$value; $OffsetSet = $true; $i++ }
   elseif ($option -eq '--reason' -and $value) { $Reason = $value; $ReasonSet = $true; $i++ }
   elseif ($option -eq '--code' -and $value) { $Code = $value; $i++ }
   elseif ($option -eq '--apps' -and $value) { $Apps = $value; $AppsSet = $true; $i++ }
@@ -207,8 +219,9 @@ $badTo = if ($Mode -eq 'export') { $ToSet -and -not $To } elseif ($Mode -eq 'not
 $badFix = if ($Mode -ne 'fix') { ($FixMarks -gt 0) -or $ReasonSet }
 elseif ($FixMarks -eq 0) { $ReasonSet }
 elseif ($FixMarks -gt 1 -or $All -or $FixId -cnotmatch $Uuid) { $true }
-elseif ($FixAs -eq 'skipped') { -not $Reason.Trim() }
+elseif (@('skipped', 'waiting', 'auto_approve_allowed') -contains $FixAs) { -not $Reason.Trim() }
 else { $ReasonSet }
+if ($Offset -lt 0 -or ($OffsetSet -and $FixAs -ne 'read')) { $badFix = $true }
 # -Code is for signin, with a one-time code from Context Locker
 $badCode = $Code -and (($Mode -ne 'signin') -or ($Code -cnotmatch '^ctxl_ic_[A-Za-z0-9_-]{43}$'))
 # -Now and -Hook are for a sync
@@ -3971,8 +3984,10 @@ function Invoke-Map {
 # or outside a project. -Done and -Skip mark one item, and print what Context
 # Locker said.
 function Invoke-Fix {
-  if ($FixAs) {
-    $body = if ($FixAs -eq 'done') { "done`n" } else { "skipped`n$Reason`n" }
+  if ($FixAs -eq 'read') {
+    $reply = Invoke-Api 'GET' "/v1/sync/fixes?request=$FixId&offset=$Offset" $null '' @{}
+  } elseif ($FixAs) {
+    $body = if ($FixAs -eq 'done') { "done`n" } else { "$FixAs`n$Reason`n" }
     $reply = Invoke-Api 'POST' "/v1/sync/fixes/$FixId" ($Utf8.GetBytes($body)) 'text/plain; charset=utf-8' @{}
   } else {
     $query = ''
