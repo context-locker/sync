@@ -383,6 +383,10 @@ describe("the sync scripts' tools", () => {
               "--to": "-To",
               "--done": "-Done",
               "--skip": "-Skip",
+              "--waiting": "-Waiting",
+              "--allow-auto-approve": "-AllowAutoApprove",
+              "--request": "-Request",
+              "--offset": "-Offset",
               "--reason": "-Reason",
             } as Record<string, string>
           )[arg] ?? arg)
@@ -543,6 +547,31 @@ describe("the sync scripts' tools", () => {
           ],
         );
         assert.match(fake.marks[0]?.type ?? "", /^text\/plain/);
+
+        for (const [flag, outcome] of [
+          ["--waiting", "waiting"],
+          ["--allow-auto-approve", "auto_approve_allowed"],
+        ]) {
+          const result = await run(shell, machine, {
+            mode: "fix",
+            args: [flag!, id, "--reason", "The user's exact words."],
+          });
+          assert.equal(result.status, 0, result.stderr);
+          assert.equal(
+            fake.marks.at(-1)?.body,
+            `${outcome}\nThe user's exact words.\n`,
+          );
+        }
+        const original = await run(shell, machine, {
+          mode: "fix",
+          args: ["--request", id, "--offset", "12000"],
+        });
+        assert.equal(original.status, 0, original.stderr);
+        assert.ok(
+          fake.requests.includes(
+            `GET /v1/sync/fixes?request=${id}&offset=12000`,
+          ),
+        );
 
         // What Context Locker says when it refuses, and when it can't be reached
         fake.marked = {
