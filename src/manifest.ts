@@ -27,8 +27,14 @@
 // Scripts skip lines they don't know, so later versions can add kinds: a
 // script from before notes leaves the notes folder alone, and one from before
 // link lines doesn't check pointers' paths.
-import { blockHash, sha256, treeHash } from "./hash.js";
-import type { ItemRef, Output, SkillFile } from "./types.js";
+import {
+  blockHash,
+  sha256,
+  treeHash,
+  indexedTreeHash,
+  fileBytes,
+} from "./hash.js";
+import type { ItemRef, Output, SkillFile, SkillFileDigest } from "./types.js";
 
 export const MANIFEST_HEADER = "context-locker-sync 1";
 
@@ -36,7 +42,7 @@ export const MANIFEST_HEADER = "context-locker-sync 1";
  * The newest version of the sync scripts, as their SCRIPT_VERSION says. The
  * global manifest names it, so an older script can say a newer one is out.
  */
-export const SYNC_SCRIPT_VERSION = 24;
+export const SYNC_SCRIPT_VERSION = 27;
 
 /** The shell a sync script runs in: sh on macOS and Linux, PowerShell on Windows */
 export type ScriptShell = "sh" | "powershell";
@@ -58,11 +64,11 @@ export interface ScriptRelease {
 
 export const SYNC_SCRIPT_RELEASE: ScriptRelease = Object.freeze({
   version: SYNC_SCRIPT_VERSION,
-  setup: 29,
+  setup: 32,
   sha256: Object.freeze({
-    sh: "e4bff5b75ad078ba9d5517dc97ea63ba5ac9ca01ecadcceee716353119aafa2e",
+    sh: "d93cf597729b59d32249934612854f82962a3cf81b46b75c20e2d2a7559df594",
     powershell:
-      "9c9aa11332e3f480d9960e83e2640b311d281a161689efd001e53946c389947c",
+      "4f104e9a0d8a8ec52da9561ecd542171c925580fbadf09b2df2f6664574ac1aa",
   }),
   updatesFrom: 20,
 });
@@ -86,7 +92,10 @@ export interface RepoLink {
 
 /** What a hash in the manifest stands for: a file's bytes, or a skill folder. */
 export type Blob =
-  { kind: "file"; bytes: Buffer } | { kind: "tree"; files: SkillFile[] };
+  | { kind: "file"; bytes: Buffer; mode?: number }
+  | { kind: "tree"; files: SkillFile[] }
+  | { kind: "stored-skill"; item: ItemRef; files: SkillFileDigest[] }
+  | { kind: "stored-file"; item: ItemRef; file: SkillFileDigest };
 
 export interface Hold {
   target: string;
@@ -198,8 +207,33 @@ export function buildManifest(input: {
       });
       blocks.push({ kind: "block", hash, target: checkTarget(output.target) });
     } else if (output.kind === "skill") {
-      const hash = treeHash(output.files);
-      blobs.set(hash, { kind: "tree", files: output.files });
+      const hash = output.fileIndex
+        ? indexedTreeHash(output.fileIndex)
+        : treeHash(output.files);
+      if (output.fileIndex) {
+        blobs.set(hash, {
+          kind: "stored-skill",
+          item: output.item,
+          files: output.fileIndex,
+        });
+        for (const file of output.fileIndex)
+          blobs.set(file.sha256, {
+            kind: "stored-file",
+            item: output.item,
+            file,
+          });
+      } else {
+        blobs.set(hash, { kind: "tree", files: output.files });
+        for (const file of output.files) {
+          const bytes = fileBytes(file);
+          blobs.set(sha256(bytes), {
+            kind: "file",
+            bytes,
+            mode:
+              bytes.subarray(0, 2).toString("latin1") === "#!" ? 0o755 : 0o644,
+          });
+        }
+      }
       skills.push({
         kind: "skill",
         hash,

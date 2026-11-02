@@ -10,6 +10,7 @@ export {
 export type { BlockPosition } from "./blocks.js";
 export {
   BUNDLE_HEADER,
+  DELTA_BUNDLE_HEADER,
   BundleError,
   parseBundle,
   writeBundle,
@@ -86,6 +87,7 @@ export {
   TEXT,
   docsHomeRule,
   docsLocationsRule,
+  oneAppOnly,
   workPlacesRule,
   linkDestination,
   plainMarkdown,
@@ -103,6 +105,7 @@ export {
   TAR_END,
   blobArchive,
   blobArchiveParts,
+  resolvedBlobArchiveParts,
   tarHeader,
   tarPadding,
   writeTar,
@@ -146,3 +149,6 @@ export type {
 } from "./types.js";
 
 export type { DocsLocation, WorkPlace } from "./types.js";
+export { oneAppPlace, type OneAppPlace } from "./one-app-places.js";
+
+export { indexedTreeHash } from "./hash.js";

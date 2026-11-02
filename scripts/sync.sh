@@ -128,7 +128,7 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=24
+SCRIPT_VERSION=27
 FIX_OFFSET=0
 FIX_OFFSET_SET=0
 MODE=sync
@@ -676,6 +676,22 @@ tree_hash() {
   done | sha_stdin
 }
 
+# Reuse only a regular file below this skill root, with the requested bytes.
+copy_cached_skill_file() (
+  sf_root=$1 sf_rel=$2 sf_hash=$3 sf_dest=$4
+  sf_cur=$sf_root sf_rest=$sf_rel
+  [ ! -L "$sf_cur" ] || exit 1
+  while :; do
+    sf_part=${sf_rest%%/*}
+    sf_cur=$sf_cur/$sf_part
+    [ ! -L "$sf_cur" ] || exit 1
+    [ "$sf_rest" != "$sf_part" ] || break
+    sf_rest=${sf_rest#*/}
+  done
+  [ -f "$sf_cur" ] && [ "$(sha_file "$sf_cur")" = "$sf_hash" ] || exit 1
+  mkdir -p "$(dirname "$sf_dest")" && cp "$sf_cur" "$sf_dest"
+)
+
 install_skill() {
   src=$1 dest=$2 item=$3 version=$4 hash=$5
   parent=$(dirname "$dest") name=$(basename "$dest")
@@ -698,11 +714,26 @@ install_skill() {
   SKILLS_CHANGED=1
 }
 
+valid_skill_index() {
+  [ "$(wc -c <"$1" | tr -d ' ')" -le 300000 ] && awk '
+    { if (NF != 2 || $1 !~ /^[0-9a-f]+$/ || length($1) != 64 ||
+          $2 !~ /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/ || length($2) > 200 ||
+          $2 ~ /(^|\/)\.\.?($|\/)/ || split($2, p, "/") > 8 || seen[$2]++) bad=1 }
+    END { exit (bad || NR < 1 || NR > 1000) }' "$1"
+}
+
 make_bundle() {
   {
-    printf 'context-locker-bundle 1\n'
+    if [ -n "${3:-}" ]; then printf 'context-locker-bundle 2\n'; else printf 'context-locker-bundle 1\n'; fi
     skill_files "$1" |
       while IFS= read -r f; do
+        if [ -n "${3:-}" ]; then
+          bf_hash=$(sha_file "$1/$f")
+          if grep -Fqx "$bf_hash $f" "$3"; then
+            printf 'keep %s %s\n' "$bf_hash" "$f"
+            continue
+          fi
+        fi
         printf 'file %s %s\n' "$(wc -c <"$1/$f" | tr -d ' ')" "$f"
         cat "$1/$f"
         printf '\n'
@@ -1163,7 +1194,13 @@ send_edit() {
     block_lines "$file" "${pos% *}" "${pos#* }" >"$TMP/edit"
     type=text/plain
   else
-    make_bundle "$file" "$TMP/edit"
+    edit_index=
+    if [ -n "$recorded" ]; then
+      edit_code=$(status_of "$(http GET "/v1/sync/skills/$recorded$query" "$TMP/edit-index")")
+      if [ "$edit_code" = 200 ] && valid_skill_index "$TMP/edit-index"; then edit_index=$TMP/edit-index; fi
+    fi
+    # An older API or a changed base still takes the complete, bounded package.
+    make_bundle "$file" "$TMP/edit" "$edit_index"
     type=application/octet-stream
   fi
   # A skill too big for one request goes up in parts first. When Context
@@ -1878,11 +1915,40 @@ sync_scope() {
     printf 'context %s - %s - - 0\n' "$context_hash" "$context_hash" >>"$TMP/actions"
   fi
 
-  # Fetch everything that needs writing, 500 at a time, as one answer holds
-  # at most 1,000
-  awk '$1 == "write" || $1 == "context" { print $4 }' "$TMP/actions" | sort -u >"$TMP/want"
+  # A skill's index lets unchanged files stay local. Only changed bytes go
+  # over the network; the whole staged folder is verified before installation.
+  awk '($1 == "write" && $3 != "skill") || $1 == "context" { print $4 }' "$TMP/actions" >"$TMP/want"
   rm -rf "$TMP/blobs" "$TMP"/want.*
   mkdir "$TMP/blobs"
+  : >"$TMP/skill-fetch"
+  while read -r action t kind hash item ver keep expect <&4; do
+    [ "$action $kind" = 'write skill' ] || continue
+    path=$(resolve "$t") || continue
+    code=$(status_of "$(http GET "/v1/sync/skills/$hash$query" "$TMP/skill-index")")
+    if [ "$code" = 404 ]; then
+      # Older API deployment: the existing whole-skill protocol still works.
+      printf '%s\n' "$hash" >>"$TMP/want"
+      continue
+    fi
+    if [ "$code" != 200 ] || ! valid_skill_index "$TMP/skill-index"; then
+      warn "couldn't read the skill's file list, so $HARNESS keeps the files it has. The next sync tries again."
+      FAILED=1
+      return 1
+    fi
+    mkdir -p "$TMP/blobs/$hash"
+    while read -r sf_hash sf_path <&5; do
+      sf_dest=$TMP/blobs/$hash/$sf_path
+      if [ -f "$sf_dest" ] && [ "$(sha_file "$sf_dest")" = "$sf_hash" ]; then continue; fi
+      if ! copy_cached_skill_file "$path" "$sf_path" "$sf_hash" "$sf_dest"; then
+        printf '%s\n' "$sf_hash" >>"$TMP/want"
+        printf '%s %s %s\n' "$hash" "$sf_hash" "$sf_path" >>"$TMP/skill-fetch"
+      fi
+    done 5<"$TMP/skill-index"
+  done 4<"$TMP/actions"
+  LC_ALL=C sort -u "$TMP/want" >"$TMP/want-sorted"
+  mv "$TMP/want-sorted" "$TMP/want"
+
+  # Fetch requested files, 500 at a time, as one answer holds at most 1,000.
   if [ -s "$TMP/want" ]; then
     awk -v dir="$TMP" '{ file = dir "/want." int((NR - 1) / 500); if (file != last && last != "") close(last); last = file; print > file }' "$TMP/want"
     for chunk in "$TMP"/want.*; do
@@ -1896,6 +1962,16 @@ sync_scope() {
       fi
     done
   fi
+
+  while read -r sf_tree sf_hash sf_path <&4; do
+    sf_src=$TMP/blobs/$sf_hash sf_dest=$TMP/blobs/$sf_tree/$sf_path
+    if [ ! -f "$sf_src" ] || [ -L "$sf_src" ] || [ "$(sha_file "$sf_src")" != "$sf_hash" ] ||
+      ! mkdir -p "$(dirname "$sf_dest")" || ! cp "$sf_src" "$sf_dest"; then
+      warn "a skill file didn't arrive intact, so $HARNESS keeps the files it has. The next sync tries again."
+      FAILED=1
+      return 1
+    fi
+  done 4<"$TMP/skill-fetch"
 
   while read -r action t kind hash item ver keep expect <&3; do
     case $action in
@@ -4138,11 +4214,13 @@ EOF
 # it checks starts with a line break, so a name counts at the start of a
 # line too, without the ^ that macOS's awk can't match inside a group. And
 # match() is given a variable, as macOS's awk places a match in what a
-# function returned at -1. As the API does, it takes a value that says
-# outright it's a placeholder, such as your-api-key-here or ********, for
-# none, and copies one cut short or masked, such as sk-live-abc..., with too
-# little of it left to work: Context Locker checks that when the plan comes
-# in, with the value hidden.
+# function returned at -1. No pattern counts with braces, such as {1,15}:
+# mawk, the awk on Debian and Ubuntu, reads them as text in 1.3.4-20200120,
+# and {6,} as exactly six in 20240123 (G1-147). As the API does, it takes a
+# value that says outright it's a placeholder, such as your-api-key-here or
+# ********, for none, and copies one cut short or masked, such as
+# sk-live-abc..., with too little of it left to work: Context Locker checks
+# that when the plan comes in, with the value hidden.
 g_assignment_secret() {
   LC_ALL=C awk -v bullet="$(printf '\342\200\242')" -v ellipsis="$(printf '\342\200\246')" '
     function reference(v,   tail) {
@@ -4265,7 +4343,8 @@ g_assignment_secret() {
               (tail == "" || tail ~ /^\r?\n/ || substr(tail, 1, 2) == "//" || index(",;)}]", substr(tail, 1, 1)))) continue
         }
         if (value == "1x0000000000000000000000000000000AA" || value == "2x0000000000000000000000000000000AA" || value == "3x0000000000000000000000000000000AA") continue
-        if (tolower(assignment) ~ /api[_-]?key/ && value ~ /^(sk|rk)_(live|test)_[A-Za-z0-9]{1,15}$/) continue
+        # A provider key too short to work: 1 to 15 after sk_live_ or the like
+        if (tolower(assignment) ~ /api[_-]?key/ && value ~ /^(sk|rk)_(live|test)_[A-Za-z0-9]+$/ && length(value) <= 23) continue
         if (placeholder(value) || cut_or_masked(value)) continue
         found = 1
         exit
@@ -4284,9 +4363,13 @@ g_assignment_secret() {
 # against the original file independently.
 g_address_secret() {
   LC_ALL=C awk '
+    BEGIN {
+      # A password of six or more, spelt out for mawk, as above (G1-147)
+      c = "[^[:space:]@/]"
+      pattern = "[A-Za-z][A-Za-z0-9+.-]+://[^[:space:]:@/]+:" c c c c c c "+@"
+    }
     {
       text = $0
-      pattern = "[A-Za-z][A-Za-z0-9+.-]+://[^[:space:]:@/]+:[^[:space:]@/]{6,}@"
       while (match(text, pattern)) {
         value = substr(text, RSTART, RLENGTH)
         text = substr(text, RSTART + RLENGTH)

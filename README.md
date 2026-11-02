@@ -8,7 +8,7 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v29`](setup/v29), using `context-locker@0.1.13`.
+Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v32`](setup/v32), using `context-locker@0.1.13`.
 
 Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.13 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
 
@@ -31,6 +31,26 @@ sh ~/.contextlocker/sync.sh tickets codex write change.json --json
 ```
 
 `read.json` can hold `{"playbook":"Context Locker","ticket":"G1-151"}`. Only the person's explicit instruction permits `user_confirmed: true` to make a ticket ready. The credential controls access and the actor recorded in Activity. Ticket commands never run during a hook or daily file sync, and never queue or retry a mutation automatically. If a connection drops after sending a write, read the ticket before retrying. PowerShell uses the same arguments with `sync.ps1`; `-Json` also selects structured output.
+
+## Skill file transfers
+
+Script 27 in setup 32 transfers only changed skill files. It reads an
+authenticated index from `GET /v1/sync/skills/:hash`, checks the hashes of local
+files before reusing them, downloads changed bytes and verifies the complete
+staged tree before installing it. Deleted paths stay out of that tree. An older
+API's 404 falls back to the complete-tree protocol; a failed check preserves the
+installed copy.
+
+Edits use bundle version 2 where the base index is available: `keep hash path`
+retains an unchanged file from that authorised base, and `file bytes path`
+carries changed bytes. Omitted paths are removed. The server still checks the
+whole reconstructed skill, its limits, approval rules and concurrent changes.
+
+Existing scripts from version 20 can update in place after the person agrees.
+CLI 0.1.13 remains supported; the newest setup steps run the script update after
+setup. No new hooks or schedules are added. Free allows 100 MB of current active
+skills and Pro 1 GB, counted from original file sizes, excluding older versions
+and encoding, compression and encryption overhead.
 
 ## The scripts
 

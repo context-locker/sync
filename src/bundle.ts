@@ -6,8 +6,10 @@
 //   file <bytes> <path>
 //   <the file's bytes>
 import type { SkillFile } from "./types.js";
+import { fileBytes, sha256 } from "./hash.js";
 
 export const BUNDLE_HEADER = "context-locker-bundle 1";
+export const DELTA_BUNDLE_HEADER = "context-locker-bundle 2";
 
 export class BundleError extends Error {
   constructor(message: string) {
@@ -43,20 +45,31 @@ function asSkillFile(path: string, bytes: Buffer): SkillFile {
 export function parseBundle(
   data: Buffer,
   limits: { files: number; bytes: number },
+  base?: readonly SkillFile[],
 ): SkillFile[] {
   let { line, next } = readLine(data, 0);
-  if (line !== BUNDLE_HEADER) {
+  const delta = line === DELTA_BUNDLE_HEADER;
+  if (line !== BUNDLE_HEADER && !(delta && base)) {
     throw new BundleError("That isn't a Context Locker skill bundle.");
   }
+  const previous = new Map(base?.map((file) => [file.path, file]));
 
   const files: SkillFile[] = [];
   let total = 0;
   while (next < data.length) {
     ({ line, next } = readLine(data, next));
     const match = FILE_LINE.exec(line);
-    if (!match) throw new BundleError("The skill bundle is malformed.");
-    const size = Number(match[1]);
-    const path = match[2] as string;
+    const keep = delta ? /^keep ([0-9a-f]{64}) (.+)$/.exec(line) : null;
+    if (!match && !keep)
+      throw new BundleError("The skill bundle is malformed.");
+    const path = (match ?? keep)![2] as string;
+    const saved = keep ? previous.get(path) : undefined;
+    if (keep && (!saved || sha256(fileBytes(saved)) !== keep[1])) {
+      throw new BundleError(
+        "The skill bundle refers to a file outside its base version.",
+      );
+    }
+    const size = saved ? fileBytes(saved).length : Number(match![1]);
     total += size;
     if (files.length >= limits.files) {
       throw new BundleError(
@@ -69,6 +82,10 @@ export function parseBundle(
           ? `${Math.floor(limits.bytes / (1024 * 1024))} MB`
           : `${Math.floor(limits.bytes / 1024)} KB`;
       throw new BundleError(`A skill can hold at most ${most}.`);
+    }
+    if (saved) {
+      files.push(saved);
+      continue;
     }
     if (next + size + 1 > data.length || data[next + size] !== NEWLINE) {
       throw new BundleError("The skill bundle is cut short or malformed.");

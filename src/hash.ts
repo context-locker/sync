@@ -42,11 +42,20 @@ export function fileBytes(file: SkillFile): Buffer {
  * the SHA-256 of those lines. The marker file and ignored files are left out.
  */
 export function treeHash(files: readonly SkillFile[]): string {
+  return indexedTreeHash(
+    files.map((file) => ({ path: file.path, sha256: sha256(fileBytes(file)) })),
+  );
+}
+
+/** The same tree hash from an authenticated file index. */
+export function indexedTreeHash(
+  files: readonly { path: string; sha256: string }[],
+): string {
   const lines = files
     .filter((file) => !isIgnoredFile(file.path))
     .map((file) => ({
       path: Buffer.from(file.path, "utf8"),
-      line: `${sha256(fileBytes(file))} ${file.path}\n`,
+      line: `${file.sha256} ${file.path}\n`,
     }))
     .sort((a, b) => Buffer.compare(a.path, b.path))
     .map((entry) => entry.line)

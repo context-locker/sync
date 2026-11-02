@@ -152,7 +152,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 24
+$ScriptVersion = 27
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -703,6 +703,22 @@ function Test-ChangedSince([string]$Dir) {
   return $false
 }
 
+# Reuse only a regular file below this skill root with the requested bytes.
+function Copy-CachedSkillFile([string]$Root, [string]$Relative, [string]$Hash, [string]$Dest) {
+  try {
+    $cur = $Root
+    if (Test-Link $cur) { return $false }
+    foreach ($part in $Relative.Split('/')) {
+      $cur = Join-Path $cur $part
+      if (Test-Link $cur) { return $false }
+    }
+    if (-not (Test-Path -LiteralPath $cur -PathType Leaf) -or (Get-Sha256File $cur) -ne $Hash) { return $false }
+    [void](New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Dest))
+    Copy-Item -LiteralPath $cur -Destination $Dest -Force
+    return $true
+  } catch { return $false }
+}
+
 function Install-Skill([string]$Source, [string]$Dest, [string]$Item, [string]$Version, [string]$TreeHash) {
   try {
     $parent = Split-Path -Parent $Dest
@@ -732,12 +748,36 @@ function Install-Skill([string]$Source, [string]$Dest, [string]$Item, [string]$V
   } catch { return $false }
 }
 
-function New-Bundle([string]$Dir) {
+function Read-SkillIndex([byte[]]$Body) {
+  if ($Body.Length -gt 300000) { return $null }
+  $rows = New-Object System.Collections.Generic.List[object]
+  $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+  foreach ($line in ($Utf8.GetString($Body).TrimEnd("`n").Split("`n"))) {
+    if ($line -cnotmatch '^([0-9a-f]{64}) ([A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*)$') { return $null }
+    $fileHash=$Matches[1]; $relative=$Matches[2]
+    if ($relative.Length -gt 200 -or $relative -match '(^|/)\.\.?($|/)' -or $relative.Split('/').Length -gt 8 -or -not $seen.Add($relative)) { return $null }
+    $rows.Add(@{ Hash=$fileHash; Path=$relative })
+    if ($rows.Count -gt 1000) { return $null }
+  }
+  if ($rows.Count -lt 1) { return $null }
+  return ,$rows
+}
+
+function New-Bundle([string]$Dir, $Index = $null) {
   $stream = New-Object System.IO.MemoryStream
   $write = { param([byte[]]$b) $stream.Write($b, 0, $b.Length) }
-  & $write ($Utf8.GetBytes("context-locker-bundle 1`n"))
+  $base = New-Object 'System.Collections.Generic.Dictionary[string,string]' ([StringComparer]::Ordinal)
+  if ($null -ne $Index) {
+    foreach ($row in $Index) { $base[$row.Path]=$row.Hash }
+    & $write ($Utf8.GetBytes("context-locker-bundle 2`n"))
+  } else { & $write ($Utf8.GetBytes("context-locker-bundle 1`n")) }
   foreach ($file in (Get-SkillFiles $Dir)) {
-    $bytes = [IO.File]::ReadAllBytes((Join-Path $Dir ($file -replace '/', [IO.Path]::DirectorySeparatorChar)))
+    $full = Join-Path $Dir ($file -replace '/', [IO.Path]::DirectorySeparatorChar)
+    if ($base.ContainsKey($file) -and (Get-Sha256File $full) -eq $base[$file]) {
+      & $write ($Utf8.GetBytes("keep $($base[$file]) $file`n"))
+      continue
+    }
+    $bytes = [IO.File]::ReadAllBytes($full)
     & $write ($Utf8.GetBytes("file $($bytes.Length) $file`n"))
     & $write $bytes
     & $write ([byte[]]@(10))
@@ -1202,7 +1242,12 @@ function Send-Edit([string]$Target, [string]$Kind, [string]$Path, [string]$Recor
     $body = $Utf8.GetBytes((Get-BlockText $lines (Get-BlockPosition $lines)))
     $type = 'text/plain'
   } else {
-    $body = New-Bundle $Path
+    $editIndex = $null
+    if ($Recorded -and $Recorded -ne '-') {
+      $indexReply = Invoke-Api 'GET' "/v1/sync/skills/$Recorded$Query" $null '' @{}
+      if ($indexReply.Status -eq 200) { $editIndex = Read-SkillIndex $indexReply.Body }
+    }
+    $body = New-Bundle $Path $editIndex
     $type = 'application/octet-stream'
   }
   $headers = @{ 'Context-Locker-Target' = $Target }
@@ -1930,11 +1975,38 @@ function Sync-Scope([string]$Query, [string]$State) {
     $actions.Add(@{ Action = 'context'; Target = ''; Kind = 'context'; Hash = $contextHash })
   }
 
-  # Fetch everything that needs writing, 500 at a time, as one answer holds
-  # at most 1,000
-  $want = @($actions | Where-Object { $_.Action -eq 'write' -or $_.Action -eq 'context' } | ForEach-Object { $_.Hash } | Sort-Object -Unique)
+  # Reuse unchanged skill files locally, then fetch only the missing bytes.
+  $wantList = New-Object System.Collections.Generic.List[string]
+  $skillFetch = New-Object System.Collections.Generic.List[object]
   $blobs = Join-Path $Tmp ('blobs.' + [Guid]::NewGuid().ToString('N').Substring(0, 6))
   [void](New-Item -ItemType Directory -Path $blobs)
+  foreach ($action in $actions) {
+    if ($action.Action -ne 'write' -and $action.Action -ne 'context') { continue }
+    if ($action.Kind -ne 'skill') { $wantList.Add($action.Hash); continue }
+    $path = Resolve-Target $action.Target
+    if (-not $path) { continue }
+    $reply = Invoke-Api 'GET' "/v1/sync/skills/$($action.Hash)$Query" $null '' @{}
+    if ($reply.Status -eq 404) { $wantList.Add($action.Hash); continue }
+    $fileRows = $null
+    if ($reply.Status -eq 200) { $fileRows = Read-SkillIndex $reply.Body }
+    if ($null -eq $fileRows) {
+      Warn "couldn't read the skill's file list, so $Harness keeps the files it has. The next sync tries again."
+      $Script:Failed=$true
+      return 1
+    }
+    $stage = Join-Path $blobs $action.Hash
+    [void](New-Item -ItemType Directory -Force -Path $stage)
+    foreach ($file in $fileRows) {
+      $dest=Join-Path $stage $file.Path
+      if ((Test-Path -LiteralPath $dest -PathType Leaf) -and (Get-Sha256File $dest) -eq $file.Hash) { continue }
+      if (-not (Copy-CachedSkillFile $path $file.Path $file.Hash $dest)) {
+        $wantList.Add($file.Hash)
+        $skillFetch.Add(@{ Hash=$file.Hash; Dest=$dest })
+      }
+    }
+  }
+  $want=@($wantList | Sort-Object -Unique)
+  # Fetch requested files, 500 at a time, as one answer holds at most 1,000.
   for ($at = 0; $at -lt $want.Length; $at += 500) {
     $chunk = @($want[$at..([Math]::Min($at + 499, $want.Length - 1))])
     $reply = Invoke-Api 'POST' "/v1/sync/blobs$Query" ($Utf8.GetBytes(($chunk -join "`n") + "`n")) 'text/plain' @{}
@@ -1959,6 +2031,19 @@ function Sync-Scope([string]$Query, [string]$State) {
       [void](Write-NotesList $notesWrote)
       return 1
     }
+  }
+
+  foreach ($file in $skillFetch) {
+    $source=Join-Path $blobs $file.Hash
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf) -or (Test-Link $source) -or (Get-Sha256File $source) -ne $file.Hash) {
+      Warn "a skill file didn't arrive intact, so $Harness keeps the files it has. The next sync tries again."
+      $Script:Failed=$true
+      return 1
+    }
+    try {
+      [void](New-Item -ItemType Directory -Force -Path (Split-Path -Parent $file.Dest))
+      Copy-Item -LiteralPath $source -Destination $file.Dest -Force
+    } catch { $Script:Failed=$true; return 1 }
   }
 
   foreach ($a in $actions) {
