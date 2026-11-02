@@ -35,6 +35,18 @@ It exits with 0 when everything's set up, 1 when something needs fixing, 2 when 
 
 Run setup again for the same app to check or repair its setup without duplicating hooks or connections. Setting up another app later reuses the shared sync script. Existing connections and hooks are never removed automatically.
 
+## Tickets after setup
+
+The bundled sync script also reads and changes tickets online, without an MCP connection:
+
+```sh
+sh ~/.contextlocker/sync.sh tickets codex list --project <playbook-id>
+sh ~/.contextlocker/sync.sh tickets codex read read.json
+sh ~/.contextlocker/sync.sh tickets codex write change.json --json
+```
+
+Use your selected app's name. PowerShell uses `sync.ps1` with the same arguments, and supports `-Json`. Request files are UTF-8 JSON with the same arguments as MCP `list_tickets`, `read_ticket`, `write_ticket` and `record_work_places` (the `places` command). For example, `read.json` can contain `{"playbook":"Website","ticket":"WEB-12"}`. List can omit its file in a linked project. Claims and ticket changes stay on the server; no local board is written. Agents take only tickets the person has readied, and a scheduled file sync never claims work.
+
 ## Without Node
 
 Setup works without Node too: your AI app follows the steps at [context.locker/setup](https://context.locker/setup) with the sync script alone.

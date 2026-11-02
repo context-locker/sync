@@ -10,6 +10,7 @@ import type {
   ItemRef,
   PreferenceInput,
   StartHereInput,
+  WorkPlace,
 } from "./types.js";
 
 export { plainMarkdown };
@@ -27,11 +28,11 @@ export const TEXT = {
   noPreferences: "No preferences saved yet.",
   /** Headings, used only when some preferences are in About */
   aboutUser: "### About the user",
-  aboutProject: "### About this project",
+  aboutProject: "### About this playbook",
   preferencesHeading: "### Preferences",
   projectTitle: (name: string) => `## Context Locker: ${name}`,
   projectIntro:
-    "Preferences for this project, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
+    "Preferences for this playbook, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
   personalIntro: (name: string) =>
     `Context Locker preferences for ${name}. Where one has the same name as a general preference, it replaces that one here. To change one, ask your user to edit it in Context Locker.`,
   endOfTask:
@@ -54,7 +55,7 @@ export const TEXT = {
    * the map is. An app that only reads its files may not have the tool
    */
   onboarding:
-    "Start each session with a three-line startup brief for the user: the project, the sources you'll use, and your first step. These come from the project's map in Context Locker. When the task needs more of it, call Context Locker's project_map tool if you have it.",
+    "Start each session with a three-line startup brief for the user: the playbook, the sources you'll use, and your first step. These come from the playbook's map in Context Locker. When the task needs more of it, call Context Locker's playbook_map tool if you have it.",
   /** After a note that has no file here, which an app with the tools can open */
   readNote: "Read it with read_note, if you have it.",
   startHereOverflow: (count: number) =>
@@ -72,10 +73,11 @@ export const TEXT = {
    */
   docsHomeHeading: "### Docs home",
   docsLocationsHeading: "### Documentation locations",
+  workPlacesHeading: "### Where work is tracked",
   docsHomePlace: (place: string) =>
-    `Keep lasting docs in ${place}, this project's docs home, and add a link for each new one with write_note, if you have it.`,
+    `Keep lasting docs in ${place}, this playbook's docs home, and add a link for each new one with write_note, if you have it.`,
   docsHomeNotes:
-    "Keep lasting docs in Context Locker Notes, this project's docs home.",
+    "Keep lasting docs in Context Locker Notes, this playbook's docs home.",
   /**
    * After docsHomeNotes in a project's files, where the sync mirrors its
    * notes: how an app that only reads its files saves a lasting doc
@@ -84,7 +86,7 @@ export const TEXT = {
     "Save each as a Markdown file in .context-locker/notes, with the front matter its README shows; the next sync saves it.",
   /** When the docs home's place has wording or an address some apps refuse */
   docsHomeLeftOut:
-    "Keep lasting docs in this project's docs home, and add a link for each new one with write_note, if you have it. The place is left out here because some AI apps refuse to load files with wording like it. It's in Context Locker.",
+    "Keep lasting docs in this playbook's docs home, and add a link for each new one with write_note, if you have it. The place is left out here because some AI apps refuse to load files with wording like it. It's in Context Locker.",
 } as const;
 
 const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/;
@@ -194,7 +196,38 @@ export function docsLocationsRule(
     );
   const full = [rule, ...lines].join("\n");
   if (Buffer.byteLength(full, "utf8") <= budget) return full;
-  return `${rule}\nThe documentation map is too long for this startup file. Read all locations through Context Locker's project_map or get_context, or ask the person to open playbook Settings, before choosing where to save.`;
+  return `${rule}\nThe documentation map is too long for this startup file. Read all locations through Context Locker's playbook_map or get_context, or ask the person to open playbook Settings, before choosing where to save.`;
+}
+
+/**
+ * Where a project's work is tracked, and the rule for choosing, as for docs:
+ * existing tickets stay where they are, new ones go to the place matching
+ * their purpose or the default, and a doubtful choice waits for the person
+ * (G1-151). A place whose line reads like wording aimed at apps waits for
+ * the person to check it in Context Locker instead.
+ */
+export function workPlacesRule(places: WorkPlace[], budget = 3000): string {
+  const rule =
+    "Keep existing tickets where they're tracked. For new work, use the place clearly matching its purpose, otherwise the default. If more than one fits, none fits and there's no default, or you can't reach the place, ask before choosing. Recording a place grants no access and copies nothing.";
+  const lines = places.map((place) => {
+    const where =
+      place.kind === "board"
+        ? "Context Locker's board"
+        : plainMarkdown(place.address ?? "");
+    const line = `- ${plainMarkdown(place.name)}${place.is_default ? " (default)" : ""}: ${where}${place.purpose ? `. For: ${plainMarkdown(place.purpose)}` : ""}`;
+    return injectionMatches(line).length
+      ? "- A place needs a human check in Context Locker before use."
+      : line;
+  });
+  const online =
+    "Read Context Locker's board online with list_tickets over MCP, or the sync script's tickets <app> list command. Change it through write_ticket or tickets <app> write <request.json>. Take only ready tickets, claim one before work, and never edit a board in synced files.";
+  const full = [
+    rule,
+    ...lines,
+    ...(places.some((place) => place.kind === "board") ? [online] : []),
+  ].join("\n");
+  if (Buffer.byteLength(full, "utf8") <= budget) return full;
+  return `${rule}\nThe list of places is too long for this startup file. Read it through Context Locker's list_tickets, or ask the person, before choosing where new work goes.`;
 }
 
 /** A project's Start here entries and docs home, to compile into its block. */
@@ -202,6 +235,8 @@ export interface MapPlan {
   startHere: StartHereInput[];
   docsHome: DocsHome;
   docsLocations?: DocsLocation[];
+  /** Where the project's work is tracked, when that's recorded */
+  workPlaces?: WorkPlace[];
   /** Most bytes the Start here section may take, so preferences keep most of the room */
   startHereBudget: number;
   /** Whether the sync mirrors the project's notes into its notes folder for this app */
@@ -288,12 +323,16 @@ function renderMap(map: MapPlan | undefined): RenderedMap {
       map.startHere.length > 0
         ? [section(kept, overflow.length), TEXT.onboarding]
         : [],
-    docsHome:
-      rule === null
+    docsHome: [
+      ...(rule === null
         ? []
         : [
             `${map.docsLocations === undefined ? TEXT.docsHomeHeading : TEXT.docsLocationsHeading}\n\n${rule}`,
-          ],
+          ]),
+      ...(map.workPlaces?.length
+        ? [`${TEXT.workPlacesHeading}\n\n${workPlacesRule(map.workPlaces)}`]
+        : []),
+    ],
     items: kept.map(({ id, version }) => ({ id, version })),
     map: { overflow, leftOut, docsHomeLeftOut: home.leftOut },
   };
@@ -304,6 +343,7 @@ function renderMap(map: MapPlan | undefined): RenderedMap {
  * block can still hold one, and reading the edit skips it like today's.
  */
 export const OLD_INTROS: readonly string[] = [
+  "Preferences for this project, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
   "Your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync sends your edit for review.",
   "Preferences for this project, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync sends your edit for review.",
   "More of your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync sends your edit for review.",

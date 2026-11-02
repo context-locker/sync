@@ -1050,7 +1050,7 @@ describe("gather, and gather-submit", () => {
         answer = {
           status: 400,
           type: "text/plain; charset=utf-8",
-          body: "The plan wasn't brought in:\n- Item 2: text must be at most 500 characters.\n",
+          body: "The plan wasn't brought in:\n- Item 2: text must be at most 800 characters.\n",
         };
         const refused = await run(
           shell,
@@ -1062,7 +1062,7 @@ describe("gather, and gather-submit", () => {
         assert.equal(refused.stdout, "");
         assert.match(
           refused.stderr,
-          /- Item 2: text must be at most 500 characters\./,
+          /- Item 2: text must be at most 800 characters\./,
         );
         assert.ok(existsSync(join(root, "20261021T100000Z")));
 

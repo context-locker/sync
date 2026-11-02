@@ -3,7 +3,7 @@ items: b1111111-1111-4111-8111-111111111111@1, b2222222-2222-4222-8222-222222222
 <!-- context-locker:start v1 -->
 ## Context Locker: Docs site
 
-Preferences for this project, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.
+Preferences for this playbook, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.
 
 ### Start here
 
@@ -12,9 +12,9 @@ Preferences for this project, kept in sync by Context Locker. Where one has the 
 - [Design notes \[draft\]](docs/Design%20notes%20%282026%29.md) (design): Why the pages look as they do, with \<details\> on the grid.
 - [Release plan](.context-locker/notes/release-plan.md) (plan): What ships in the Q4 release of the docs site, and when.
 
-Start each session with a three-line startup brief for the user: the project, the sources you'll use, and your first step. These come from the project's map in Context Locker. When the task needs more of it, call Context Locker's project_map tool if you have it.
+Start each session with a three-line startup brief for the user: the playbook, the sources you'll use, and your first step. These come from the playbook's map in Context Locker. When the task needs more of it, call Context Locker's playbook_map tool if you have it.
 
-### About this project
+### About this playbook
 
 - stack: Built with Astro and deployed on Vercel.
 
@@ -24,7 +24,7 @@ Start each session with a three-line startup brief for the user: the project, th
 
 ### Docs home
 
-Keep lasting docs in [docs/decisions](docs/decisions), this project's docs home, and add a link for each new one with write_note, if you have it.
+Keep lasting docs in [docs/decisions](docs/decisions), this playbook's docs home, and add a link for each new one with write_note, if you have it.
 <!-- context-locker:end -->
 
 == file {project}/.context-locker/notes/README.md

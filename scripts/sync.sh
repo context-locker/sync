@@ -1,5 +1,5 @@
 #!/bin/sh
-# Context Locker sync, version 22. MIT licence.
+# Context Locker sync, version 24. MIT licence.
 #
 #   sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]
 #   sh sync.sh map <app> [--all]
@@ -13,6 +13,7 @@
 #   sh sync.sh signin <app> [--code <code>]
 #   sh sync.sh plan|doctor|readback|daily-job <app>
 #   sh sync.sh update <app>
+#   sh sync.sh tickets <app> list|read|write|places [request.json] [--project <id>] [--json]
 #
 # Keeps one AI app's files in step with your playbook at context.locker. <app>
 # is claude-code, codex, hermes or openclaw. The script asks for a manifest of
@@ -127,12 +128,12 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=23
+SCRIPT_VERSION=24
 FIX_OFFSET=0
 FIX_OFFSET_SET=0
 MODE=sync
 case ${1:-} in
-  signin | plan | doctor | readback | map | gather | gather-submit | keep | export | notes-move-out | fix | daily-job | update)
+  signin | plan | doctor | readback | map | gather | gather-submit | keep | export | notes-move-out | fix | daily-job | update | tickets)
     MODE=$1
     shift
     ;;
@@ -157,6 +158,15 @@ CODE=
 KEEP_PATH=
 APPS=
 APPS_SET=0
+TICKET_COMMAND=list
+TICKET_FILE=
+TICKET_JSON=0
+if [ "$MODE" = tickets ] && [ $# -gt 0 ]; then
+  case $1 in -*) ;; *) TICKET_COMMAND=$1; shift ;; esac
+  if [ $# -gt 0 ]; then
+    case $1 in -*) ;; *) TICKET_FILE=$1; shift ;; esac
+  fi
+fi
 # gather-submit's plan, and the file or folder to keep, come before any option
 if { [ "$MODE" = gather-submit ] || [ "$MODE" = keep ]; } && [ $# -gt 0 ]; then
   case $1 in
@@ -169,6 +179,7 @@ if { [ "$MODE" = gather-submit ] || [ "$MODE" = keep ]; } && [ $# -gt 0 ]; then
 fi
 while [ $# -gt 0 ]; do
   case $1 in
+    --json) TICKET_JSON=1 ;;
     --daily) DAILY=1 ;;
     --now) NOW=1 ;;
     --hook) HOOK=1 ;;
@@ -234,6 +245,7 @@ while [ $# -gt 0 ]; do
 done
 
 usage() {
+  printf 'Tickets: sh sync.sh tickets <app> list|read|write|places [request.json] [--project <id>] [--json]\nUse a UTF-8 JSON file with the corresponding MCP tool arguments. Only list may omit it.\n' >&2
   printf 'Usage: sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh gather <app> [--apps <names>]\n       sh sync.sh gather-submit <app> <plan.json>\n       sh sync.sh keep <app> <file or folder>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder>\n       sh sync.sh fix <app> [--all]\n       sh sync.sh fix <app> --done <id> | --skip <id> --reason <text>\n       sh sync.sh signin <app> [--code <code>]\n       sh sync.sh plan|doctor|readback|daily-job <app>\n       sh sync.sh update <app>\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
   exit 2
 }
@@ -243,6 +255,10 @@ case $HARNESS in
   claude-code | codex | hermes | openclaw) ;;
   *) usage ;;
 esac
+if [ "$MODE" = tickets ]; then
+  case $TICKET_COMMAND in list) ;; read | write | places) [ -n "$TICKET_FILE" ] || usage ;; *) usage ;; esac
+  { [ "$ALL" = 1 ] || [ "$DAILY" = 1 ]; } && usage
+elif [ "$TICKET_JSON" = 1 ]; then usage; fi
 [ "$MODE" = gather-submit ] && [ -z "$PLAN_FILE" ] && usage
 [ "$MODE" = keep ] && [ -z "$KEEP_PATH" ] && usage
 # --apps is for gather: the apps the person picked for it to read, at least
@@ -3932,6 +3948,35 @@ map() {
   return 1
 }
 
+# --- Tickets: server-owned work, never a local board ------------------------
+
+tickets_mode() {
+  if [ -n "$TICKET_FILE" ]; then
+    [ -f "$TICKET_FILE" ] || finish_early "the ticket request must be a UTF-8 JSON file."
+    tk_size=$(wc -c <"$TICKET_FILE" | tr -d ' ')
+    [ "$tk_size" -le 4194304 ] || finish_early "the ticket request is over 4 MiB. Send imports in smaller batches, keeping each ticket whole."
+    cp "$TICKET_FILE" "$TMP/ticket-body" || finish_early "couldn't read the ticket request."
+  else
+    printf '{}\n' >"$TMP/ticket-body"
+  fi
+  tk_query=
+  WORKSPACE_ID=$(sed -n "s/^entry workspace \\($UUID\\)\$/\\1/p" "$APP_DIR/global.lock" 2>/dev/null | head -n 1)
+  find_project ask && tk_query="?project=$PROJECT_ID"
+  tk_accept=text/plain
+  [ "$TICKET_JSON" = 1 ] && tk_accept=application/json
+  tk_code=$(status_of "$(http POST "/v1/sync/tickets/$TICKET_COMMAND$tk_query" "$TMP/ticket-reply" "$TMP/ticket-body" application/json '' '' '' "$tk_accept")")
+  case $tk_code in
+    200) tr -d '\000-\010\013-\037\177' <"$TMP/ticket-reply"; return 0 ;;
+    000) printf "Context Locker: can't reach %s. Tickets need an online connection; no change was confirmed. Read the ticket before retrying a write.\n" "$API" >&2 ;;
+    *)
+      if [ -s "$TMP/ticket-reply" ]; then
+        tr -d '\000-\010\013-\037\177' <"$TMP/ticket-reply" >&2
+      else printf 'Context Locker answered %s. No ticket change was confirmed.\n' "$tk_code" >&2; fi
+      ;;
+  esac
+  return 1
+}
+
 # --- Gather: what the AI apps on this computer already know -------------------
 
 # gather copies the instructions, skills and memories of every AI app on this
@@ -5427,6 +5472,7 @@ if [ "$MODE" != sync ]; then
     fix) fix_mode ;;
     daily-job) daily_job_mode ;;
     update) update_mode ;;
+    tickets) tickets_mode ;;
   esac
   exit $?
 fi

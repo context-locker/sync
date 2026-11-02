@@ -86,6 +86,7 @@ export {
   TEXT,
   docsHomeRule,
   docsLocationsRule,
+  workPlacesRule,
   linkDestination,
   plainMarkdown,
   preferenceLine,
@@ -144,4 +145,4 @@ export type {
   StartHereInput,
 } from "./types.js";
 
-export type { DocsLocation } from "./types.js";
+export type { DocsLocation, WorkPlace } from "./types.js";

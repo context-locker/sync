@@ -44,7 +44,7 @@ const PS_SCRIPT = fileURLToPath(
 );
 // The scripts that setup v3 installed, which know nothing of notes
 const V3 = fileURLToPath(
-  new URL("../setup/v3/", import.meta.url),
+  new URL("../../../apps/site/src/setup/v3/", import.meta.url),
 );
 const WORKSPACE = "6f1d2c4e-8a3b-4c5d-9e7f-0a1b2c3d4e5f";
 const PROJECT = {
@@ -185,7 +185,7 @@ class FakeLocker {
       const next = {
         ...current,
         title: String(front.title),
-        kind: String(front.kind),
+        kind: String(front.type ?? front.kind),
         useAs:
           front.use_as === undefined ? current.useAs : String(front.use_as),
         summary: String(front.summary),
@@ -211,7 +211,7 @@ class FakeLocker {
         version: 1,
         name: target.name,
         title: String(front.title),
-        kind: String(front.kind),
+        kind: String(front.type ?? front.kind),
         useAs: String(front.use_as ?? "source-of-truth"),
         summary: String(front.summary),
         tags: front.tags as string[],

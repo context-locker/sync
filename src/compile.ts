@@ -22,6 +22,7 @@ import type {
   ProjectLayer,
   SkillInput,
   StartHereInput,
+  WorkPlace,
 } from "./types.js";
 
 /** Most bytes each compiled block may take, markers included. */
@@ -290,6 +291,7 @@ function compileProject(
     startHere: StartHereInput[];
     docsHome: DocsHome;
     docsLocations?: DocsLocation[];
+    workPlaces?: WorkPlace[];
   },
   folder: { notes: NoteInput[]; tags: string[] },
 ): Compiled {
@@ -307,7 +309,8 @@ function compileProject(
     preferences.length > 0 ||
     map.startHere.length > 0 ||
     map.docsHome !== null ||
-    (map.docsLocations?.length ?? 0) > 0;
+    (map.docsLocations?.length ?? 0) > 0 ||
+    (map.workPlaces?.length ?? 0) > 0;
 
   if (!targets.projectBlock) {
     return {
@@ -409,6 +412,7 @@ export function compile(input: CompileInput): Compiled {
           startHere: [...(input.startHere ?? [])],
           docsHome: input.docsHome ?? null,
           docsLocations: input.docsLocations,
+          workPlaces: input.workPlaces,
         },
         { notes: [...(input.notes ?? [])], tags: [...(input.tags ?? [])] },
       )

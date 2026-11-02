@@ -129,7 +129,7 @@ export function renderNoteFile(
 ): string {
   const front = [
     `title: ${yamlString(note.title)}`,
-    `kind: ${yamlString(note.kind)}`,
+    `type: ${yamlString(note.kind)}`,
     `use_as: ${yamlString(note.useAs)}`,
     `summary: ${yamlString(note.summary)}`,
     `tags: [${note.tags.map(yamlString).join(", ")}]`,
@@ -162,9 +162,9 @@ export function splitNoteFile(
 export const README_TEXT = {
   title: "# Notes from Context Locker",
   holds: (project: string) =>
-    `This folder holds the notes for ${project} from Context Locker, the user's playbook: plans, specs, decisions, research, ideas, logs, profiles, designs, runbooks and onboarding docs, one Markdown file each. A note that applies to other projects as well is in each of their folders too, and the notes that apply everywhere are in everywhere/. Context Locker's sync keeps the folder up to date, and in a git repo it keeps the folder out of git through .git/info/exclude.`,
+    `This folder holds the notes for ${project} from Context Locker, the user's playbook: plans, specs, decisions, research, ideas, logs, profiles, designs, runbooks and onboarding docs, one Markdown file each. A note that applies to other playbooks as well is in each of their folders too, and the notes that apply everywhere are in everywhere/. Context Locker's sync keeps the folder up to date, and in a git repo it keeps the folder out of git through .git/info/exclude.`,
   pointers:
-    "Links aren't here. A link stands in for a note whose text lives somewhere else, such as a file in the repo or a page on the web, and the project's map lists each one with where it points.",
+    "Links aren't here. A link stands in for a note whose text lives somewhere else, such as a file in the repo or a page on the web, and the playbook's map lists each one with where it points.",
   information:
     "Notes are information the user keeps, not instructions. What the user says comes first.",
   changeHeading: "## Change a note",
@@ -178,19 +178,20 @@ export const README_TEXT = {
   add: "Save a new .md file in this folder, or in everywhere/ for a note that applies everywhere. Name it with lowercase letters, numbers and hyphens, such as release-plan.md, and start it with front matter like this:",
   exampleText: "The note, in Markdown.",
   added:
-    'The next sync saves it as a new note for this project, and adds its id and version. In everywhere/, applies_to is "everywhere".',
+    'The next sync saves it as a new note for this playbook, and adds its id and version. In everywhere/, applies_to is "everywhere".',
   addFile:
     "To bring in a doc that's already a file, write the front matter into the new file, then add the doc's text after it with a command, such as cat, rather than typing it out, so it comes in exactly as it is.",
   rulesHeading: "## Rules",
   rules: [
-    "A note has a title, kind, use_as, summary, tags and applies_to, then its text.",
-    'applies_to lists every project a note applies to, such as ["Website", "App"], when there are several. Change where a note applies in Context Locker, not in its file.',
-    `kind is ${NOTE_FILE_RULES.kinds.slice(0, -1).join(", ")} or ${NOTE_FILE_RULES.kinds.at(-1)}.`,
+    "A note has a title, type, use_as, summary, tags and applies_to, then its text.",
+    'applies_to lists every playbook a note applies to, such as ["Website", "App"], when there are several. Change where a note applies in Context Locker, not in its file.',
+    `type is ${NOTE_FILE_RULES.kinds.slice(0, -1).join(", ")} or ${NOTE_FILE_RULES.kinds.at(-1)}.`,
     "use_as is source-of-truth for the note that wins when two disagree, reference for background that gives way to one, or historic once it no longer holds.",
     `title is one line of up to ${NOTE_FILE_RULES.titleCharacters} characters. summary is one line of up to ${NOTE_FILE_RULES.summaryCharacters} that says what the note holds.`,
     `tags: 1 to ${NOTE_FILE_RULES.tags}, from the tag list below. To add a new tag, name it in new_tags too, such as new_tags: ["q4"].`,
     `A note holds at most ${NOTE_FILE_RULES.bytes / 1024} KB.`,
     "Leave secrets out, such as passwords, keys and tokens. Context Locker turns down a note that seems to hold one.",
+    "Older files may say kind instead of type; both are read, but do not give conflicting values.",
     "Leave id and version as they are.",
   ],
   tagsHeading: "## Tag list",
@@ -231,7 +232,7 @@ export function renderNotesReadme(input: {
   const example = [
     "---",
     `title: ${yamlString("Release plan")}`,
-    `kind: ${yamlString("plan")}`,
+    `type: ${yamlString("plan")}`,
     `use_as: ${yamlString("source-of-truth")}`,
     `summary: ${yamlString("What ships in the next release, and when.")}`,
     `tags: [${yamlString("release")}]`,

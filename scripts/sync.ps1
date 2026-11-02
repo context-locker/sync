@@ -1,4 +1,4 @@
-# Context Locker sync, version 22. MIT licence.
+# Context Locker sync, version 24. MIT licence.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 map <app> [-All]
@@ -12,6 +12,7 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 signin <app> [-Code <code>]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 plan|doctor|readback|daily-job <app>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 update <app>
+#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 tickets <app> list|read|write|places [request.json] [-Project <id>] [-Json]
 #
 # Keeps one AI app's files in step with your playbook at context.locker. <app>
 # is claude-code, codex, hermes or openclaw. The script asks for a manifest of
@@ -132,6 +133,7 @@ param(
   [switch]$Now,
   [switch]$Hook,
   [switch]$All,
+  [switch]$Json,
   [int]$Wait = 50,
   [string]$To = '',
   [string]$Done = '',
@@ -150,7 +152,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 23
+$ScriptVersion = 24
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -164,13 +166,23 @@ if ($Second.StartsWith('-')) {
 }
 $Mode = 'sync'
 $Harness = $First
-if (@('signin', 'plan', 'doctor', 'readback', 'map', 'gather', 'gather-submit', 'keep', 'export', 'notes-move-out', 'fix', 'daily-job', 'update') -contains $First) {
+if (@('signin', 'plan', 'doctor', 'readback', 'map', 'gather', 'gather-submit', 'keep', 'export', 'notes-move-out', 'fix', 'daily-job', 'update', 'tickets') -contains $First) {
   $Mode = $First
   $Harness = $Second
 } elseif ($Second) {
   $Harness = ''
 }
 # gather-submit's plan, and the file or folder to keep, come before any option
+$TicketCommand = 'list'
+$TicketFile = ''
+if ($Mode -eq 'tickets' -and $extra.Count -gt 0 -and -not $extra[0].StartsWith('-')) {
+  $TicketCommand = $extra[0]
+  $extra = @($extra | Select-Object -Skip 1)
+  if ($extra.Count -gt 0 -and -not $extra[0].StartsWith('-')) {
+    $TicketFile = $extra[0]
+    $extra = @($extra | Select-Object -Skip 1)
+  }
+}
 $PlanFile = ''
 $KeepPath = ''
 if (($Mode -eq 'gather-submit' -or $Mode -eq 'keep') -and $extra.Count -gt 0 -and -not $extra[0].StartsWith('-')) {
@@ -195,6 +207,7 @@ for ($i = 0; $i -lt $extra.Count; $i++) {
   $option = $extra[$i]
   $value = if ($i + 1 -lt $extra.Count) { $extra[$i + 1] } else { '' }
   if ($option -eq '--daily') { $Daily = [switch]$true }
+  elseif ($option -eq '--json') { $Json = [switch]$true }
   elseif ($option -eq '--now') { $Now = [switch]$true }
   elseif ($option -eq '--hook') { $Hook = [switch]$true }
   elseif ($option -eq '--all') { $All = [switch]$true }
@@ -226,12 +239,17 @@ if ($Offset -lt 0 -or ($OffsetSet -and $FixAs -ne 'read')) { $badFix = $true }
 $badCode = $Code -and (($Mode -ne 'signin') -or ($Code -cnotmatch '^ctxl_ic_[A-Za-z0-9_-]{43}$'))
 # -Now and -Hook are for a sync
 $badSync = ($Mode -ne 'sync') -and ($Now -or $Hook)
+$badTickets = if ($Mode -eq 'tickets') {
+  (@('list', 'read', 'write', 'places') -cnotcontains $TicketCommand) -or
+  ($TicketCommand -ne 'list' -and -not $TicketFile) -or $All -or $Daily
+} else { [bool]$Json }
 # -Apps is for gather: the apps the person picked for it to read, at least
 # one, each one Import reads (G1-11)
 $GatherApps = @('claude-code', 'codex', 'hermes', 'openclaw', 'grok-build', 'agents', 'project')
 $PickedApps = @($Apps.Split(',') | Where-Object { $_ -ne '' })
 $badApps = $AppsSet -and (($Mode -ne 'gather') -or $PickedApps.Count -eq 0 -or @($PickedApps | Where-Object { $GatherApps -cnotcontains $_ }).Count -gt 0)
-if ($badOption -or $badTo -or $badFix -or $badCode -or $badSync -or $badApps -or (@('claude-code', 'codex', 'hermes', 'openclaw') -notcontains $Harness) -or $Wait -lt 0 -or ($Mode -eq 'gather-submit' -and -not $PlanFile) -or ($Mode -eq 'keep' -and -not $KeepPath)) {
+if ($badOption -or $badTo -or $badFix -or $badCode -or $badSync -or $badApps -or $badTickets -or (@('claude-code', 'codex', 'hermes', 'openclaw') -notcontains $Harness) -or $Wait -lt 0 -or ($Mode -eq 'gather-submit' -and -not $PlanFile) -or ($Mode -eq 'keep' -and -not $KeepPath)) {
+  [Console]::Error.WriteLine('Tickets: sync.ps1 tickets <app> list|read|write|places [request.json] [-Project <id>] [-Json]. Use a UTF-8 JSON file with the corresponding MCP tool arguments. Only list may omit it.')
   [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 gather <app> [-Apps <names>]`n       sync.ps1 gather-submit <app> <plan.json>`n       sync.ps1 keep <app> <file or folder>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder>`n       sync.ps1 fix <app> [-All]`n       sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text>`n       sync.ps1 signin <app> [-Code <code>]`n       sync.ps1 plan|doctor|readback|daily-job <app>`n       sync.ps1 update <app>`n<app> is claude-code, codex, hermes or openclaw.")
   exit 2
 }
@@ -4024,6 +4042,34 @@ function Invoke-Fix {
 
 # --- Gather: what the AI apps on this computer already know -------------------
 
+# Tickets are online commands. Their request files are inputs, never synced
+# board snapshots, and a network failure never queues or retries a mutation.
+function Invoke-Tickets {
+  $body = $Utf8.GetBytes('{}')
+  if ($TicketFile) {
+    if (-not (Test-Path -LiteralPath $TicketFile -PathType Leaf)) { throw 'The ticket request must be a UTF-8 JSON file.' }
+    if ((Get-Item -LiteralPath $TicketFile).Length -gt 4194304) { throw 'The ticket request is over 4 MiB. Send imports in smaller batches, keeping each ticket whole.' }
+    $body = [IO.File]::ReadAllBytes((Get-Item -LiteralPath $TicketFile).FullName)
+  }
+  $query = ''
+  $globalLock = Join-Path $AppDir 'global.lock'
+  if (Test-Path -LiteralPath $globalLock -PathType Leaf) {
+    foreach ($line in [IO.File]::ReadAllLines($globalLock)) {
+      if ($line -match '^entry workspace ([0-9a-f-]{36})$') { $Script:WorkspaceId = $Matches[1] }
+    }
+  }
+  if (Find-Project 'ask') { $query = "?project=$($Script:ProjectId)" }
+  $accept = if ($Json) { 'application/json' } else { 'text/plain' }
+  $reply = Invoke-Api 'POST' "/v1/sync/tickets/$TicketCommand$query" $body 'application/json' @{ Accept = $accept }
+  $words = $Utf8.GetString($reply.Body) -replace '[\x00-\x08\x0b-\x1f\x7f]', ''
+  if ($reply.Status -eq 200) { Write-Out $words; return 0 }
+  if ($reply.Status -eq 0) {
+    [Console]::Error.WriteLine("Context Locker: can't reach $Api. Tickets need an online connection; no change was confirmed. Read the ticket before retrying a write.")
+  } elseif ($words) { [Console]::Error.WriteLine($words) }
+  else { [Console]::Error.WriteLine("Context Locker answered $($reply.Status). No ticket change was confirmed.") }
+  return 1
+}
+
 # gather copies the instructions, skills and memories of every AI app on this
 # computer into a working set of its own, ~/.contextlocker/gather/<UTC time>,
 # which only this account can read, for the Gather skill to sort into one
@@ -5461,6 +5507,7 @@ if ($Mode -ne 'sync') {
       'fix' { $exitCode = Invoke-Fix }
       'daily-job' { $exitCode = Invoke-DailyJob }
       'update' { $exitCode = Invoke-Update }
+      'tickets' { $exitCode = Invoke-Tickets }
     }
   } catch {
     [Console]::Error.WriteLine("Context Locker: $($_.Exception.Message)")

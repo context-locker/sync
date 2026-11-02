@@ -109,6 +109,16 @@ export interface DocsLocation {
   is_default: boolean;
 }
 
+/** A place a project's work is tracked: Context Locker's board, or an address elsewhere (G1-151) */
+export interface WorkPlace {
+  id: string;
+  name: string;
+  kind: "board" | "address";
+  address: string | null;
+  purpose: string;
+  is_default: boolean;
+}
+
 export interface CompileInput {
   harness: CompiledHarness;
   /** Null for the global sync, which carries everything that applies everywhere. */
@@ -128,6 +138,8 @@ export interface CompileInput {
   /** For a project sync: its docs home. Left out, none is recorded. */
   docsHome?: DocsHome;
   docsLocations?: DocsLocation[];
+  /** For a project sync: where its work is tracked, when that's recorded */
+  workPlaces?: WorkPlace[];
   /**
    * For a project sync: its live notes and the ones that apply everywhere,
    * historic ones too, which its notes folder mirrors. Pointers are left out.
