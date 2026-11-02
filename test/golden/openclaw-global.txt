@@ -17,7 +17,7 @@ items: none
 
 Context Locker keeps your preferences in USER.md.
 
-When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line in USER.md, or the skill's files, and say why in your reply. The next sync saves the fix in Context Locker, unless it needs approval first.
+When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line in USER.md, or the skill's files, and say why in your reply. The next sync saves the fix in Context Locker, unless it needs approval first. Context Locker holds only what's true for every AI app and computer: keep a detail of this computer or this app, such as a local path, how this machine is set up or how this app's own tools behave, in this app's own memory.
 <!-- context-locker:end -->
 
 == skill {agents}/skills/code-review
@@ -25,5 +25,5 @@ item: 44444444-4444-4444-8444-444444444444@2
 files: SKILL.md, references/checklist.md
 
 == skill {agents}/skills/context-locker-gather
-item: c0de0000-6a7e-4e00-8000-000000000001@14
+item: c0de0000-6a7e-4e00-8000-000000000001@15
 files: SKILL.md, references/plan.md

@@ -119,6 +119,7 @@ export const TAR_END: Buffer = Buffer.alloc(BLOCK * 2, 0);
 function* tarParts(
   entries: Iterable<TarEntry>,
   mtime: number,
+  end = true,
 ): Generator<Buffer> {
   for (const entry of entries) {
     const isDir = entry.bytes === null;
@@ -138,7 +139,7 @@ function* tarParts(
       if (padding.length > 0) yield padding;
     }
   }
-  yield TAR_END;
+  if (end) yield TAR_END;
 }
 
 export function writeTar(entries: readonly TarEntry[], mtime: number): Buffer {
@@ -155,9 +156,15 @@ function* blobEntries(
 ): Generator<TarEntry> {
   for (const [hash, blob] of blobs) {
     if (blob.kind === "file") {
-      yield { path: hash, bytes: blob.bytes };
+      yield {
+        path: hash,
+        bytes: blob.bytes,
+        ...(blob.mode === undefined ? {} : { mode: blob.mode }),
+      };
       continue;
     }
+    if (blob.kind !== "tree")
+      throw new Error("Resolve stored blobs before writing their archive");
     yield { path: hash, bytes: null };
     const folders = new Set<string>();
     const files = [...blob.files].sort((a, b) =>
@@ -201,4 +208,17 @@ export function blobArchiveParts(
   mtime: number,
 ): Generator<Buffer> {
   return tarParts(blobEntries(blobs), mtime);
+}
+
+/** Resolve and stream one requested blob at a time, bounding decrypted memory. */
+export async function* resolvedBlobArchiveParts(
+  blobs: ReadonlyArray<readonly [string, Blob]>,
+  mtime: number,
+  resolve: (blob: Blob) => Promise<Blob>,
+): AsyncGenerator<Buffer> {
+  for (const [hash, blob] of blobs) {
+    const resolved = await resolve(blob);
+    yield* tarParts(blobEntries([[hash, resolved]]), mtime, false);
+  }
+  yield TAR_END;
 }

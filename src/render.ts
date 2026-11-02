@@ -3,6 +3,7 @@
 import { BLOCK_END, BLOCK_START } from "./blocks.js";
 import { plainMarkdown } from "./markdown.js";
 import { NOTES_PATH, noteFileName } from "./notes.js";
+import { oneAppPlace } from "./one-app-places.js";
 import { injectionMatches } from "./threats.js";
 import type {
   DocsHome,
@@ -17,6 +18,10 @@ export { plainMarkdown };
 
 /** The most Start here entries a project's block or session-start output lists. */
 export const START_HERE_MOST = 10;
+
+/** What a playbook holds, said where apps change it (G1-172) */
+const LOCAL_DETAILS =
+  "Context Locker holds only what's true for every AI app and computer: keep a detail of this computer or this app, such as a local path, how this machine is set up or how this app's own tools behave, in this app's own memory.";
 
 export const TEXT = {
   globalTitle: "## Context Locker",
@@ -35,11 +40,10 @@ export const TEXT = {
     "Preferences for this playbook, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
   personalIntro: (name: string) =>
     `Context Locker preferences for ${name}. Where one has the same name as a general preference, it replaces that one here. To change one, ask your user to edit it in Context Locker.`,
-  endOfTask:
-    "When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line here or the skill's files, and say why in your reply. The next sync saves the fix in Context Locker, unless it needs approval first.",
+  endOfTask: `When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line here or the skill's files, and say why in your reply. The next sync saves the fix in Context Locker, unless it needs approval first. ${LOCAL_DETAILS}`,
   /** The same question, in a file that doesn't hold all the preference lines. */
   endOfTaskIn: (where: string) =>
-    `When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line in ${where}, or the skill's files, and say why in your reply. The next sync saves the fix in Context Locker, unless it needs approval first.`,
+    `When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line in ${where}, or the skill's files, and say why in your reply. The next sync saves the fix in Context Locker, unless it needs approval first. ${LOCAL_DETAILS}`,
   overflow: (count: number, where: string | null) =>
     count === 1
       ? `1 more preference didn't fit in this file. ${where ? `It's in ${where}.` : "It's in Context Locker."}`
@@ -124,6 +128,15 @@ function sentence(text: string): string {
 }
 
 /**
+ * What a line adds for an address only one app can open, such as "only
+ * Claude can open it", so an app reading it knows the others can't (G1-157)
+ */
+export function oneAppOnly(address: string): string | null {
+  const place = oneAppPlace(address);
+  return place ? `only ${place.who} can open it` : null;
+}
+
+/**
  * A Start here entry as a block lists it. A pointer is its title linked to
  * its address; a note is its title linked to its file in the notes folder,
  * when the app mirrors it, and otherwise its title with a word on how to read
@@ -141,7 +154,8 @@ export function startHereLine(
   if (entry.address !== null) {
     const destination = linkDestination(entry.address);
     if (destination === null) return null;
-    return `- [${title}](${destination}) ${facts}: ${plainMarkdown(entry.summary)}${id}`;
+    const only = oneAppOnly(entry.address);
+    return `- [${title}](${destination}) ${only ? `(${plainMarkdown(entry.kind)}, ${only})` : facts}: ${plainMarkdown(entry.summary)}${id}`;
   }
   if (options.notesFolder) {
     const file = `${NOTES_PATH}/${noteFileName(entry)}.md`;
@@ -182,10 +196,11 @@ export function docsLocationsRule(
   budget = 3000,
 ): string {
   const rule =
-    "Keep existing documents at their authoritative locations. For a new document, use a location clearly matching its purpose, otherwise the default. If more than one fits, neither a purpose match nor a default exists, or you cannot access the chosen location, ask before saving elsewhere. Recording a location grants no access and copies nothing.";
+    "Keep existing documents at their authoritative locations. For a new document, use a location clearly matching its purpose, otherwise the default. If more than one fits, neither a purpose match nor a default exists, or you cannot access the chosen location, ask before saving elsewhere. Recording a location grants no access and copies nothing. Keep anything another AI app needs where every app can read it: a place only one app can open, such as a Claude artifact, a chat, a session's own files or a page on localhost, is fine as a view or a working copy, never as its only home.";
   const lines = locations.map((l) => {
     const destination = l.kind === "notes" ? "Context Locker Notes" : l.place!;
-    const line = `- ${plainMarkdown(l.name)}${l.is_default ? " (default)" : ""}: ${plainMarkdown(destination)}${l.purpose ? `. For: ${plainMarkdown(l.purpose)}` : ""}`;
+    const only = l.kind === "notes" ? null : oneAppOnly(l.place!);
+    const line = `- ${plainMarkdown(l.name)}${l.is_default ? " (default)" : ""}: ${plainMarkdown(destination)}${only ? ` (${only})` : ""}${l.purpose ? `. For: ${plainMarkdown(l.purpose)}` : ""}`;
     return injectionMatches(line).length
       ? "- A location needs a human check in playbook Settings before use."
       : line;

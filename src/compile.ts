@@ -124,6 +124,7 @@ function skills(root: string, list: SkillInput[]): Output[] {
     kind: "skill",
     target: `${root}/${skill.name}`,
     files: skill.files,
+    ...(skill.fileIndex ? { fileIndex: skill.fileIndex } : {}),
     item: { id: skill.id, version: skill.version },
   }));
 }

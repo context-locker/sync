@@ -414,6 +414,55 @@ describe("gather, and gather-submit", () => {
       .sort();
   }
 
+  /** Each secret example copied or left out as the API would take it */
+  function assertExamples(home: string) {
+    const set = workingSet(home);
+    const sources = rows(join(set, "sources.tsv"));
+    const out = rows(join(set, "left-out.tsv"));
+    for (const [index, example] of SECRET_EXAMPLES.entries()) {
+      const path = `~/.codex/memories/example-${index}.md`;
+      // A value cut short or masked is copied, for Context Locker to
+      // check when the plan comes in, with it hidden
+      if (example.kind === null || example.evidence) {
+        assert.ok(
+          sources.some((row) => row.path === path),
+          example.name,
+        );
+        assert.ok(!out.some((row) => row.path === path), example.name);
+      } else {
+        assert.ok(!sources.some((row) => row.path === path), example.name);
+        assert.equal(
+          out.find((row) => row.path === path)?.why,
+          `it seems to hold ${example.kind}, so it wasn't copied. Secrets belong in ScopeHold`,
+          example.name,
+        );
+      }
+    }
+  }
+
+  /** Every secret file left out for what it holds, and none of it copied */
+  function assertSecretsLeftOut(home: string) {
+    const set = workingSet(home);
+    const everything = filesIn(set)
+      .map((path) => readFileSync(join(set, path), "utf8"))
+      .join("\n");
+    for (const value of SECRET_VALUES) {
+      assert.ok(!everything.includes(value), value);
+    }
+    const out = rows(join(set, "left-out.tsv"));
+    for (const [name, kind] of Object.entries(KINDS)) {
+      const row = out.find(
+        (candidate) => candidate.path === `~/.codex/memories/secrets/${name}`,
+      );
+      assert.equal(row?.code, "secret", name);
+      assert.equal(
+        row?.why,
+        `it seems to hold ${kind}, so it wasn't copied. Secrets belong in ScopeHold`,
+        name,
+      );
+    }
+  }
+
   for (const shell of SHELLS) {
     describe(`in ${shell}`, () => {
       it("copies every app's sources into a private working set, and changes nothing of theirs", async () => {
@@ -635,54 +684,14 @@ describe("gather, and gather-submit", () => {
         }
         const result = await run(shell, home, ["gather", "claude-code"], repo);
         assert.equal(result.status, 0, result.stderr);
-        const set = workingSet(home);
-        const sources = rows(join(set, "sources.tsv"));
-        const out = rows(join(set, "left-out.tsv"));
-        for (const [index, example] of SECRET_EXAMPLES.entries()) {
-          const path = `~/.codex/memories/example-${index}.md`;
-          // A value cut short or masked is copied, for Context Locker to
-          // check when the plan comes in, with it hidden
-          if (example.kind === null || example.evidence) {
-            assert.ok(
-              sources.some((row) => row.path === path),
-              example.name,
-            );
-            assert.ok(!out.some((row) => row.path === path), example.name);
-          } else {
-            assert.ok(!sources.some((row) => row.path === path), example.name);
-            assert.equal(
-              out.find((row) => row.path === path)?.why,
-              `it seems to hold ${example.kind}, so it wasn't copied. Secrets belong in ScopeHold`,
-              example.name,
-            );
-          }
-        }
+        assertExamples(home);
       });
 
       it("leaves out what looks like a secret, and never copies it", async () => {
         const { home, repo } = computer();
         const result = await run(shell, home, ["gather", "claude-code"], repo);
         assert.equal(result.status, 0, result.stderr);
-        const set = workingSet(home);
-        const everything = filesIn(set)
-          .map((path) => readFileSync(join(set, path), "utf8"))
-          .join("\n");
-        for (const value of SECRET_VALUES) {
-          assert.ok(!everything.includes(value), value);
-        }
-        const out = rows(join(set, "left-out.tsv"));
-        for (const [name, kind] of Object.entries(KINDS)) {
-          const row = out.find(
-            (candidate) =>
-              candidate.path === `~/.codex/memories/secrets/${name}`,
-          );
-          assert.equal(row?.code, "secret", name);
-          assert.equal(
-            row?.why,
-            `it seems to hold ${kind}, so it wasn't copied. Secrets belong in ScopeHold`,
-            name,
-          );
-        }
+        assertSecretsLeftOut(home);
         assert.match(
           result.stdout,
           /^- ~\/\.codex\/memories\/secrets\/aws\.md: it seems to hold an AWS access key, so it wasn't copied\. Secrets belong in ScopeHold\.$/m,
@@ -1310,6 +1319,57 @@ describe("gather, and gather-submit", () => {
           uploadAnswer = null;
         }
       });
+    });
+  }
+
+  // mawk, the awk on Debian and Ubuntu, reads a brace count such as {6,} as
+  // text in 1.3.4-20200120 and as exactly six in 20240123 (G1-147). So the
+  // secret checks run again in dash with each other awk installed here, and
+  // always with one that refuses a program holding a brace count
+  if (SHELLS.includes("dash")) {
+    describe("in dash, with other awks", () => {
+      const installed = (name: string) =>
+        spawnSync("sh", ["-c", `command -v ${name}`]).status === 0;
+      const awk = spawnSync("sh", ["-c", "command -v awk"], {
+        encoding: "utf8",
+      }).stdout.trim();
+      const AWKS: Record<string, string> = {
+        "an awk that refuses brace counts": `for arg do
+  if printf '%s' "$arg" | grep -Eq '\\{[0-9]+(,[0-9]*)?\\}'; then
+    echo "awk: a brace count, which mawk reads wrongly" >&2
+    exit 2
+  fi
+done
+exec "${awk}" "$@"
+`,
+        ...(installed("mawk") ? { mawk: 'exec mawk "$@"\n' } : {}),
+        ...(installed("busybox")
+          ? { "BusyBox's awk": 'exec busybox awk "$@"\n' }
+          : {}),
+      };
+      for (const [name, body] of Object.entries(AWKS)) {
+        it(`leaves out every secret with ${name}`, async () => {
+          const bin = mkdtempSync(join(work, "awk-"));
+          writeFileSync(join(bin, "awk"), `#!/bin/sh\n${body}`, {
+            mode: 0o755,
+          });
+          const { home, repo, codex } = computer();
+          for (const [index, example] of SECRET_EXAMPLES.entries()) {
+            put(join(codex, "memories", `example-${index}.md`), example.text);
+          }
+          const result = await run(
+            "dash",
+            home,
+            ["gather", "claude-code"],
+            repo,
+            { PATH: `${bin}:${process.env.PATH ?? ""}` },
+          );
+          assert.equal(result.status, 0, result.stderr);
+          assert.equal(result.stderr, "");
+          assertExamples(home);
+          assertSecretsLeftOut(home);
+        });
+      }
     });
   }
 });

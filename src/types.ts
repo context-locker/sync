@@ -19,6 +19,14 @@ export interface SkillFile {
   encoding: "utf8" | "base64";
 }
 
+/** A file's manifest entry without its bytes. */
+export interface SkillFileDigest {
+  path: string;
+  encoding: "utf8" | "base64";
+  bytes: number;
+  sha256: string;
+}
+
 /** An item and the version of it that was compiled. */
 export interface ItemRef {
   id: string;
@@ -36,6 +44,7 @@ export interface PreferenceInput extends ItemRef {
 export interface SkillInput extends ItemRef {
   name: string;
   files: SkillFile[];
+  fileIndex?: SkillFileDigest[];
 }
 
 /**
@@ -168,6 +177,7 @@ export type Output =
       /** The skill's folder. */
       target: string;
       files: SkillFile[];
+      fileIndex?: SkillFileDigest[];
       item: ItemRef;
     }
   | {
