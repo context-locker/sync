@@ -185,7 +185,7 @@ class FakeLocker {
       const next = {
         ...current,
         title: String(front.title),
-        kind: String(front.kind),
+        kind: String(front.type ?? front.kind),
         useAs:
           front.use_as === undefined ? current.useAs : String(front.use_as),
         summary: String(front.summary),
@@ -211,7 +211,7 @@ class FakeLocker {
         version: 1,
         name: target.name,
         title: String(front.title),
-        kind: String(front.kind),
+        kind: String(front.type ?? front.kind),
         useAs: String(front.use_as ?? "source-of-truth"),
         summary: String(front.summary),
         tags: front.tags as string[],

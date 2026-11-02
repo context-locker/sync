@@ -138,6 +138,8 @@ interface MoveNote {
 /** A fake Context Locker for the doctor, export and notes-move-out */
 class FakeLocker {
   requests: string[] = [];
+  tickets = { status: 200, text: "Ticket command completed.\n" };
+  ticketCalls: Array<{ command: string; body: string; accept: string }> = [];
   blobs = new Map<string, Blob>();
   manifest: string;
   caps = {
@@ -280,6 +282,16 @@ describe("the sync scripts' tools", () => {
             agent: { name: "codex", machine_name: "Test" },
             workspace: { name: "Personal" },
           });
+        } else if (
+          request.method === "POST" &&
+          url.pathname.startsWith("/v1/sync/tickets/")
+        ) {
+          fake.ticketCalls.push({
+            command: url.pathname.split("/").at(-1)!,
+            body,
+            accept: String(request.headers.accept ?? ""),
+          });
+          send(fake.tickets.status, "text/plain", fake.tickets.text);
         } else if (route === "GET /v1/sync/caps") {
           send(fake.caps.status, "text/plain", fake.caps.text);
         } else if (route === "GET /v1/export") {
@@ -493,6 +505,93 @@ describe("the sync scripts' tools", () => {
 
   for (const shell of SHELLS) {
     describe(`in ${shell}`, () => {
+      it("sends online ticket commands with unchanged UTF-8 JSON and the current playbook", async () => {
+        const machine = computer(shell);
+        const cwd = project(machine.home);
+        const file = join(machine.home, "ticket request.json");
+        const payload = JSON.stringify({
+          action: "create",
+          title: "Café's launch",
+          body: 'Quotes: "one"; new line\nTwo. 世界',
+        });
+        writeFileSync(file, payload);
+        const before = readdirSync(cwd).sort();
+        for (const command of ["list", "read", "write", "places"]) {
+          const result = await run(shell, machine, {
+            mode: "tickets",
+            cwd,
+            args: [command, file, "--json"],
+          });
+          assert.equal(result.status, 0, result.stderr);
+          assert.equal(result.stdout, fake.tickets.text);
+          assert.deepEqual(fake.ticketCalls.at(-1), {
+            command,
+            body: payload,
+            accept: "application/json",
+          });
+          assert.ok(
+            fake.requests.includes(
+              `POST /v1/sync/tickets/${command}?project=${PROJECT}`,
+            ),
+          );
+        }
+        const listed = await run(shell, machine, { mode: "tickets", cwd });
+        assert.equal(listed.status, 0, listed.stderr);
+        assert.equal(
+          fake.ticketCalls.at(-1)?.body,
+          "{}" + (shell === "pwsh" ? "" : "\n"),
+        );
+        assert.equal(fake.ticketCalls.at(-1)?.accept, "text/plain");
+        assert.deepEqual(
+          readdirSync(cwd).sort(),
+          before,
+          "tickets never write a local board or sync the project",
+        );
+        assert.equal(read(file), payload, "the request file is unchanged");
+      });
+
+      it("shows a refused ticket write and never retries it", async () => {
+        const machine = computer(shell);
+        const file = join(machine.home, "claim.json");
+        writeFileSync(
+          file,
+          '{"playbook":"Docs site","action":"claim","ticket":"G1-151"}',
+        );
+        fake.tickets = {
+          status: 422,
+          text: "G1-151 is held by another AI app.\n",
+        };
+        const result = await run(shell, machine, {
+          mode: "tickets",
+          args: ["write", file],
+        });
+        assert.equal(result.status, 1);
+        assert.match(result.stderr, /held by another AI app/);
+        assert.equal(fake.ticketCalls.length, 1);
+      });
+
+      it("refuses missing requests, unknown commands and oversized imports before sending", async () => {
+        const machine = computer(shell);
+        for (const args of [
+          ["write"],
+          ["approve"],
+          ["list", "--daily"],
+          ["list", "--all"],
+        ]) {
+          const result = await run(shell, machine, { mode: "tickets", args });
+          assert.equal(result.status, 2, `${args}: ${result.stderr}`);
+        }
+        const file = join(machine.home, "too-large.json");
+        writeFileSync(file, "x".repeat(4194305));
+        const large = await run(shell, machine, {
+          mode: "tickets",
+          args: ["write", file],
+        });
+        assert.equal(large.status, 1, large.stderr);
+        assert.match(large.stderr, /4 MiB/);
+        assert.equal(fake.ticketCalls.length, 0);
+      });
+
       it("prints Tidy-up with fix, for the project, and marks an item done or skipped", async () => {
         const machine = computer(shell);
         const id = randomUUID();

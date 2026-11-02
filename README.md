@@ -8,9 +8,9 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v28`](setup/v28), using `context-locker@0.1.12`.
+Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v29`](setup/v29), using `context-locker@0.1.13`.
 
-Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.12 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
+Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.13 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
 
 The browser approval names that app, lets you name the connection, and asks whether it runs on a Computer or in the Cloud. A supported cloud runtime can suggest the location, or pass `--environment computer` or `--environment cloud`. Unknown environments need a human choice. The command writes the selected app's files, adds its sync hook and runs the doctor. Gather is a separate import with an agreed scope and approval; reading another app's information does not connect or configure it. When you tick Bring in as you approve the connection, or as you make its one-time code, setup's last line tells the app to import now, and a Claude Code or Codex session start says so once. The import waits in your inbox, where you pick what comes in. Existing connections and hooks are never removed automatically.
 
@@ -19,6 +19,18 @@ Without Node, the pinned steps have the app download the script, check its hash,
 Any other app connects over MCP instead, at `https://mcp.context.locker`, even one that can run commands, such as Claude in Cowork. The steps say how to add it in Claude and ChatGPT, as [context.locker/docs](https://context.locker/docs) does.
 
 A published version never changes. When a script changes, it's published as a new version, with the hashes of its files in its `SKILL.md`. The tests fail until the newest version matches the scripts in [`scripts`](scripts).
+
+## Tickets
+
+The playbook's ticket board stays online. Script 24 in setup 29 adds `tickets <app> list|read|write|places [request.json] [--project <id>] [--json]`, using the same arguments and approval rules as MCP. Only `list` can omit its JSON file. Read, create, import, edit, move, claim, release, comment, delete and restore tickets through these commands; never edit a board in synced files. A request holds at most 100 imported tickets and 4 MiB, with each ticket kept whole. Take only ready tickets and claim one before work.
+
+```sh
+sh ~/.contextlocker/sync.sh tickets codex list --project <playbook-id>
+sh ~/.contextlocker/sync.sh tickets codex read read.json
+sh ~/.contextlocker/sync.sh tickets codex write change.json --json
+```
+
+`read.json` can hold `{"playbook":"Context Locker","ticket":"G1-151"}`. Only the person's explicit instruction permits `user_confirmed: true` to make a ticket ready. The credential controls access and the actor recorded in Activity. Ticket commands never run during a hook or daily file sync, and never queue or retry a mutation automatically. If a connection drops after sending a write, read the ticket before retrying. PowerShell uses the same arguments with `sync.ps1`; `-Json` also selects structured output.
 
 ## The scripts
 

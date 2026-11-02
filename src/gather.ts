@@ -18,7 +18,7 @@ export const RESERVED_SKILL_PREFIX = "context-locker-";
  * playbook: the version goes up whenever the steps change.
  */
 export const GATHER_SKILL_ID = "c0de0000-6a7e-4e00-8000-000000000001";
-export const GATHER_SKILL_VERSION = 13;
+export const GATHER_SKILL_VERSION = 14;
 
 /**
  * What the skill may take. The Agent Skills format and Hermes allow a
@@ -49,7 +49,7 @@ export const GATHER_SKILL_MODEL = Object.freeze({
  */
 export const GATHER_PLAN_EXAMPLE = Object.freeze({
   plan_id: "0b6f1c2e-8a3b-4c5d-9e7f-0a1b2c3d4e5f",
-  new_projects: [
+  new_playbooks: [
     {
       name: "Docs site",
       why: "The studio's documentation site, with its own runbook and release notes.",
@@ -129,7 +129,7 @@ export const GATHER_PLAN_EXAMPLE = Object.freeze({
           kind: "skill",
         },
       ],
-      note: "Used for every release of the docs site, and it may suit other projects.",
+      note: "Used for every release of the docs site, and it may suit other playbooks.",
       could_apply_to: ["everywhere"],
     },
     {
@@ -281,7 +281,7 @@ function skillMd(harness: CompiledHarness | "mcp"): string {
   ];
   const map =
     harness === "mcp"
-      ? "that `project_map` lists"
+      ? "that `playbook_map` lists"
       : "that `sh ~/.contextlocker/sync.sh map <app>` lists";
   const held =
     harness === "mcp"
@@ -328,7 +328,7 @@ function skillMd(harness: CompiledHarness | "mcp"): string {
     "| A secret, a token or a raw transcript | Left out as `secret` or `transcript` |",
     "| A one-off or out-of-date note | Left out as `stale` |",
     "",
-    `Something that only matters in one project applies to that project, and the rest applies everywhere. Use the projects ${map}. When items belong to a project the playbook doesn't have, add it to \`new_projects\` with one line on what it's for: it's made only when the person brings something into it. When you can't tell where something belongs, put it in the likelier place and name the others in \`could_apply_to\`, for the person to pick.`,
+    `Something that only matters in one playbook applies to that playbook, and the rest applies everywhere. Use the playbooks ${map}. When items need a new playbook, add it to \`new_playbooks\` with one line on what it's for: it's made only when the person brings something into it. When you can't tell where something belongs, put it in the likelier place and name the others in \`could_apply_to\`, for the person to pick.`,
     "",
     "## 3. Merge and settle",
     "",
@@ -337,7 +337,7 @@ function skillMd(harness: CompiledHarness | "mcp"): string {
     "- When two items disagree, these rules pick one, and the other is left out as `conflict`:",
     "  1. What the person said beats what an app worked out.",
     "  2. A later decision beats an earlier one. A file's date isn't when the person decided.",
-    "  3. A project's own beats the general one.",
+    "  3. A playbook's own beats the general one.",
     "- When the rules can't pick, keep the likelier one and give it an `ask`: one short question that picking it answers yes to, such as \"Indent Python with spaces? Codex's instructions say tabs.\" The inbox shows the question beside it.",
     "- Give each preference, About fact and skill a `note`: why it's in, in a few words, such as \"In both apps' instructions.\" The inbox shows it.",
     `- For a preference, About fact or skill the playbook already has, set \`base_version\` to the version ${harness === "mcp" ? "`get_context` shows" : "`playbook.md` shows, if it shows one"}. The inbox shows the person what the playbook has beside it.`,
@@ -368,9 +368,9 @@ function planMd(): string {
     "## Fields",
     "",
     "- `plan_id`: keep the one the sync script wrote. Send the same one if you send the plan again, so nothing comes in twice. A chat app makes a random UUID once.",
-    "- `new_projects`: projects to make, each with a `name` and `why`, one line on what it's for. One is made only when the person brings something into it. Leave it out when there are none.",
-    "- `items`: up to 300. Each has a `type`, `applies_to` (`everywhere`, or a project's name or id, a new one's included) and `sources`: every source it came from, each with `app`, `path` and `date` as `sources.tsv` gives them, and `kind` if you like. A `note` says why it's in, in one line, and the inbox shows it. When you can't tell where it belongs, `could_apply_to` names up to 5 other places it could go, for the person to pick.",
-    "  - `preference` and `about`: `name` (lowercase words joined by hyphens) and `text`, up to 500 characters, with no empty lines.",
+    "- `new_playbooks`: playbooks to make, each with a `name` and `why`, one line on what it's for. One is made only when the person brings something into it. Leave it out when there are none. Older plan files may use `new_projects`; that alias still works, but send only one name.",
+    "- `items`: up to 300. Each has a `type`, `applies_to` (`everywhere`, or a playbook's name or id, a new one's included) and `sources`: every source it came from, each with `app`, `path` and `date` as `sources.tsv` gives them, and `kind` if you like. A `note` says why it's in, in one line, and the inbox shows it. When you can't tell where it belongs, `could_apply_to` names up to 5 other places it could go, for the person to pick.",
+    "  - `preference` and `about`: `name` (lowercase words joined by hyphens) and `text`, up to 800 characters, with no empty lines.",
     "  - `skill`: `name` and `files`, each with `path`, `content` and optional `encoding` (`utf8` by default, or `base64` for binary bytes). Preserve file bytes and paths, including empty files. A new skill needs SKILL.md, with front matter whose name matches. For a skill the playbook already has, send only the files to add or replace.",
     "  - A `preference`, `about` or `skill` the rules couldn't settle has an `ask`: one question of up to 200 characters that picking it answers yes to. The inbox shows it.",
     "  - For a `preference`, `about` or `skill` the playbook already has: `base_version`, the version you read. The inbox shows the person what the playbook has beside it.",

@@ -530,7 +530,7 @@ describe("a project's map in its block", () => {
     assert.ok(!none.includes(TEXT.startHereHeading));
     assert.ok(
       none.includes(
-        "Keep lasting docs in [docs/decisions](docs/decisions), this project's docs home, and add a link for each new one with write_note, if you have it.",
+        "Keep lasting docs in [docs/decisions](docs/decisions), this playbook's docs home, and add a link for each new one with write_note, if you have it.",
       ),
     );
   });
@@ -600,7 +600,7 @@ describe("a project's map in its block", () => {
             assert.doesNotMatch(output.text, /record_docs_home/);
             // Each tool is named only as one the app may have
             for (const line of output.text.split("\n")) {
-              for (const tool of ["project_map", "write_note", "read_note"]) {
+              for (const tool of ["playbook_map", "write_note", "read_note"]) {
                 if (line.includes(tool)) {
                   assert.match(
                     line,
@@ -618,7 +618,7 @@ describe("a project's map in its block", () => {
     }
     assert.ok(
       TEXT.onboarding.startsWith(
-        "Start each session with a three-line startup brief for the user: the project, the sources you'll use, and your first step.",
+        "Start each session with a three-line startup brief for the user: the playbook, the sources you'll use, and your first step.",
       ),
     );
   });

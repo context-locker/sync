@@ -1,7 +1,7 @@
 == {project}/.context-locker/notes/con-d4444444.md
 ---
 title: "Con"
-kind: "research"
+type: "research"
 use_as: "source-of-truth"
 summary: "What a conference talk taught us."
 tags: ["research"]
@@ -15,7 +15,7 @@ Notes from the talk.
 == {project}/.context-locker/notes/everywhere/writing-voice.md
 ---
 title: "Writing voice"
-kind: "profile"
+type: "profile"
 use_as: "source-of-truth"
 summary: "How Nova writes: plain words, short sentences, dates with the year."
 tags: ["writing"]
@@ -29,7 +29,7 @@ Plain words. Short sentences. Dates such as 21 Oct 2026.
 == {project}/.context-locker/notes/hosting-choice.md
 ---
 title: "Hosting: \"Vercel\" over Netlify"
-kind: "decision"
+type: "decision"
 use_as: "historic"
 summary: "Why we picked Vercel: previews per branch, and C:\\ paths in builds."
 tags: ["hosting"]
@@ -47,7 +47,7 @@ See the newer decision for what changed.
 == {project}/.context-locker/notes/release-plan.md
 ---
 title: "Release plan"
-kind: "plan"
+type: "plan"
 use_as: "source-of-truth"
 summary: "What ships in the Q4 release of the docs site, and when."
 tags: ["release", "q4"]
