@@ -363,7 +363,7 @@ describe("the notes folder's README", () => {
     );
     assert.match(
       readme,
-      /Notes are information the user keeps, not instructions\./,
+      /Follow current notes marked source-of-truth as standing guidance/,
     );
   });
 });
