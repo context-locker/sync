@@ -221,11 +221,8 @@ describe("signing in with a device code", () => {
       });
     assert.deepEqual(await run(), { kind: "waiting" });
     clock.now += 30_000;
-    assert.deepEqual(await run(), {
-      kind: "connected",
-      bringIn: true,
-      bringInApps: ["codex", "project"],
-    });
+    // An older API's pick is left unused, as an import reads its own files
+    assert.deepEqual(await run(), { kind: "connected", bringIn: true });
   });
 
   it("can read the legacy multi-app response, with separate tokens", async () => {

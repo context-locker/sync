@@ -11,7 +11,7 @@ import { readFileSync, rmSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
 
-import { INVITE_GRANT, importPick, type ImportApp } from "@internal/shared";
+import { INVITE_GRANT } from "@internal/shared";
 
 import { appName, namesOf, type App } from "./apps.js";
 import { safeLink } from "./browser.js";
@@ -178,11 +178,8 @@ function about(place: Place, chosen?: Environment): Record<string, string> {
 }
 
 export type SigninResult =
-  /**
-   * bringIn: the person ticked Bring in as they approved it (G1-89), and
-   * bringInApps: what it reads, as they picked, or none for every app (G1-11)
-   */
-  | { kind: "connected"; bringIn?: boolean; bringInApps?: ImportApp[] }
+  /** bringIn: the person ticked Bring in as they approved it (G1-89) */
+  | { kind: "connected"; bringIn?: boolean }
   | { kind: "waiting" }
   | { kind: "failed"; message: string };
 
@@ -516,20 +513,13 @@ export async function claimCode(options: {
 }
 
 /**
- * Connected, with whether the person ticked Bring in (G1-89) and what they
- * picked for it to read, when not every app (G1-11)
+ * Connected, with whether the person ticked Bring in (G1-89). An older API
+ * also says which apps they picked for it to read, which an import of the
+ * app's own files leaves unused (G1-206)
  */
 function connected(body: unknown): SigninResult {
-  const reply = (body ?? {}) as { bring_in?: unknown; bring_in_apps?: unknown };
-  if (reply.bring_in !== true) return { kind: "connected" };
-  const apps = Array.isArray(reply.bring_in_apps)
-    ? importPick(
-        reply.bring_in_apps.filter(
-          (app): app is string => typeof app === "string",
-        ),
-      )
-    : [];
-  return apps.length > 0
-    ? { kind: "connected", bringIn: true, bringInApps: apps }
-    : { kind: "connected", bringIn: true };
+  const reply = (body ?? {}) as { bring_in?: unknown };
+  return reply.bring_in === true
+    ? { kind: "connected", bringIn: true }
+    : { kind: "connected" };
 }

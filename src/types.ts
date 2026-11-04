@@ -48,13 +48,13 @@ export interface SkillInput extends ItemRef {
 }
 
 /**
- * One of a project's Start here entries, the few a new agent opens first: a
+ * One of a project's Start here entries, the few whose summaries a new agent reads first: a
  * note, or a pointer to the one file or page that holds the content. Its
  * title and summary may come from an AI app.
  */
 export interface StartHereInput extends ItemRef {
   title: string;
-  /** What it is, such as runbook or code */
+  /** What it is, such as guide or resource */
   kind: string;
   /** What it holds, in one line */
   summary: string;
@@ -76,7 +76,7 @@ export interface NoteInput extends ItemRef {
   /** The note's name, such as release-plan, which its file is named after */
   name: string;
   title: string;
-  /** plan, spec, decision, research, idea, log, profile, design, runbook or onboarding */
+  /** plan, spec, decision, research, guide, record or profile */
   kind: string;
   /** How AI apps should use it: source-of-truth, reference or historic */
   useAs: string;

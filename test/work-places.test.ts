@@ -45,7 +45,7 @@ test("a project's files say where its work is tracked once that's recorded", () 
       text,
       /GitHub Issues: https:\/\/github\.com\/acme\/app\/issues\. For: Bugs people report/,
     );
-    assert.match(text, /Keep existing tickets where they're tracked/);
+    assert.match(text, /Keep existing tasks where they're tracked/);
     // Nothing recorded, nothing said, so a project's files don't change
     const none = compile({ harness, project, preferences: [], skills: [] });
     assert.doesNotMatch(

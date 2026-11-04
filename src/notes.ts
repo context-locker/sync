@@ -27,12 +27,9 @@ export const NOTE_FILE_RULES = Object.freeze({
     "spec",
     "decision",
     "research",
-    "idea",
-    "log",
+    "guide",
+    "record",
     "profile",
-    "design",
-    "runbook",
-    "onboarding",
   ] as const),
   titleCharacters: 120,
   summaryCharacters: 200,
@@ -162,7 +159,7 @@ export function splitNoteFile(
 export const README_TEXT = {
   title: "# Notes from Context Locker",
   holds: (project: string) =>
-    `This folder holds the notes for ${project} from Context Locker, the user's playbook: plans, specs, decisions, research, ideas, logs, profiles, designs, runbooks and onboarding docs, one Markdown file each. A note that applies to other playbooks as well is in each of their folders too, and the notes that apply everywhere are in everywhere/. Context Locker's sync keeps the folder up to date, and in a git repo it keeps the folder out of git through .git/info/exclude.`,
+    `This folder holds the notes for ${project} from Context Locker, the user's playbook: plans, specifications, decisions, research, guides, records and profiles, one Markdown file each. A note that applies to other playbooks as well is in each of their folders too, and the notes that apply everywhere are in everywhere/. Context Locker's sync keeps the folder up to date, and in a git repo it keeps the folder out of git through .git/info/exclude.`,
   pointers:
     "Links aren't here. A link stands in for a note whose text lives somewhere else, such as a file in the repo or a page on the web, and the playbook's map lists each one with where it points.",
   information:

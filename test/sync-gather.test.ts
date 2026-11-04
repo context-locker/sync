@@ -1,7 +1,8 @@
-// The sync scripts' gather and gather-submit, run for real in each shell
-// against a fake home folder holding every AI app's files. Gather only reads
-// the apps' files, follows no link, never copies a secret, and keeps its
-// working sets private; gather-submit sends the plan with the app's token.
+// The sync scripts' import and import-submit, called gather and
+// gather-submit before, run for real in each shell against a fake home folder
+// holding every AI app's files. An import reads only its own app's files
+// (G1-206), follows no link, never copies a secret, and keeps its working
+// sets private; import-submit sends the plan with the app's token.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -106,7 +107,7 @@ interface Seen {
   body: string;
 }
 
-describe("gather, and gather-submit", () => {
+describe("import, and import-submit", () => {
   let server: Server;
   let baseUrl: string;
   const seen: Seen[] = [];
@@ -163,11 +164,13 @@ describe("gather, and gather-submit", () => {
     rmSync(work, { recursive: true, force: true });
   });
 
-  /** A computer where every AI app has files, and Claude Code is connected */
+  /** A computer where every AI app has files and is connected */
   function computer() {
     const home = mkdtempSync(join(work, "home-"));
     put(join(home, ".contextlocker", "config"), `api=${baseUrl}\n`);
-    put(join(home, ".contextlocker", "claude-code", "token"), "ctxl_at_test\n");
+    for (const app of ["claude-code", "codex", "hermes", "openclaw"]) {
+      put(join(home, ".contextlocker", app, "token"), "ctxl_at_test\n");
+    }
     const outside = join(home, "outside");
     put(join(outside, "notes.md"), "OUTSIDE-THE-SOURCE-FOLDER\n");
     put(join(outside, "skill", "SKILL.md"), "OUTSIDE-SKILL\n");
@@ -465,10 +468,10 @@ describe("gather, and gather-submit", () => {
 
   for (const shell of SHELLS) {
     describe(`in ${shell}`, () => {
-      it("copies every app's sources into a private working set, and changes nothing of theirs", async () => {
+      it("copies only this app's own sources into a private working set, and changes nothing of theirs", async () => {
         const { home, repo } = computer();
         const before = snapshot(home);
-        const result = await run(shell, home, ["gather", "claude-code"], repo);
+        const result = await run(shell, home, ["import", "claude-code"], repo);
         assert.equal(result.status, 0, result.stderr);
         assert.deepEqual(snapshot(home), before, "the apps' files changed");
 
@@ -477,7 +480,6 @@ describe("gather, and gather-submit", () => {
         assert.deepEqual(
           sources.map((row) => `${row.app} ${row.kind} ${row.path}`).sort(),
           [
-            "agents skill ~/.agents/skills/shared-skill/SKILL.md",
             "claude-code instructions ~/.claude/CLAUDE.md",
             "claude-code instructions ~/.claude/rules/style.md",
             "claude-code memory ~/.claude/projects/-home-ada-repo/memory/MEMORY.md",
@@ -489,25 +491,8 @@ describe("gather, and gather-submit", () => {
             "claude-code skill ~/.claude/skills/my-skill/empty.txt",
             "claude-code skill ~/.claude/skills/my-skill/logo.png",
             "claude-code skill ~/.claude/skills/my-skill/references/guide.md",
-            "codex instructions ~/.codex/AGENTS.md",
-            "codex memory ~/.codex/memories/notes.md",
-            "codex skill ~/.codex/skills/codex-skill/SKILL.md",
-            "grok-build instructions ~/.grok/GROK.md",
-            "grok-build skill ~/.grok/skills/grok-skill/SKILL.md",
-            "hermes identity ~/.hermes/SOUL.md",
-            "hermes memory ~/.hermes/memories/MEMORY.md",
-            "hermes profile ~/.hermes/memories/USER.md",
-            "hermes skill ~/.hermes/skills/research/arxiv-notes/SKILL.md",
-            "openclaw identity ~/.openclaw/workspace/IDENTITY.md",
-            "openclaw identity ~/.openclaw/workspace/SOUL.md",
-            "openclaw instructions ~/.openclaw/workspace/AGENTS.md",
-            "openclaw log ~/.openclaw/workspace/memory/2026-10-20.md",
-            "openclaw memory ~/.openclaw/workspace/MEMORY.md",
-            "openclaw profile ~/.openclaw/workspace/USER.md",
-            "openclaw skill ~/.openclaw/skills/hub-skill/SKILL.md",
-            "openclaw skill ~/.openclaw/workspace/skills/ws-skill/SKILL.md",
+            // The project's files Claude Code reads, not AGENTS.md
             "project instructions ~/repo/.claude/CLAUDE.md",
-            "project instructions ~/repo/AGENTS.md",
             "project instructions ~/repo/CLAUDE.md",
           ],
         );
@@ -527,17 +512,17 @@ describe("gather, and gather-submit", () => {
           );
           assert.ok(existsSync(join(set, row.copy as string)), row.copy);
         }
-        // The copies are where each app had them
+        // The copies are where the app had them
         assert.equal(
           readFileSync(
-            join(set, "openclaw/workspace/memory/2026-10-20.md"),
+            join(set, "claude-code/projects/-home-ada-repo/memory/testing.md"),
             "utf8",
           ),
-          "Fixed the login bug.\n",
+          "- Run the tests with npm test.\n",
         );
         assert.equal(
-          readFileSync(join(set, "hermes/memories/MEMORY.md"), "utf8"),
-          "Server runs Ubuntu.\n§\nUses fish.\n",
+          readFileSync(join(set, "project/.claude/CLAUDE.md"), "utf8"),
+          "Prefer small commits.\n",
         );
 
         // Only this account can read any of it
@@ -577,47 +562,124 @@ describe("gather, and gather-submit", () => {
         assert.match(
           result.stdout,
           new RegExp(
-            `^Context Locker gathered 32 sources into ${shown.replace(/[.]/g, "\\.")}, which only this account can read\\. No app's files changed, and nothing left this computer\\.\\n`,
+            `^Context Locker copied 13 sources from Claude Code's own files into ${shown.replace(/[.]/g, "\\.")}, which only this account can read\\. No file changed, and nothing left this computer\\.\\n`,
           ),
         );
         assert.match(
           result.stdout,
           /^- Claude Code: 2 instruction files, 2 memory files and 1 skill$/m,
         );
-        assert.match(
+        assert.doesNotMatch(
           result.stdout,
-          /^- Codex: 1 instruction file, 1 memory file and 1 skill$/m,
+          /^- (Codex|Hermes|OpenClaw|Grok Build|The skills folder)/m,
         );
         assert.match(
           result.stdout,
-          /^- The skills folder Codex and OpenClaw share: 1 skill$/m,
+          /^- This project, ~\/repo: 2 instruction files$/m,
         );
+        assert.match(result.stdout, /^Left out, 4:$/m);
         assert.match(
           result.stdout,
-          /^- Hermes: 1 identity file, 1 profile, 1 memory file and 1 skill$/m,
+          /\nNext: follow the Import skill, context-locker-import, from step 2 with this working set, and send the person one plan to pick from\.\n$/,
         );
+      });
+
+      it("reads only each app's own files, and the project's it reads, never another app's (G1-206)", async () => {
+        const own: Record<string, string[]> = {
+          codex: [
+            "agents skill ~/.agents/skills/shared-skill/SKILL.md",
+            "codex instructions ~/.codex/AGENTS.md",
+            "codex memory ~/.codex/memories/notes.md",
+            "codex skill ~/.codex/skills/codex-skill/SKILL.md",
+            "project instructions ~/repo/AGENTS.md",
+          ],
+          hermes: [
+            "hermes identity ~/.hermes/SOUL.md",
+            "hermes memory ~/.hermes/memories/MEMORY.md",
+            "hermes profile ~/.hermes/memories/USER.md",
+            "hermes skill ~/.hermes/skills/research/arxiv-notes/SKILL.md",
+            "project instructions ~/repo/AGENTS.md",
+          ],
+          openclaw: [
+            "agents skill ~/.agents/skills/shared-skill/SKILL.md",
+            "openclaw identity ~/.openclaw/workspace/IDENTITY.md",
+            "openclaw identity ~/.openclaw/workspace/SOUL.md",
+            "openclaw instructions ~/.openclaw/workspace/AGENTS.md",
+            "openclaw log ~/.openclaw/workspace/memory/2026-10-20.md",
+            "openclaw memory ~/.openclaw/workspace/MEMORY.md",
+            "openclaw profile ~/.openclaw/workspace/USER.md",
+            "openclaw skill ~/.openclaw/skills/hub-skill/SKILL.md",
+            "openclaw skill ~/.openclaw/workspace/skills/ws-skill/SKILL.md",
+          ],
+        };
+        const copies: Record<string, [string, string]> = {
+          codex: ["codex/memories/notes.md", "Ada prefers pnpm.\n"],
+          hermes: [
+            "hermes/memories/MEMORY.md",
+            "Server runs Ubuntu.\n§\nUses fish.\n",
+          ],
+          openclaw: [
+            "openclaw/workspace/memory/2026-10-20.md",
+            "Fixed the login bug.\n",
+          ],
+        };
+        for (const [app, expected] of Object.entries(own)) {
+          const { home, repo } = computer();
+          // gather, its name before, still works
+          const result = await run(
+            shell,
+            home,
+            [app === "hermes" ? "gather" : "import", app],
+            repo,
+          );
+          assert.equal(result.status, 0, result.stderr);
+          const set = workingSet(home);
+          assert.deepEqual(
+            rows(join(set, "sources.tsv"))
+              .map((row) => `${row.app} ${row.kind} ${row.path}`)
+              .sort(),
+            expected,
+            app,
+          );
+          const [copy, text] = copies[app] as [string, string];
+          assert.equal(readFileSync(join(set, copy), "utf8"), text, app);
+          assert.doesNotMatch(result.stdout, /Grok Build|Claude Code:/, app);
+        }
+
+        // --apps, which picked other apps' files, is taken and left unused
+        const { home, repo } = computer();
+        const picked = await run(
+          shell,
+          home,
+          ["import", "codex", "--apps", "claude-code,project"],
+          repo,
+        );
+        assert.equal(picked.status, 0, picked.stderr);
         assert.match(
-          result.stdout,
-          /^- OpenClaw: 1 instruction file, 2 identity files, 1 profile, 1 memory file, 1 daily log and 2 skills$/m,
+          picked.stdout,
+          /^Import reads only Codex's own files now, so -{1,2}[Aa]pps was left unused\.$/m,
         );
-        assert.match(
-          result.stdout,
-          /^- Grok Build: 1 instruction file and 1 skill$/m,
+        assert.deepEqual(
+          [
+            ...new Set(
+              rows(join(workingSet(home), "sources.tsv")).map((row) => row.app),
+            ),
+          ].sort(),
+          ["agents", "codex", "project"],
         );
-        assert.match(
-          result.stdout,
-          /^- This project, ~\/repo: 3 instruction files$/m,
+        // It's for an import only
+        const refused = await run(
+          shell,
+          home,
+          ["doctor", "codex", "--apps", "codex"],
+          repo,
         );
-        assert.match(result.stdout, /^Left out, 14:$/m);
-        assert.match(
-          result.stdout,
-          /\nNext: follow the Import skill, context-locker-gather, from step 2 with this working set, and show the person one plan to approve\.\n$/,
-        );
+        assert.equal(refused.status, 2);
       });
 
       it("cuts Context Locker's own blocks from the copies, and skips its skills and the notes folder", async () => {
         const { home, repo } = computer();
-        const result = await run(shell, home, ["gather", "claude-code"], repo);
+        const result = await run(shell, home, ["import", "claude-code"], repo);
         assert.equal(result.status, 0, result.stderr);
         assert.equal(
           result.stderr,
@@ -645,19 +707,10 @@ describe("gather, and gather-submit", () => {
           readFileSync(join(set, "claude-code/CLAUDE.md"), "utf8"),
           "# Mine\n\nUse plain words.\n\n",
         );
-        assert.equal(
-          readFileSync(join(set, "project/AGENTS.md"), "utf8"),
-          "# Repo\n\nUse tabs.\n\n",
-        );
-        assert.equal(
-          readFileSync(join(set, "openclaw/workspace/USER.md"), "utf8"),
-          "Ada lives in Auckland.\n\n",
-        );
         const notes = Object.fromEntries(
           rows(join(set, "sources.tsv")).map((row) => [row.path, row.note]),
         );
         assert.equal(notes["~/.claude/CLAUDE.md"], "cut");
-        assert.equal(notes["~/.hermes/SOUL.md"], "cut");
         assert.equal(notes["~/.claude/rules/style.md"], "-");
 
         const out = rows(join(set, "left-out.tsv"));
@@ -665,16 +718,45 @@ describe("gather, and gather-submit", () => {
           out.find((row) => row.path === path)?.code;
         assert.equal(code("~/.claude/rules/context-locker.md"), "own");
         assert.equal(code("~/.claude/skills/synced-skill"), "managed");
-        assert.equal(code("~/.hermes/skills/bundled-skill"), "bundled");
         assert.match(
           result.stdout,
           /^- 1 skill Context Locker manages, as it's in the playbook already\.$/m,
         );
-        assert.match(result.stdout, /^- 1 skill that came with Hermes\.$/m);
         assert.match(
           result.stdout,
           /^- 1 file that holds only Context Locker's own block\.$/m,
         );
+
+        // Each other app's blocks are cut from its own copies too
+        for (const [app, copy, text] of [
+          ["codex", "project/AGENTS.md", "# Repo\n\nUse tabs.\n\n"],
+          [
+            "openclaw",
+            "openclaw/workspace/USER.md",
+            "Ada lives in Auckland.\n\n",
+          ],
+          ["hermes", "hermes/SOUL.md", "You are Hermes, calm and exact.\n\n"],
+        ] as const) {
+          const machine = computer();
+          const ran = await run(
+            shell,
+            machine.home,
+            ["import", app],
+            machine.repo,
+          );
+          assert.equal(ran.status, 0, ran.stderr);
+          const own = workingSet(machine.home);
+          assert.equal(readFileSync(join(own, copy), "utf8"), text, app);
+          if (app === "hermes") {
+            assert.equal(
+              rows(join(own, "left-out.tsv")).find(
+                (row) => row.path === "~/.hermes/skills/bundled-skill",
+              )?.code,
+              "bundled",
+            );
+            assert.match(ran.stdout, /^- 1 skill that came with Hermes\.$/m);
+          }
+        }
       });
 
       it("keeps environment references and types, but still refuses literal credentials", async () => {
@@ -682,19 +764,30 @@ describe("gather, and gather-submit", () => {
         for (const [index, example] of SECRET_EXAMPLES.entries()) {
           put(join(codex, "memories", `example-${index}.md`), example.text);
         }
-        const result = await run(shell, home, ["gather", "claude-code"], repo);
+        const result = await run(shell, home, ["import", "codex"], repo);
         assert.equal(result.status, 0, result.stderr);
         assertExamples(home);
       });
 
-      it("leaves out what looks like a secret, and never copies it", async () => {
+      it("leaves out what looks like a secret, and never copies it, nor a file over 4 MB", async () => {
         const { home, repo } = computer();
-        const result = await run(shell, home, ["gather", "claude-code"], repo);
+        const result = await run(shell, home, ["import", "codex"], repo);
         assert.equal(result.status, 0, result.stderr);
         assertSecretsLeftOut(home);
         assert.match(
           result.stdout,
           /^- ~\/\.codex\/memories\/secrets\/aws\.md: it seems to hold an AWS access key, so it wasn't copied\. Secrets belong in ScopeHold\.$/m,
+        );
+        const out = Object.fromEntries(
+          rows(join(workingSet(home), "left-out.tsv")).map((row) => [
+            row.path,
+            row,
+          ]),
+        );
+        assert.equal(out["~/.codex/memories/big.md"]?.code, "size");
+        assert.equal(
+          out["~/.codex/memories/big.md"]?.why,
+          "it's 4297 KB, and Import takes files of up to 4 MB",
         );
       });
 
@@ -721,7 +814,7 @@ describe("gather, and gather-submit", () => {
         symlinkSync(join(outside, "notes.md"), join(claude, "CLAUDE.md"));
         symlinkSync(join(outside, "notes.md"), join(repo, "CLAUDE.local.md"));
 
-        const result = await run(shell, home, ["gather", "claude-code"], repo);
+        const result = await run(shell, home, ["import", "claude-code"], repo);
         assert.equal(result.status, 0, result.stderr);
         const set = workingSet(home);
         const everything = filesIn(set)
@@ -741,8 +834,6 @@ describe("gather, and gather-submit", () => {
           ),
           "~/.claude/skills/linked-skill",
           "~/.claude/projects/-home-ada-linked",
-          "~/.codex/memories/clients",
-          "~/.openclaw/workspace/memory/2026-10-21.md",
           "~/repo/CLAUDE.local.md",
         ];
         // Every link is in the left-out list, and named in what gather prints
@@ -778,11 +869,6 @@ describe("gather, and gather-submit", () => {
             readFileSync(join(home, ".claude/skills/my-skill", name)),
           );
         }
-        assert.equal(out["~/.codex/memories/big.md"]?.code, "size");
-        assert.equal(
-          out["~/.codex/memories/big.md"]?.why,
-          "it's 4297 KB, and Import takes files of up to 4 MB",
-        );
         assert.ok(
           existsSync(join(set, "claude-code/skills/my-skill/.DS_Store")),
         );
@@ -818,12 +904,7 @@ describe("gather, and gather-submit", () => {
             for (let i = 0; i < 3; i++)
               put(join(root, `file-${i}.bin`), Buffer.alloc(4 * 1024 * 1024));
           const before = snapshot(home);
-          const result = await run(
-            shell,
-            home,
-            ["gather", "claude-code"],
-            repo,
-          );
+          const result = await run(shell, home, ["import", "codex"], repo);
           assert.equal(result.status, 0, result.stderr);
           assert.deepEqual(snapshot(home), before, blocked);
           const set = workingSet(home);
@@ -863,7 +944,7 @@ describe("gather, and gather-submit", () => {
           );
         }
         // A plan holds 64 MB, and a smaller total keeps the test quick
-        const result = await run(shell, home, ["gather", "claude-code"], repo, {
+        const result = await run(shell, home, ["import", "codex"], repo, {
           CONTEXT_LOCKER_GATHER_MOST: String(20 * 1024 * 1024),
         });
         assert.equal(result.status, 0, result.stderr);
@@ -947,51 +1028,6 @@ describe("gather, and gather-submit", () => {
         assert.ok(existsSync(join(elsewhere, ".context-locker-gather")));
       });
 
-      it("reads only the apps the person picked, with --apps, and says which it didn't read (G1-11)", async () => {
-        const { home, repo } = computer();
-        const picked = await run(
-          shell,
-          home,
-          ["gather", "claude-code", "--apps", "codex,project"],
-          repo,
-        );
-        assert.equal(picked.status, 0, picked.stderr);
-        const set = workingSet(home);
-        const apps = new Set(
-          rows(join(set, "sources.tsv")).map((row) => row.app),
-        );
-        assert.deepEqual([...apps].sort(), ["codex", "project"]);
-        assert.deepEqual(
-          readdirSync(set)
-            .filter((name) => !name.includes("."))
-            .sort(),
-          ["codex", "project"],
-        );
-        // What it read, and what it didn't, by name
-        assert.match(picked.stdout, /^- Codex: /m);
-        assert.doesNotMatch(picked.stdout, /^- (Claude Code|Hermes): /m);
-        assert.match(
-          picked.stdout,
-          /^Not read, as the person didn't pick it: Claude Code, Hermes, OpenClaw, Grok Build and the skills folder Codex and OpenClaw share\.$/m,
-        );
-        assert.match(
-          readFileSync(join(set, "README.md"), "utf8"),
-          /^The person picked what this import reads: Codex and the project\. Nothing else was read\.$/m,
-        );
-
-        // A name that isn't one, none at all, or --apps for anything but
-        // gather is a mistake in the command
-        for (const args of [
-          ["gather", "claude-code", "--apps", "safari"],
-          ["gather", "claude-code", "--apps", ","],
-          ["gather", "claude-code", "--apps", ""],
-          ["doctor", "claude-code", "--apps", "codex"],
-        ]) {
-          const refused = await run(shell, home, args, repo);
-          assert.equal(refused.status, 2, args.join(" "));
-        }
-      });
-
       it("refuses to run when the app isn't connected", async () => {
         const { home, repo } = computer();
         rmSync(join(home, ".contextlocker", "claude-code", "token"));
@@ -1004,7 +1040,7 @@ describe("gather, and gather-submit", () => {
         assert.ok(!existsSync(join(home, ".contextlocker", "gather")));
       });
 
-      it("gather-submit sends the plan with the app's token, prints the answer, and then deletes Gather's copies", async () => {
+      it("import-submit sends the plan with the app's token, prints the answer, and then deletes Import's copies", async () => {
         const { home, repo } = computer();
         // Two working sets of Gather's, and a folder that isn't one
         const root = join(home, ".contextlocker", "gather");
@@ -1033,7 +1069,7 @@ describe("gather, and gather-submit", () => {
         const result = await run(
           shell,
           home,
-          ["gather-submit", "claude-code", plan],
+          ["import-submit", "claude-code", plan],
           repo,
         );
         assert.equal(result.status, 0, result.stderr);
@@ -1142,11 +1178,11 @@ describe("gather, and gather-submit", () => {
         const usage = await run(
           shell,
           home,
-          ["gather-submit", "claude-code"],
+          ["import-submit", "claude-code"],
           repo,
         );
         assert.equal(usage.status, 2);
-        assert.match(usage.stderr, /gather-submit <app> <plan\.json>/);
+        assert.match(usage.stderr, /import-submit <app> <plan\.json>/);
       });
 
       it("counts what an Import read once its plan is in, so the doctor asks about it again only once it's new or changed (G1-115)", async () => {
@@ -1240,7 +1276,7 @@ describe("gather, and gather-submit", () => {
         assert.match(
           later.stdout,
           new RegExp(
-            `^WARN {2}Claude Code's memory, in ~/\\.claude/projects/-home-ada-repo/memory, have 1 new or changed file since an Import read them on ${shown}, with 1 line outside Context Locker\\. Bring them into your playbook with Import \\(.+ gather claude-code\\), or keep them in Claude Code only \\(.+ keep claude-code ~/\\.claude/projects/-home-ada-repo/memory\\)\\.$`,
+            `^WARN {2}Claude Code's memory, in ~/\\.claude/projects/-home-ada-repo/memory, have 1 new or changed file since an Import read them on ${shown}, with 1 line outside Context Locker\\. Bring them into your playbook with Import \\(.+ import claude-code\\), or keep them in Claude Code only \\(.+ keep claude-code ~/\\.claude/projects/-home-ada-repo/memory\\)\\.$`,
             "m",
           ),
         );
@@ -1357,13 +1393,9 @@ exec "${awk}" "$@"
           for (const [index, example] of SECRET_EXAMPLES.entries()) {
             put(join(codex, "memories", `example-${index}.md`), example.text);
           }
-          const result = await run(
-            "dash",
-            home,
-            ["gather", "claude-code"],
-            repo,
-            { PATH: `${bin}:${process.env.PATH ?? ""}` },
-          );
+          const result = await run("dash", home, ["import", "codex"], repo, {
+            PATH: `${bin}:${process.env.PATH ?? ""}`,
+          });
           assert.equal(result.status, 0, result.stderr);
           assert.equal(result.stderr, "");
           assertExamples(home);

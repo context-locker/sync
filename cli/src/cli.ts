@@ -17,8 +17,8 @@ writes that app's files, adds its hooks and checks everything.
 Options:
   --app <name>      Set up one app: ${appList()}.
                     Run setup separately for each app you want to connect.
-  --environment <computer|cloud>  Where this app runs; otherwise the approval
-                    page asks when it cannot be detected.
+  --environment <computer|cloud>  Where this app runs; otherwise a cloud
+                    session is detected, or it runs on this device.
   --code <code>     Connect one app with a one-time code made in Context
                     Locker, with nothing to approve.
   --no-browser      Show the approval link without opening it.
