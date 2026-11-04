@@ -8,7 +8,7 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v36`](setup/v36), which run `context-locker@0.1.14`.
+Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v37`](setup/v37), which run `context-locker@0.1.14`. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for the app you are, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
 
 Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.14 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
 
@@ -105,7 +105,7 @@ sh ~/.contextlocker/sync.sh readback codex    # what the app's files now hold, w
 sh ~/.contextlocker/sync.sh keep codex ~/.codex/memories  # the doctor's other answer: keep them in Codex only
 ```
 
-The first `signin` returns at once, because an AI app usually shows a command's output only when it ends. A one-time code works once, for 15 minutes, and the connection takes the name the person gave it. Polling never runs faster than the server asks, even across runs. In PowerShell the same modes are `sync.ps1 signin codex` and so on, and sync.sh's spellings of the options work too.
+The first `signin` returns at once, because an AI app usually shows a command's output only when it ends. A one-time code works once, for 15 minutes. The connection takes the name the person gave the code, or, for a code made without one, is named after the app and its computer, such as Claude Code on MacBook Air. Polling never runs faster than the server asks, even across runs. In PowerShell the same modes are `sync.ps1 signin codex` and so on, and sync.sh's spellings of the options work too.
 
 The doctor checks the script, the connection, the app's hooks and its daily job. It says when Hermes hasn't approved the hooks, when OpenClaw's hook is turned off, or when a daily job is missing, paused or disabled. It keeps existing jobs. It also says how full each of the playbook's limits is, and what has drifted since the last sync: edits not yet saved, files a sync wrote that are gone, and a last sync more than 7 days ago. It asks once about each instruction file, or folder of memories, with lines outside Context Locker's blocks: bring them in with Import, or keep them in the app only with `keep`. The answers stay on the computer, in `~/.contextlocker/sources`, by each file's path and the SHA-256 of its lines outside the blocks, and what an Import read counts once its plan is in, so it asks again only about a file that's new or changed. It leaves out a project file the playbook links to, and one that only points at one. It ends with a line that sums it up.
 
@@ -209,7 +209,7 @@ For the other modes:
 
 [`cli`](cli) is the source of `context-locker` on npm, the setup command that setup steps run with `npx`, at the version [`cli/package.json`](cli/package.json) names. It signs one AI app in, saves the sync script from [`scripts`](scripts), writes that app's files, adds its hooks and runs the doctor.
 
-0.1.14 bundles script 30, so `npx context-locker setup` installs the current script without an update step, and setup 36's steps run it. It takes an app it can't place to run on this computer, sends no app picks with its sign-in, and its last line names `context-locker-import`.
+0.1.14 bundles script 30, so `npx context-locker setup` installs the current script without an update step, and setup 36's and 37's steps run it. It takes an app it can't place to run on this computer, sends no app picks with its sign-in, and its last line names `context-locker-import`.
 
 Its files are copied unchanged from the platform's repo with each release of the command. So they build here as they do there, [`compilers/scripts`](compilers/scripts) links to `scripts`, and [`cli/tsconfig.json`](cli/tsconfig.json) points `@internal/compilers` at [`src`](src) and `@internal/shared` at [`cli/shared.ts`](cli/shared.ts), a copy of the few things the command uses from the platform's shared package.
 
