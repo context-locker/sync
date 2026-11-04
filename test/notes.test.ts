@@ -350,7 +350,7 @@ describe("the notes folder's README", () => {
     const readme = renderNotesReadme({ projectName: project.name, tags: [] });
     assert.ok(
       readme.includes(
-        "type is plan, spec, decision, research, idea, log, profile, design, runbook or onboarding.",
+        "type is plan, spec, decision, research, guide, record or profile.",
       ),
     );
     // Links are the map's, and have no files here. People know a pointer as a link

@@ -166,6 +166,9 @@ class FakeLocker {
     text: "Done. The check no longer finds the problem, so it's gone from Tidy-up.\n",
   };
   marks: Array<{ id: string; body: string; type: string }> = [];
+  /** What GET /v1/sync/moves gives, and what each POST said of one (G1-208) */
+  moves = "";
+  movesSaid: Array<{ id: string; body: string }> = [];
   /** How POST /v1/sync/move-out answers: a status and text, or "drop" */
   answer: (body: string) => { status: number; text: string } | "drop" = (
     body,
@@ -284,7 +287,8 @@ describe("the sync scripts' tools", () => {
           });
         } else if (
           request.method === "POST" &&
-          url.pathname.startsWith("/v1/sync/tickets/")
+          (url.pathname.startsWith("/v1/sync/tickets/") ||
+            url.pathname.startsWith("/v1/sync/requests/"))
         ) {
           fake.ticketCalls.push({
             command: url.pathname.split("/").at(-1)!,
@@ -292,6 +296,17 @@ describe("the sync scripts' tools", () => {
             accept: String(request.headers.accept ?? ""),
           });
           send(fake.tickets.status, "text/plain", fake.tickets.text);
+        } else if (route === "GET /v1/sync/moves") {
+          send(200, "text/plain; charset=utf-8", fake.moves);
+        } else if (
+          request.method === "POST" &&
+          url.pathname.startsWith("/v1/sync/moves/")
+        ) {
+          fake.movesSaid.push({
+            id: url.pathname.slice("/v1/sync/moves/".length),
+            body,
+          });
+          send(200, "text/plain", "ok\n");
         } else if (route === "GET /v1/sync/caps") {
           send(fake.caps.status, "text/plain", fake.caps.text);
         } else if (route === "GET /v1/export") {
@@ -568,6 +583,87 @@ describe("the sync scripts' tools", () => {
         assert.equal(result.status, 1);
         assert.match(result.stderr, /held by another AI app/);
         assert.equal(fake.ticketCalls.length, 1);
+      });
+
+      it("relays exact decision inputs online without syncing or retrying an answer", async () => {
+        const machine = computer(shell);
+        const cwd = project(machine.home);
+        const file = join(machine.home, "decision request.json");
+        const payload = JSON.stringify({
+          id: randomUUID(),
+          source: "change",
+          binding: "a".repeat(64),
+          request_id: randomUUID(),
+          answer: "reject",
+          consent: {
+            source: "human_in_chat",
+            instruction:
+              "Reject this exact proposal. Keep Café's wording. 世界",
+          },
+        });
+        writeFileSync(file, payload);
+        const before = readdirSync(cwd).sort();
+        for (const command of ["list", "read", "answer"]) {
+          const result = await run(shell, machine, {
+            mode: "requests",
+            cwd,
+            args: [command, file, "--json"],
+          });
+          assert.equal(result.status, 0, result.stderr);
+          assert.deepEqual(fake.ticketCalls.at(-1), {
+            command,
+            body: payload,
+            accept: "application/json",
+          });
+          assert.ok(
+            fake.requests.includes(
+              `POST /v1/sync/requests/${command}?project=${PROJECT}`,
+            ),
+          );
+        }
+        const listed = await run(shell, machine, { mode: "requests", cwd });
+        assert.equal(listed.status, 0, listed.stderr);
+        assert.equal(
+          fake.ticketCalls.at(-1)?.body,
+          "{}" + (shell === "pwsh" ? "" : "\n"),
+        );
+        const sent = fake.ticketCalls.length;
+        fake.tickets = {
+          status: 409,
+          text: "The request changed. Read it again.\n",
+        };
+        const refused = await run(shell, machine, {
+          mode: "requests",
+          cwd,
+          args: ["answer", file, "--json"],
+        });
+        assert.equal(refused.status, 1);
+        assert.match(refused.stderr, /request changed/);
+        assert.equal(
+          fake.ticketCalls.length,
+          sent + 1,
+          "answers are never retried automatically",
+        );
+        for (const args of [
+          ["answer"],
+          ["write", file],
+          ["list", "--daily"],
+          ["list", "--hook"],
+        ]) {
+          const invalid = await run(shell, machine, {
+            mode: "requests",
+            cwd,
+            args,
+          });
+          assert.equal(invalid.status, 2, invalid.stderr);
+        }
+        assert.equal(fake.ticketCalls.length, sent + 1);
+        assert.deepEqual(readdirSync(cwd).sort(), before);
+        assert.equal(read(file), payload);
+        assert.equal(
+          fake.requests.some((request) => request.startsWith("GET /v1/sync?")),
+          false,
+        );
       });
 
       it("refuses missing requests, unknown commands and oversized imports before sending", async () => {
@@ -849,7 +945,7 @@ describe("the sync scripts' tools", () => {
           assert.equal(doctor.status, 0, doctor.stdout + doctor.stderr);
           const choice = (path: string) =>
             escape(
-              `Bring them into your playbook with Import (${runLine(shell)} gather codex), or keep them in Codex only (${runLine(shell)} keep codex ${path}).`,
+              `Bring them into your playbook with Import (${runLine(shell)} import codex), or keep them in Codex only (${runLine(shell)} keep codex ${path}).`,
             );
           assert.match(
             doctor.stdout,
@@ -892,7 +988,7 @@ describe("the sync scripts' tools", () => {
         const today = escape(dayOf(new Date()));
         const choice = (path: string) =>
           escape(
-            `Bring them into your playbook with Import (${runLine(shell)} gather codex), or keep them in Codex only (${runLine(shell)} keep codex ${path}).`,
+            `Bring them into your playbook with Import (${runLine(shell)} import codex), or keep them in Codex only (${runLine(shell)} keep codex ${path}).`,
           );
         const memoriesAsked = (what: string) =>
           new RegExp(
@@ -923,7 +1019,7 @@ describe("the sync scripts' tools", () => {
         assert.equal(kept.status, 0, kept.stdout + kept.stderr);
         assert.equal(
           kept.stdout,
-          `Kept in Codex only: 2 files in ~/.codex/memories. The doctor asks about them again only once one is new or changes. To bring them into your playbook later, run Import: ${runLine(shell)} gather codex\n`,
+          `Kept in Codex only: 2 files in ~/.codex/memories. The doctor asks about them again only once one is new or changes. To bring them into your playbook later, run Import: ${runLine(shell)} import codex\n`,
         );
         const sources = read(join(machine.home, ".contextlocker", "sources"))
           .split("\n")
@@ -987,7 +1083,7 @@ describe("the sync scripts' tools", () => {
         assert.equal(keptFile.status, 0, keptFile.stdout + keptFile.stderr);
         assert.equal(
           keptFile.stdout,
-          `Kept in Codex only: ~/.codex/AGENTS.md. The doctor asks about it again only once it changes. To bring it into your playbook later, run Import: ${runLine(shell)} gather codex\n`,
+          `Kept in Codex only: ~/.codex/AGENTS.md. The doctor asks about it again only once it changes. To bring it into your playbook later, run Import: ${runLine(shell)} import codex\n`,
         );
         assert.match(
           (await run(shell, machine, { mode: "doctor" })).stdout,
@@ -1075,7 +1171,7 @@ describe("the sync scripts' tools", () => {
         );
         const choice = (path: string) =>
           escape(
-            `Bring them into your playbook with Import (${runLine(shell)} gather codex), or keep them in Codex only (${runLine(shell)} keep codex ${path}).`,
+            `Bring them into your playbook with Import (${runLine(shell)} import codex), or keep them in Codex only (${runLine(shell)} keep codex ${path}).`,
           );
 
         const linked = await run(shell, machine, { mode: "doctor", cwd: repo });
@@ -1121,6 +1217,129 @@ describe("the sync scripts' tools", () => {
           ),
         );
         assert.doesNotMatch(unlinked.stdout, /points at/);
+      });
+
+      it("takes what the person picked from its import out of its own files, where it's still as imported, and lists what's in a repository (G1-208)", async () => {
+        const machine = computer(shell);
+        const { home } = machine;
+        const agents = join(home, ".codex", "AGENTS.md");
+        const notes = join(home, ".codex", "memories", "notes.md");
+        mkdirSync(join(home, ".codex", "memories"), { recursive: true });
+        const mine =
+          "# Mine\n\n- Use plain words.\n- Write dates with the year.\n\nKeep it short.\n";
+        writeFileSync(agents, mine);
+        writeFileSync(notes, "Ada prefers pnpm.\r\nAda uses fish.\r\n");
+        // A file in a code repository, and one that isn't Codex's own
+        const repo = join(home, "repo");
+        mkdirSync(join(repo, ".git"), { recursive: true });
+        writeFileSync(join(repo, "AGENTS.md"), "# Repo\n\n- Use tabs.\n");
+        mkdirSync(join(home, "elsewhere"));
+        writeFileSync(join(home, "elsewhere", "notes.md"), "- Be brief.\n");
+        const ids: string[] = Array.from({ length: 6 }, () => randomUUID());
+        const frame = (id: string, path: string, lines: string[]) =>
+          `move ${id} ${lines.length}\n${path}\n${lines.join("\n")}\n`;
+        fake.moves = [
+          frame(ids[0]!, "~/.codex/AGENTS.md", ["- Use plain words."]),
+          frame(ids[1]!, "~/.codex/memories/notes.md", ["Ada prefers pnpm."]),
+          // Edited since the import, so it stays
+          frame(ids[2]!, "~/.codex/AGENTS.md", ["- Write the year in dates."]),
+          frame(ids[3]!, "~/repo/AGENTS.md", ["- Use tabs."]),
+          frame(ids[4]!, "~/elsewhere/notes.md", ["- Be brief."]),
+          frame(ids[5]!, "~/.codex/memories/gone.md", ["move 1 2", ""]),
+        ].join("");
+
+        // A plan says what a sync would do, and changes nothing
+        const planned = await run(shell, machine, { mode: "plan" });
+        assert.equal(planned.status, 0, planned.stdout + planned.stderr);
+        assert.match(
+          planned.stdout,
+          /^- Take 1 line you brought into your playbook out of ~\/\.codex\/AGENTS\.md\. A copy of the file goes in .+\/backups first\.$/m,
+        );
+        assert.match(
+          planned.stdout,
+          /^- Leave 1 line in ~\/\.codex\/AGENTS\.md as they are: they changed since you brought them into your playbook\.$/m,
+        );
+        assert.equal(read(agents), mine);
+        assert.equal(fake.movesSaid.length, 0);
+
+        const synced = await run(shell, machine);
+        assert.equal(synced.status, 0, synced.stdout + synced.stderr);
+        // The picked line goes, after a backup; the rest, and Context
+        // Locker's block, stay
+        const after = read(agents);
+        assert.ok(!after.includes("- Use plain words.\n"), after);
+        assert.ok(
+          after.startsWith(
+            "# Mine\n\n- Write dates with the year.\n\nKeep it short.\n",
+          ),
+          after,
+        );
+        assert.ok(after.includes("<!-- context-locker:start"), after);
+        assert.equal(read(notes), "Ada uses fish.\r\n");
+        const backups = join(home, ".contextlocker", "backups");
+        const [stamp] = readdirSync(backups);
+        const kept = readdirSync(join(backups, stamp!, "codex")).filter(
+          (name) => name.startsWith(`moved-${ids[0]}`),
+        );
+        assert.equal(kept.length, 1, kept.join(", "));
+        assert.match(
+          read(join(backups, stamp!, "codex", kept[0]!)),
+          /- Use plain words\./,
+        );
+        // Files it never edits stay as they are, their lines listed
+        assert.equal(read(join(repo, "AGENTS.md")), "# Repo\n\n- Use tabs.\n");
+        assert.equal(
+          read(join(home, "elsewhere", "notes.md")),
+          "- Be brief.\n",
+        );
+        assert.match(
+          synced.stdout,
+          /Context Locker: took 1 line you brought into your playbook out of ~\/\.codex\/AGENTS\.md, so Codex doesn't read them twice\. A copy of the file is in ~\/\.contextlocker\/backups\./,
+        );
+        assert.match(
+          synced.stdout,
+          /Context Locker: 1 line you brought into your playbook from ~\/\.codex\/AGENTS\.md changed there since, or are there more than once, so they stay as they are\./,
+        );
+        assert.ok(
+          synced.stdout.includes(
+            "Context Locker: you brought 1 line from ~/repo/AGENTS.md into your playbook. The file stays as it is, as it's in a code repository, which others may share. If they shouldn't be there any more, take them out:\n    - Use tabs.\n",
+          ),
+          synced.stdout,
+        );
+        assert.ok(
+          synced.stdout.includes(
+            "from ~/elsewhere/notes.md into your playbook. The file stays as it is, as it isn't one of Codex's own files.",
+          ),
+          synced.stdout,
+        );
+        // Context Locker hears what came of each
+        assert.deepEqual(
+          fake.movesSaid.map(
+            ({ id, body }) => `${ids.indexOf(id)} ${body.trim()}`,
+          ),
+          ["0 moved", "1 moved", "2 changed", "3 listed", "4 listed", "5 gone"],
+        );
+
+        // When its word didn't arrive, the next sync says it again, and
+        // changes nothing more
+        fake.movesSaid.splice(0);
+        const again = await run(shell, machine);
+        assert.equal(again.status, 0, again.stdout + again.stderr);
+        assert.equal(read(notes), "Ada uses fish.\r\n");
+        assert.doesNotMatch(again.stdout, /you brought/);
+        assert.deepEqual(
+          fake.movesSaid.map(
+            ({ id, body }) => `${ids.indexOf(id)} ${body.trim()}`,
+          ),
+          ["0 moved", "1 moved", "2 changed", "3 listed", "4 listed", "5 gone"],
+        );
+        // Once it was heard, nothing is kept of it
+        fake.moves = "";
+        assert.equal((await run(shell, machine)).status, 0);
+        assert.equal(
+          existsSync(join(home, ".contextlocker", "codex", "moved")),
+          false,
+        );
       });
 
       it("says what drifted since the last sync, and fails without the hook", async () => {

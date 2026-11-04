@@ -1,7 +1,11 @@
 // The harness compilers. Each AI app reads instructions and skills from its
 // own places, with its own limits; these turn one playbook into the files each
 // app needs, and the sync script writes them.
-import { GATHER_SKILL_NAME, gatherSkill } from "./gather.js";
+import {
+  IMPORT_SKILL_NAME,
+  LEGACY_IMPORT_SKILL_NAME,
+  importSkill,
+} from "./import-skill.js";
 import { notesFolderOutputs } from "./notes.js";
 import {
   renderBlock,
@@ -168,26 +172,27 @@ const byName = (a: { name: string }, b: { name: string }) =>
   a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 
 /**
- * The global sync's skills: the person's own, and Context Locker's Gather
- * skill, which every app gets. A skill of the person's with the Gather
- * skill's name is left out, and named.
+ * The global sync's skills: the person's own, and Context Locker's Import
+ * skill, which every app gets. A skill of the person's with the Import
+ * skill's name, or the name it had before G1-206, is left out, and named.
  */
 function globalSkills(
   harness: CompiledHarness,
   skillList: SkillInput[],
 ): { skills: SkillInput[]; notes: string[] } {
-  const clash = skillList.filter((skill) => skill.name === GATHER_SKILL_NAME);
+  const ours = (skill: SkillInput) =>
+    skill.name === IMPORT_SKILL_NAME || skill.name === LEGACY_IMPORT_SKILL_NAME;
   return {
     skills: [
-      ...skillList.filter((skill) => skill.name !== GATHER_SKILL_NAME),
-      gatherSkill(harness),
+      ...skillList.filter((skill) => !ours(skill)),
+      importSkill(harness),
     ].sort(byName),
-    notes:
-      clash.length > 0
-        ? [
-            `Your skill ${GATHER_SKILL_NAME} has the name of Context Locker's own Import skill, so it was left out of ${NAMES[harness]}'s files.`,
-          ]
-        : [],
+    notes: skillList
+      .filter(ours)
+      .map(
+        (skill) =>
+          `Your skill ${skill.name} has the name of Context Locker's own Import skill, so it was left out of ${NAMES[harness]}'s files.`,
+      ),
   };
 }
 

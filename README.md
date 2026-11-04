@@ -8,11 +8,11 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v32`](setup/v32), using `context-locker@0.1.13`.
+Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v35`](setup/v35), which run `context-locker@0.1.13` and then the script's `update` command.
 
-Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.13 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
+Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.14 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
 
-The browser approval names that app, lets you name the connection, and asks whether it runs on a Computer or in the Cloud. A supported cloud runtime can suggest the location, or pass `--environment computer` or `--environment cloud`. Unknown environments need a human choice. The command writes the selected app's files, adds its sync hook and runs the doctor. Gather is a separate import with an agreed scope and approval; reading another app's information does not connect or configure it. When you tick Bring in as you approve the connection, or as you make its one-time code, setup's last line tells the app to import now, and a Claude Code or Codex session start says so once. The import waits in your inbox, where you pick what comes in. Existing connections and hooks are never removed automatically.
+The browser approval names that app and lets you name the connection. The command takes a cloud session it recognises to run in the Cloud, and any other app to run on this computer, unless you pass `--environment computer` or `--environment cloud`. It writes the selected app's files, adds its sync hook and runs the doctor. Import is separate, with an agreed scope and approval: an app imports only its own files, and reading them doesn't connect or configure anything. When you tick Bring in as you approve the connection, or as you make its one-time code, setup's last line tells the app to import now, and a Claude Code or Codex session start says so once. The import waits in your inbox, where you pick what comes in. Existing connections and hooks are never removed automatically.
 
 Without Node, the pinned steps have the app download the script, check its hash, sign in, show what a sync would write and add only its own hooks.
 
@@ -31,6 +31,18 @@ sh ~/.contextlocker/sync.sh tickets codex write change.json --json
 ```
 
 `read.json` can hold `{"playbook":"Context Locker","ticket":"G1-151"}`. Only the person's explicit instruction permits `user_confirmed: true` to make a ticket ready. The credential controls access and the actor recorded in Activity. Ticket commands never run during a hook or daily file sync, and never queue or retry a mutation automatically. If a connection drops after sending a write, read the ticket before retrying. PowerShell uses the same arguments with `sync.ps1`; `-Json` also selects structured output.
+
+## Decisions from chat
+
+Script 28 in setup 33 adds `requests <app> list|read|answer [request.json] [--json]`, so the person can answer a request in their inbox from a chat, with the connection's existing credential:
+
+```sh
+sh ~/.contextlocker/sync.sh requests codex list --json
+sh ~/.contextlocker/sync.sh requests codex read request.json --json
+sh ~/.contextlocker/sync.sh requests codex answer decision.json --json
+```
+
+The JSON matches MCP's `pending_changes`, `read_request` and `decide_request`, and the server applies exactly their rules. Read everything relevant first. An answer names the request's source, id and binding, a fresh `request_id` kept for identical retries, the answer, and `consent: {"source":"human_in_chat","instruction":"the person's specific instruction"}`. An import's answer names the exact items picked and where each goes. The person must turn on Chat decisions for the connection, and an answer never makes a ticket ready or completes one. Security and access changes stay with the person, in Context Locker. Request commands never run from a hook or a daily sync, never queue offline and never retry on their own. PowerShell uses the same arguments with `sync.ps1`.
 
 ## Skill file transfers
 
@@ -51,6 +63,16 @@ CLI 0.1.13 remains supported; the newest setup steps run the script update after
 setup. No new hooks or schedules are added. Free allows 100 MB of current active
 skills and Pro 1 GB, counted from original file sizes, excluding older versions
 and encoding, compression and encryption overhead.
+
+## How much of a file each app reads
+
+Apps stop reading long instruction files at their own limits, and Context Locker's block usually sits at the end of a file that holds other text. So script 30 in setup 35 measures the whole file each app loads, not the block alone. It says what an app would miss when it writes a block, and the doctor says it every time it runs:
+
+- Codex reads one instruction file a folder, `AGENTS.override.md` before `AGENTS.md`, from the top of the git work tree down, and stops at `project_doc_max_bytes` in all: 32 KiB, unless its `config.toml` sets another number above its first table. So the files in the folders above a linked folder use its room first, and an `AGENTS.override.md` in the linked folder means Codex never reads the block. A Codex session that misses part of the block is told at its start to read the block in the file. The global `~/.codex/AGENTS.md` doesn't count towards the limit.
+- Hermes loads one kind of project file: the nearest `.hermes.md` or `HERMES.md` up to the top of the repo, then `AGENTS.override.md`, then `AGENTS.md`. It keeps the first 70% and last 20% of a file over its limit, which is `context_file_max_chars` in its `config.yaml`, or else grows with its model's context window from 20,000 characters. `SOUL.md` is measured the same way.
+- OpenClaw reads up to 20,000 characters of each startup file, 4,000 of `USER.md`, and 60,000 across them.
+
+The checks don't read Codex's fallback file names or root markers, or OpenClaw's own limits, so those settings can make an app read more or less than the warning says.
 
 ## The scripts
 
@@ -87,15 +109,16 @@ The first `signin` returns at once, because an AI app usually shows a command's 
 
 The doctor checks the script, the connection, the app's hooks and its daily job. It says when Hermes hasn't approved the hooks, when OpenClaw's hook is turned off, or when a daily job is missing, paused or disabled. It keeps existing jobs. It also says how full each of the playbook's limits is, and what has drifted since the last sync: edits not yet saved, files a sync wrote that are gone, and a last sync more than 7 days ago. It asks once about each instruction file, or folder of memories, with lines outside Context Locker's blocks: bring them in with Import, or keep them in the app only with `keep`. The answers stay on the computer, in `~/.contextlocker/sources`, by each file's path and the SHA-256 of its lines outside the blocks, and what an Import read counts once its plan is in, so it asks again only about a file that's new or changed. It leaves out a project file the playbook links to, and one that only points at one. It ends with a line that sums it up.
 
-Gather brings in what your AI apps already know:
+Import brings in what an AI app already knows:
 
 ```sh
-sh ~/.contextlocker/sync.sh gather codex                     # copies every AI app's sources into a private working set
-sh ~/.contextlocker/sync.sh gather codex --apps codex,project # only the apps the person picked
-sh ~/.contextlocker/sync.sh gather-submit codex <plan.json>  # stages the plan for you to pick from in the inbox
+sh ~/.contextlocker/sync.sh import codex                     # copies the app's own files into a private working set
+sh ~/.contextlocker/sync.sh import-submit codex <plan.json>  # stages the plan for you to pick from in the inbox
 ```
 
-`gather` only reads. It copies each app's instructions, skills and memories, and the project's own, or with `--apps` only those of the apps the person picked where they ticked Bring in or chose Import again, into a folder only this account can read, and lists every source with its app, kind, path, date and hash. It follows no links, leaves out files over 4 MB and anything past 64 MB in all, as one plan holds, and never copies a file with a password, key or token that could work. A placeholder, such as `your-api-key-here`, or a value cut short or masked, such as `sk-live-abc...`, doesn't count: Context Locker checks those when the plan comes in, as it does for every change. Every file it leaves out is listed with the reason. Your agent merges the sources into one plan with the `context-locker-gather` skill and stages it with `gather-submit`. The plan waits in your inbox and nothing in the playbook changes until you pick what to bring in. The working sets are deleted once the plan is submitted.
+`import` only reads, and only the app's own files: its instructions, memories and skills, the skills folder Codex and OpenClaw write, and the instruction files it reads in the project it runs in (`CLAUDE.md`, `CLAUDE.local.md` and `.claude/CLAUDE.md` for Claude Code, `AGENTS.md` and `AGENTS.override.md` for Codex, `AGENTS.md` for Hermes, none for OpenClaw). Each app imports its own, so it knows what it brought in. `gather` and `gather-submit` still work, and `--apps` is taken and left unused. It copies the files into a folder only this account can read, and lists every source with its kind, path, date and hash. It follows no links, leaves out files over 4 MB and anything past 64 MB in all, as one plan holds, and never copies a file with a password, key or token that could work. A placeholder, such as `your-api-key-here`, or a value cut short or masked, such as `sk-live-abc...`, doesn't count: Context Locker checks those when the plan comes in, as it does for every change. Every file it leaves out is listed with the reason. Your agent merges the sources into one plan with the `context-locker-import` skill and stages it with `import-submit`. The plan waits in your inbox and nothing in the playbook changes until you pick what to bring in. The working sets are deleted once the plan is submitted.
+
+What you pick moves, so the app doesn't read it twice. Each item names the exact lines it came from in the app's own files, and what's left out, or not picked, stays where it is. The app's next sync asks `GET /v1/sync/moves` for the lines to move and takes them out where they're still exactly as imported, there once and outside Context Locker's blocks, after a copy of the file goes in `backups/`. It never edits a file in a git repository, nor one that isn't the app's own: it lists their lines for you instead, in a sync whose output the app reads, so a quiet hook or daily run leaves them waiting. It tells Context Locker what came of each with `POST /v1/sync/moves/<id>`: `moved`, `listed`, `changed` or `gone`. With auto sync off, lines wait for a sync with `--now`, and `plan` says what a sync would do. An import made before script 29 carries no lines, so it moves nothing.
 
 Two more modes take things out:
 
@@ -155,7 +178,7 @@ A project's block also carries its map: up to 10 Start here entries, notes or po
 
 The hooks setup adds for each app come from [`src/hooks.ts`](src/hooks.ts), which the setup command uses too. They're the same hooks each script's `plan` shows.
 
-Every app's sync also writes Context Locker's own skill, `context-locker-gather` (see [`src/gather.ts`](src/gather.ts)), with the steps for Gather. Skill names that start with `context-locker-` are kept for Context Locker's own.
+Every app's sync also writes Context Locker's own skill, `context-locker-import` (see [`src/import-skill.ts`](src/import-skill.ts)), with the steps for Import, and takes away the old `context-locker-gather` folder as it writes the new one. Skill names that start with `context-locker-` are kept for Context Locker's own.
 
 A project's sync mirrors its notes into `{project}/.context-locker/notes`, one Markdown file per note with YAML front matter, whose `use_as` says how to use it (source-of-truth, reference or historic), and never a pointer, which has no text of its own, and the notes that apply everywhere in `everywhere/`, with a README on how to edit and add notes (see [`src/notes.ts`](src/notes.ts)). Current source-of-truth notes are standing guidance, including adopted imports. Reference and historic notes are information only; the current conversation takes precedence, and conflicting sources of truth about a decision call for the person. A starred onboarding note is a natural home for long-form rules. An edited or new file there goes to Context Locker at the next sync, and a deleted one comes back, as only Context Locker retires a note. An edit merges with what changed in Context Locker since. Where both changed the same part, the sync writes the newer version in the note's place, keeps the edit beside it as `<name>.md.conflict`, which it never sends, and the session start says so. The first time a sync writes there in a git work tree, it adds `.context-locker/` to `.git/info/exclude`, and it never changes `.gitignore`.
 
@@ -174,15 +197,19 @@ For the other modes:
 - `GET /v1/sync/caps` answers a `PASS`, `WARN` or `FAIL` line for each of the playbook's limits, which the doctor prints as they are.
 - `GET /v1/sync/script` answers the global manifest's lines about the newest script, for `update`, without a sync.
 - `GET /v1/sync/fixes[?project=<id>]` answers assigned requests and Tidy-up as text: the project's items and the ones that apply everywhere, or with no project every item. `?request=<id>&offset=0` reads a bounded page of one original proposal. `POST /v1/sync/fixes/<id>` with `done`, or `skipped` and the reason on the next line, marks one. `waiting` keeps it open with a question or temporary blocker; `auto_approve_allowed` records the person's explicit words for that feedback response only.
-- `POST /v1/gather` takes the plan `gather-submit` sends, checks it whole, and stages it in the inbox for the person to pick from.
+- `POST /v1/gather` takes the plan `import-submit` sends, checks it whole, and stages it in the inbox for the person to pick from.
+- `GET /v1/sync/moves` answers the lines an import moves out of the app's own files, as `move <id> <count>`, the file's path, then its lines, and `POST /v1/sync/moves/<id>` says what came of one.
+- `POST /v1/sync/tickets/<command>` and `POST /v1/sync/requests/<command>` take the JSON of the matching MCP tool, with the connection's credential as the actor.
 - `POST /v1/sync/schedule` records the app's reported hooks and daily job separately from the result of a scheduled run. A completed daily run reports `ran`; a failed run reports why when Context Locker can next be reached.
-- One request to Context Locker holds at most 4.5 MB, so a body over 4 MB, a skill's bundle or a Gather plan, goes up in parts. `POST /v1/uploads` with its purpose (`sync-edit` or `gather`), size, SHA-256 and number of parts answers the upload's id, `PUT /v1/uploads/<id>/parts/<n>` sends each part of up to 4 MB, and the request that would have carried the body names the upload with `Context-Locker-Upload: <id>` instead. Context Locker checks the parts add up to the size and hash it was given, uses the upload once and deletes it. An upload runs out an hour after it starts.
+- One request to Context Locker holds at most 4.5 MB, so a body over 4 MB, a skill's bundle or an import's plan, goes up in parts. `POST /v1/uploads` with its purpose (`sync-edit` or `gather`), size, SHA-256 and number of parts answers the upload's id, `PUT /v1/uploads/<id>/parts/<n>` sends each part of up to 4 MB, and the request that would have carried the body names the upload with `Context-Locker-Upload: <id>` instead. Context Locker checks the parts add up to the size and hash it was given, uses the upload once and deletes it. An upload runs out an hour after it starts.
 - `GET /v1/export` answers everything the token can read as a `.tar.gz`.
 - `GET /v1/sync/move-out?project=<id>` answers a tar of the project's own notes, as the repo will keep them, and an index. Once every file is written, `POST /v1/sync/move-out?project=<id>` says what was written, and in one transaction Context Locker turns each note still at the version written into a pointer to its file, keeping its id, and makes the folder the docs home. A script before version 6 is asked to update before it writes anything.
 
 ## The setup command
 
 [`cli`](cli) is the source of `context-locker` on npm, the setup command that setup steps run with `npx`, at the version [`cli/package.json`](cli/package.json) names. It signs one AI app in, saves the sync script from [`scripts`](scripts), writes that app's files, adds its hooks and runs the doctor.
+
+0.1.14 bundles script 30, so `npx context-locker setup` installs the current script without an update step. It takes an app it can't place to run on this computer, sends no app picks with its sign-in, and its last line names `context-locker-import`.
 
 Its files are copied unchanged from the platform's repo with each release of the command. So they build here as they do there, [`compilers/scripts`](compilers/scripts) links to `scripts`, and [`cli/tsconfig.json`](cli/tsconfig.json) points `@internal/compilers` at [`src`](src) and `@internal/shared` at [`cli/shared.ts`](cli/shared.ts), a copy of the few things the command uses from the platform's shared package.
 
@@ -200,7 +227,7 @@ npm run typecheck
 npm test
 ```
 
-`npm test` checks the compilers against the expected files in `test/golden` (`UPDATE_GOLDEN=1` rewrites them), runs the scripts against a fake API to check they refuse anything they may not write, runs `gather` against a fake home folder with every app's files, runs the doctor, `export`, `notes-move-out`, `fix` and `update` against a fake API, and checks the published setup files. Then it runs the setup command's tests, in [`cli/test`](cli/test). When `pwsh` and PSScriptAnalyzer are installed, it also checks `sync.ps1` against Windows PowerShell 5.1's syntax and commands.
+`npm test` checks the compilers against the expected files in `test/golden` (`UPDATE_GOLDEN=1` rewrites them), runs the scripts against a fake API to check they refuse anything they may not write, runs `import` against a fake home folder with every app's files, to check each app reads only its own, runs the doctor, an import's moves, `export`, `notes-move-out`, `fix` and `update` against a fake API, and checks the published setup files. Then it runs the setup command's tests, in [`cli/test`](cli/test). When `pwsh` and PSScriptAnalyzer are installed, it also checks `sync.ps1` against Windows PowerShell 5.1's syntax and commands.
 
 ## Licence
 

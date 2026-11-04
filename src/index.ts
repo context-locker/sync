@@ -23,18 +23,19 @@ export {
   notesSynced,
 } from "./compile.js";
 export {
-  GATHER_PLAN_EXAMPLE,
-  GATHER_SKILL_DESCRIPTION,
-  GATHER_SKILL_ID,
-  GATHER_SKILL_LIMITS,
-  GATHER_SKILL_MODEL,
-  GATHER_SKILL_NAME,
-  GATHER_SKILL_VERSION,
+  IMPORT_PLAN_EXAMPLE,
+  IMPORT_SKILL_DESCRIPTION,
+  IMPORT_SKILL_ID,
+  IMPORT_SKILL_LIMITS,
+  IMPORT_SKILL_MODEL,
+  IMPORT_SKILL_NAME,
+  IMPORT_SKILL_VERSION,
+  LEGACY_IMPORT_SKILL_NAME,
   RESERVED_SKILL_PREFIX,
-  gatherSkill,
-  gatherSkillFiles,
+  importSkill,
+  importSkillFiles,
   isReservedSkillName,
-} from "./gather.js";
+} from "./import-skill.js";
 export {
   MANAGED_MARKER,
   blockHash,

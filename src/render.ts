@@ -52,14 +52,14 @@ export const TEXT = {
     count === 1
       ? "1 preference was left out of this file because some AI apps refuse to load files with wording like it. It's in Context Locker."
       : `${count} preferences were left out of this file because some AI apps refuse to load files with wording like theirs. They're in Context Locker.`,
-  /** A project's map: the notes and pointers a new agent opens first */
+  /** A project's map: the notes and pointers whose summaries a new agent reads first */
   startHereHeading: "### Start here",
   /**
    * After the Start here entries: what to do with them, and where the rest of
    * the map is. An app that only reads its files may not have the tool
    */
   onboarding:
-    "Start each session with a three-line startup brief for the user: the playbook, the sources you'll use, and your first step. These come from the playbook's map in Context Locker. When the task needs more of it, call Context Locker's playbook_map tool if you have it.",
+    "Start each session with a three-line startup brief for the user: the playbook, the sources you'll use, and your first step. These come from the playbook's map in Context Locker. Read the Start here summaries above now, and open an entry only when the task needs it. When the task needs more of the map, call Context Locker's playbook_map tool if you have it.",
   /** After a note that has no file here, which an app with the tools can open */
   readNote: "Read it with read_note, if you have it.",
   startHereOverflow: (count: number) =>
@@ -223,7 +223,7 @@ export function docsLocationsRule(
  */
 export function workPlacesRule(places: WorkPlace[], budget = 3000): string {
   const rule =
-    "Keep existing tickets where they're tracked. For new work, use the place clearly matching its purpose, otherwise the default. If more than one fits, none fits and there's no default, or you can't reach the place, ask before choosing. Recording a place grants no access and copies nothing.";
+    "Keep existing tasks where they're tracked. For new work, use the place clearly matching its purpose, otherwise the default. If more than one fits, none fits and there's no default, or you can't reach the place, ask before choosing. Recording a place grants no access and copies nothing.";
   const lines = places.map((place) => {
     const where =
       place.kind === "board"
@@ -235,7 +235,7 @@ export function workPlacesRule(places: WorkPlace[], budget = 3000): string {
       : line;
   });
   const online =
-    "Read Context Locker's board online with list_tickets over MCP, or the sync script's tickets <app> list command. Change it through write_ticket or tickets <app> write <request.json>. Take only ready tickets, claim one before work, and never edit a board in synced files.";
+    "Read Context Locker's board online with list_tickets over MCP, or the sync script's tickets <app> list command. Change it through write_ticket or tickets <app> write <request.json>. Take only ready tasks, claim one before work, and never edit a board in synced files.";
   const full = [
     rule,
     ...lines,

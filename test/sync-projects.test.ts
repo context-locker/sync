@@ -29,8 +29,10 @@ import {
   compile,
   sha256,
   type Blob,
+  type PreferenceInput,
   type RepoLink,
 } from "../src/index.js";
+import { preferences, projectPreferences } from "./fixtures.js";
 
 const SCRIPT = fileURLToPath(new URL("../scripts/sync.sh", import.meta.url));
 const PS_SCRIPT = fileURLToPath(
@@ -53,6 +55,8 @@ interface FakeProject {
   name: string;
   remote?: string;
   links?: RepoLink[];
+  /** The project's own preferences, which make its block */
+  preferences?: PreferenceInput[];
   /** Answers its manifest with this status instead */
   fail?: number;
 }
@@ -62,6 +66,8 @@ class FakeLocker {
   projects = new Map<string, FakeProject>();
   /** The newest script the global manifest names */
   script = SYNC_SCRIPT_VERSION;
+  /** Whether the global manifest carries the app's own blocks too */
+  globalBlocks = false;
   /** Every request, as "METHOD /path?query" */
   requests: string[] = [];
   /** What each kind of request sent, in order */
@@ -86,6 +92,21 @@ class FakeLocker {
 
   manifest(url: URL, harness: string): { status: number; text: string } {
     const id = url.searchParams.get("project");
+    if (!id && this.globalBlocks) {
+      const manifest = buildManifest({
+        workspaceId: WORKSPACE,
+        outputs: compile({
+          harness: harness as "claude-code",
+          project: null,
+          preferences,
+          skills: [],
+        }).outputs,
+        holds: [],
+        script: this.script,
+      });
+      for (const [hash, blob] of manifest.blobs) this.blobs.set(hash, blob);
+      return { status: 200, text: manifest.text };
+    }
     if (!id) {
       return {
         status: 200,
@@ -102,7 +123,7 @@ class FakeLocker {
       outputs: compile({
         harness: harness as "claude-code",
         project: { id, name: project.name, layer },
-        preferences: [],
+        preferences: project.preferences ?? [],
         skills: [],
         notes: [],
         tags: [],
@@ -302,6 +323,13 @@ describe("a project in the sync", () => {
     fake.requests.filter((request) =>
       /^GET \/v1\/sync\?project=/.test(request),
     );
+
+  /** Text of exactly this many bytes, in lines of plain letters, ending with a newline */
+  const filler = (bytes: number) =>
+    `${"a".repeat(99)}\n`.repeat(Math.floor(bytes / 100)) +
+    (bytes % 100 ? `${"b".repeat((bytes % 100) - 1)}\n` : "");
+  const grouped = (n: number) => n.toLocaleString("en-GB");
+  const lines = (text: string) => text.split(/\r?\n/);
 
   for (const shell of SHELLS) {
     describe(
@@ -669,6 +697,156 @@ describe("a project in the sync", () => {
           assert.equal(
             existsSync(join(machine.home, ".contextlocker", "sync.sh")),
             false,
+          );
+        });
+
+        it("says when Codex doesn't read all of its block in a repo's AGENTS.md, at session start and in the doctor (G1-212)", async () => {
+          const machine = computer(["codex"]);
+          const project = fake.add({
+            name: "Docs site",
+            preferences: projectPreferences,
+          });
+          const dir = repo(machine.home, "docs");
+          linkFile(dir, project.id);
+          const path = join(dir, "AGENTS.md");
+          const codex = (mode?: string) =>
+            run(shell, machine, { cwd: dir, harness: "codex", mode });
+          const told = `Context Locker: Codex doesn't read all of Context Locker's block in ${path}. Read the block there in full before you start.`;
+
+          const first = await codex();
+          assert.equal(first.status, 0, first.stderr);
+          assert.equal(first.stderr, "");
+          const block = readFileSync(path, "utf8");
+          const size = Buffer.byteLength(block);
+
+          // At Codex's 32 KiB it reads the whole file, and nothing's said
+          writeFileSync(path, `${filler(32_768 - 1 - size)}\n${block}`);
+          const at = await codex();
+          assert.equal(at.status, 0, at.stderr);
+          assert.equal(lines(at.stdout).includes(told), false, at.stdout);
+          assert.doesNotMatch((await codex("doctor")).stdout, /Codex reads/);
+
+          // One byte over, the session and the doctor say so
+          writeFileSync(path, `${filler(32_768 - size)}\n${block}`);
+          const over = await codex();
+          assert.equal(over.status, 0, over.stderr);
+          assert.ok(lines(over.stdout).includes(told), over.stdout);
+          const doctor = await codex("doctor");
+          assert.ok(
+            lines(doctor.stdout).includes(
+              `WARN  Codex reads the first 32,768 bytes of a repo's AGENTS.md files, so it misses the last 1 byte of Context Locker's block in ${path}. Shortening the text outside the block lets Codex read all of it.`,
+            ),
+            doctor.stdout,
+          );
+
+          // A block the sync adds after a long file is said as it's written
+          writeFileSync(path, filler(40_000));
+          const added = await codex();
+          assert.equal(added.status, 0, added.stderr);
+          assert.ok(
+            lines(added.stderr).includes(
+              `Context Locker: Codex reads the first 32,768 bytes of a repo's AGENTS.md files, so it stops before Context Locker's block in ${path}. Shortening the text outside the block lets Codex read all of it.`,
+            ),
+            added.stderr,
+          );
+          assert.ok(readFileSync(path, "utf8").endsWith(block));
+
+          // AGENTS.override.md comes first, so Codex never sees the block
+          writeFileSync(path, block);
+          writeFileSync(join(dir, "AGENTS.override.md"), "# Mine\n");
+          const shadowed = await codex();
+          assert.ok(lines(shadowed.stdout).includes(told), shadowed.stdout);
+          assert.ok(
+            lines((await codex("doctor")).stdout).includes(
+              `WARN  Codex reads ${join(dir, "AGENTS.override.md")} instead of ${path}, so it never sees Context Locker's block there.`,
+            ),
+          );
+        });
+
+        it("counts the AGENTS.md files Codex reads in the folders above the project's (G1-212)", async () => {
+          const machine = computer(["codex"]);
+          const project = fake.add({
+            name: "App",
+            preferences: projectPreferences,
+          });
+          const top = repo(machine.home, "mono");
+          const app = join(top, "app");
+          mkdirSync(app);
+          linkFile(app, project.id);
+          writeFileSync(join(top, "AGENTS.md"), filler(32_700));
+
+          const synced = await run(shell, machine, {
+            cwd: app,
+            harness: "codex",
+          });
+          assert.equal(synced.status, 0, synced.stderr);
+          const path = join(app, "AGENTS.md");
+          const size = Buffer.byteLength(readFileSync(path, "utf8"));
+          assert.ok(
+            lines(synced.stderr).includes(
+              `Context Locker: Codex reads 32,768 bytes of a repo's AGENTS.md files, and the ones in the folders above ${app} use 32,700 of them, so it misses the last ${grouped(size - 68)} bytes of Context Locker's block in ${path}. Shortening the text outside the block lets Codex read all of it.`,
+            ),
+            synced.stderr,
+          );
+        });
+
+        it("says when Hermes reads another file, or cuts the middle of its block (G1-212)", async () => {
+          const machine = computer(["hermes"]);
+          const project = fake.add({
+            name: "Docs site",
+            preferences: projectPreferences,
+          });
+          const dir = repo(machine.home, "docs");
+          linkFile(dir, project.id);
+          const path = join(dir, "AGENTS.md");
+          const hermes = (mode?: string) =>
+            run(shell, machine, { cwd: dir, harness: "hermes", mode });
+
+          assert.equal((await hermes()).status, 0);
+          const block = readFileSync(path, "utf8");
+          // The block in the middle of a long file, where Hermes cuts
+          writeFileSync(path, `${filler(15_000)}\n${block}\n${filler(10_000)}`);
+          const doctor = await hermes("doctor");
+          assert.ok(
+            lines(doctor.stdout).includes(
+              `WARN  Unless its model has a large context window, Hermes keeps the first 14,000 and last 4,000 characters of a file over 20,000, so it misses ${grouped([...block].length)} characters of Context Locker's block in ${path}. Shortening the text outside the block lets Hermes read all of it.`,
+            ),
+            doctor.stdout,
+          );
+
+          // A .hermes.md anywhere up to the repo's top comes first
+          writeFileSync(join(dir, ".hermes.md"), "# Mine\n");
+          assert.ok(
+            lines((await hermes("doctor")).stdout).includes(
+              `WARN  Hermes reads ${join(dir, ".hermes.md")} instead of ${path}, so it never sees Context Locker's block there.`,
+            ),
+          );
+        });
+
+        it("says when OpenClaw's USER.md is longer than it reads (G1-212)", async () => {
+          const machine = computer(["openclaw"]);
+          fake.globalBlocks = true;
+          const workspace = join(machine.home, ".openclaw", "workspace");
+          mkdirSync(workspace, { recursive: true });
+          const user = join(workspace, "USER.md");
+          writeFileSync(user, filler(5_000));
+
+          const synced = await run(shell, machine, { harness: "openclaw" });
+          assert.equal(synced.status, 0, synced.stderr);
+          const said = `OpenClaw reads up to 4,000 characters of ${user}, which has ${grouped([...readFileSync(user, "utf8")].length)}, so it can miss part of Context Locker's block. Shortening the text outside the block lets OpenClaw read all of it.`;
+          assert.ok(
+            lines(synced.stderr).includes(`Context Locker: ${said}`),
+            synced.stderr,
+          );
+          assert.ok(
+            lines(
+              (
+                await run(shell, machine, {
+                  harness: "openclaw",
+                  mode: "doctor",
+                })
+              ).stdout,
+            ).includes(`WARN  ${said}`),
           );
         });
       },

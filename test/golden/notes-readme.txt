@@ -1,6 +1,6 @@
 # Notes from Context Locker
 
-This folder holds the notes for Docs site from Context Locker, the user's playbook: plans, specs, decisions, research, ideas, logs, profiles, designs, runbooks and onboarding docs, one Markdown file each. A note that applies to other playbooks as well is in each of their folders too, and the notes that apply everywhere are in everywhere/. Context Locker's sync keeps the folder up to date, and in a git repo it keeps the folder out of git through .git/info/exclude.
+This folder holds the notes for Docs site from Context Locker, the user's playbook: plans, specifications, decisions, research, guides, records and profiles, one Markdown file each. A note that applies to other playbooks as well is in each of their folders too, and the notes that apply everywhere are in everywhere/. Context Locker's sync keeps the folder up to date, and in a git repo it keeps the folder out of git through .git/info/exclude.
 
 Links aren't here. A link stands in for a note whose text lives somewhere else, such as a file in the repo or a page on the web, and the playbook's map lists each one with where it points.
 
@@ -39,7 +39,7 @@ To bring in a doc that's already a file, write the front matter into the new fil
 
 - A note has a title, type, use_as, summary, tags and applies_to, then its text.
 - applies_to lists every playbook a note applies to, such as ["Website", "App"], when there are several. Change where a note applies in Context Locker, not in its file.
-- type is plan, spec, decision, research, idea, log, profile, design, runbook or onboarding.
+- type is plan, spec, decision, research, guide, record or profile.
 - use_as is source-of-truth for standing guidance agents follow, reference for background information, or historic for an earlier record. A starred onboarding note is a natural home for long-form project rules.
 - title is one line of up to 120 characters. summary is one line of up to 200 that says what the note holds.
 - tags: 1 to 20, from the tag list below. To add a new tag, name it in new_tags too, such as new_tags: ["q4"].

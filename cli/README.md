@@ -26,7 +26,7 @@ Then ask your AI app to bring in what your AI apps already know, with Context Lo
 ## Options
 
 - `--app <name>`: set up only this app, such as `--app claude-code`. One app per installation. Run setup separately to connect another.
-- `--environment <computer|cloud>`: where the app runs. Known Claude cloud sessions and Codespaces report Cloud; otherwise the approval page asks. You can correct this later from the connection menu.
+- `--environment <computer|cloud>`: where the app runs. Known Claude cloud sessions and Codespaces report Cloud; otherwise the app runs on this device. A connection's place is fixed once it connects: to move it, revoke it and connect again.
 - `--code <code>`: connect one app with a one-time code made in Context Locker, with nothing to approve.
 - `--no-browser`: show the approval link without opening it.
 - `--wait <seconds>`: how long to wait for the approval. Run the command again to keep waiting.
