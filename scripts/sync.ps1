@@ -1,4 +1,4 @@
-# Context Locker sync, version 24. MIT licence.
+# Context Locker sync, version 31. MIT licence.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 map <app> [-All]
@@ -155,7 +155,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 30
+$ScriptVersion = 31
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -283,6 +283,7 @@ $Script:ProjectId = ''
 $Script:ProjectRoot = ''
 $Script:Layer = ''
 $Script:Scope = 'global'
+$Script:AgentsMdBytes = $null
 $Script:FoundBy = ''
 $Script:LinksChecked = $null
 $Script:MissingLinks = New-Object System.Collections.Generic.List[string]
@@ -742,6 +743,54 @@ function Get-HermesFileLimit {
     if ($line -cmatch '^context_file_max_chars:\s*([0-9]+)\s*(#.*)?$') { return [long]$Matches[1] }
   }
   return 0
+}
+
+# The common Codex/Hermes budget, independent of which one is syncing.
+# Preserve everything outside our block, including write_block's separator.
+function Get-SharedAgentsRoom {
+  $path = Join-Path $Script:ProjectRoot 'AGENTS.md'
+  $before = ''
+  $after = ''
+  $gap = 0
+  if (Test-Path -LiteralPath $path -PathType Leaf) {
+    $text = Read-Text $path
+    $lines = Get-Lines $text
+    $pos = Get-BlockPosition $lines
+    if ($pos -eq 'broken') { return 0 }
+    if ($pos -eq 'none') {
+      if ($text.Trim()) {
+        $before = $text
+        $gap = if ($text.EndsWith("`n")) { 1 } else { 2 }
+      }
+    } else {
+      $s, $e = $pos.Split(' ') | ForEach-Object { [int]$_ }
+      # Retain original newlines while measuring, as the POSIX script does.
+      $parts = @([regex]::Matches($text, '[^\n]*\n|[^\n]+\z') | ForEach-Object { $_.Value })
+      for ($i = 0; $i -lt $parts.Length; $i++) {
+        if ($i -lt $s - 1) { $before += $parts[$i] }
+        elseif ($i -ge $e) { $after += $parts[$i] }
+      }
+    }
+  }
+  $codex = Get-CodexDocLimit
+  foreach ($dir in (Get-FoldersAbove $Script:ProjectRoot)) {
+    foreach ($name in @('AGENTS.override.md', 'AGENTS.md')) {
+      $ancestor = Join-Path $dir $name
+      if (Test-Path -LiteralPath $ancestor -PathType Leaf) {
+        $codex -= ([IO.File]::ReadAllBytes($ancestor)).Length + 2
+        break
+      }
+    }
+  }
+  $codex -= $Utf8.GetByteCount($before) + $gap
+  $limit = Get-HermesFileLimit
+  if ($limit -le 0) { $limit = 20000 }
+  $beforeCount = (Get-CharCount $before) + $gap
+  $afterCount = Get-CharCount $after
+  $hermes = [Math]::Max($limit - $beforeCount - $afterCount,
+    [Math]::Max([Math]::Floor($limit * 7 / 10) - $beforeCount, [Math]::Floor($limit * 2 / 10) - $afterCount))
+  $room = [Math]::Max(0, [Math]::Min(12000, [Math]::Min($codex, $hermes)))
+  return [int]([Math]::Floor($room / 1000) * 1000)
 }
 
 # What an app misses of Context Locker's block in the file at $Path, for
@@ -1348,6 +1397,9 @@ function Invoke-Api([string]$Method, [string]$Path, [byte[]]$Body, [string]$Type
   $request = New-Object System.Net.Http.HttpRequestMessage((New-Object System.Net.Http.HttpMethod($Method)), "$Api$Path")
   if ($Script:Token) { [void]$request.Headers.TryAddWithoutValidation('Authorization', "Bearer $($Script:Token)") }
   if ($Headers) { foreach ($key in $Headers.Keys) { [void]$request.Headers.TryAddWithoutValidation($key, $Headers[$key]) } }
+  if ($Path -like '/v1/sync*?project=*' -and $null -ne $Script:AgentsMdBytes) {
+    [void]$request.Headers.TryAddWithoutValidation('Context-Locker-Agents-Md-Bytes', [string]$Script:AgentsMdBytes)
+  }
   if ($null -ne $Body) {
     $content = New-Object System.Net.Http.ByteArrayContent(, $Body)
     $content.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse($Type)
@@ -1704,6 +1756,10 @@ function Confirm-ProjectRemovals {
 }
 
 function Sync-Scope([string]$Query, [string]$State) {
+  $Script:AgentsMdBytes = $null
+  if ($Script:Scope -eq 'project' -and $Harness -in @('codex', 'hermes')) {
+    $Script:AgentsMdBytes = Get-SharedAgentsRoom
+  }
   $lockfile = "$State.lock"
   $lockLines = @()
   if (Test-Path -LiteralPath $lockfile -PathType Leaf) { $lockLines = @([IO.File]::ReadAllLines($lockfile)) }

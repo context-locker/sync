@@ -130,6 +130,8 @@ export interface WorkPlace {
 
 export interface CompileInput {
   harness: CompiledHarness;
+  /** Room left in a shared project AGENTS.md, in UTF-8 bytes, markers included. */
+  agentsMdBytes?: number;
   /** Null for the global sync, which carries everything that applies everywhere. */
   project: { id: string; name: string; layer: ProjectLayer } | null;
   /**

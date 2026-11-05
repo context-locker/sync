@@ -70,6 +70,8 @@ class FakeLocker {
   globalBlocks = false;
   /** Every request, as "METHOD /path?query" */
   requests: string[] = [];
+  roomAware = false;
+  rooms: Array<{ path: string; room: string | undefined }> = [];
   /** What each kind of request sent, in order */
   sent: Record<string, string[]> = { find: [], record: [], map: [], done: [] };
   blobs = new Map<string, Blob>();
@@ -90,7 +92,11 @@ class FakeLocker {
       .toLowerCase();
   }
 
-  manifest(url: URL, harness: string): { status: number; text: string } {
+  manifest(
+    url: URL,
+    harness: string,
+    room?: string,
+  ): { status: number; text: string } {
     const id = url.searchParams.get("project");
     if (!id && this.globalBlocks) {
       const manifest = buildManifest({
@@ -123,6 +129,9 @@ class FakeLocker {
       outputs: compile({
         harness: harness as "claude-code",
         project: { id, name: project.name, layer },
+        ...(this.roomAware && room !== undefined
+          ? { agentsMdBytes: Number(room) }
+          : {}),
         preferences: project.preferences ?? [],
         skills: [],
         notes: [],
@@ -160,8 +169,11 @@ describe("a project in the sync", () => {
         const json = (status: number, value: unknown) =>
           send(status, "application/json", JSON.stringify(value));
         const route = `${request.method} ${url.pathname}`;
+        const room = request.headers["context-locker-agents-md-bytes"] as
+          string | undefined;
+        fake.rooms.push({ path: `${url.pathname}${url.search}`, room });
         if (route === "GET /v1/sync") {
-          const { status, text } = fake.manifest(url, harness);
+          const { status, text } = fake.manifest(url, harness, room);
           const etag = `"${sha256(text)}"`;
           if (status === 200 && request.headers["if-none-match"] === etag) {
             response.writeHead(304, { etag });
@@ -336,6 +348,123 @@ describe("a project in the sync", () => {
       `in ${shell}`,
       { skip: !HAVE_GIT && "git isn't installed" },
       () => {
+        it("fits the same shared block for Codex and Hermes without false edits (G1-218)", async () => {
+          const machine = computer(["codex", "hermes"]);
+          fake.roomAware = true;
+          const project = fake.add({
+            name: "Shared room",
+            preferences: Array.from({ length: 30 }, (_, i) => ({
+              id: randomUUID(),
+              version: 1,
+              name: `rule-${i}`,
+              text: "Keep the documented approach. ".repeat(15),
+            })),
+          });
+          const dir = repo(machine.home, "shared");
+          linkFile(dir, project.id);
+          const file = join(dir, "AGENTS.md");
+          const original = filler(26000);
+          writeFileSync(file, original);
+          let first = "";
+          for (const harness of ["codex", "hermes", "codex", "hermes"]) {
+            const result = await run(shell, machine, { cwd: dir, harness });
+            assert.equal(result.status, 0, result.stderr);
+            const text = readFileSync(file, "utf8");
+            assert.ok(text.startsWith(original + "\n"));
+            const block = text.slice(original.length + 1);
+            assert.ok(Buffer.byteLength(block) <= 4000);
+            assert.match(block, /didn't fit/);
+            if (first) assert.equal(text, first);
+            first = text;
+          }
+          const projectRequests = fake.rooms.filter(
+            (r) =>
+              r.path.includes(`project=${project.id}`) &&
+              /^\/v1\/sync(?:\?|\/blobs|\/edits)/.test(r.path),
+          );
+          assert.ok(
+            projectRequests.some((r) => r.path.startsWith("/v1/sync/blobs")),
+          );
+          assert.ok(
+            projectRequests.every((r) => r.room === "4000"),
+            JSON.stringify(projectRequests),
+          );
+          assert.ok(
+            !fake.requests.some((r) => r.startsWith("POST /v1/sync/edits")),
+          );
+          assert.ok(
+            fake.rooms
+              .filter((r) => r.path === "/v1/sync")
+              .every((r) => r.room === undefined),
+          );
+
+          // A longer preamble exhausts Codex's room. No cut-off block is
+          // written and the session text says the guidance was not loaded.
+          writeFileSync(file, filler(34000) + first.slice(original.length));
+          const none = await run(shell, machine, {
+            cwd: dir,
+            harness: "codex",
+          });
+          assert.equal(none.status, 0, none.stderr);
+          assert.ok(
+            !readFileSync(file, "utf8").includes("context-locker:start"),
+          );
+          assert.ok(readFileSync(file, "utf8").startsWith(filler(34000)));
+          assert.match(none.stdout, /block is not loaded/);
+          const offlineCopy = readFileSync(
+            join(
+              machine.home,
+              ".contextlocker/codex/projects",
+              `${project.id}.context`,
+            ),
+            "utf8",
+          );
+          assert.match(offlineCopy, /get_context/);
+        });
+
+        it("uses ancestor bytes, UTF-8, custom limits and round-down steps for both apps", async () => {
+          const machine = computer(["codex", "hermes"]);
+          fake.roomAware = true;
+          const project = fake.add({
+            name: "Nested",
+            preferences: projectPreferences,
+          });
+          const top = repo(machine.home, "nested");
+          const dir = join(top, "part");
+          mkdirSync(dir);
+          linkFile(dir, project.id);
+          writeFileSync(join(top, "AGENTS.override.md"), filler(5000));
+          writeFileSync(join(top, "AGENTS.md"), filler(20000)); // overridden
+          mkdirSync(join(machine.home, ".codex"));
+          mkdirSync(join(machine.home, ".hermes"));
+          writeFileSync(
+            join(machine.home, ".codex/config.toml"),
+            "project_doc_max_bytes = 12_000\n",
+          );
+          writeFileSync(
+            join(machine.home, ".hermes/config.yaml"),
+            "context_file_max_chars: 6000\n",
+          );
+          const original = "文".repeat(1500) + "\n"; // 4,501 bytes, 1,501 characters
+          writeFileSync(join(dir, "AGENTS.md"), original);
+          for (const harness of ["codex", "hermes"]) {
+            const result = await run(shell, machine, { cwd: dir, harness });
+            assert.equal(result.status, 0, result.stderr);
+            const text = readFileSync(join(dir, "AGENTS.md"), "utf8");
+            assert.ok(text.startsWith(original));
+            assert.ok(Buffer.byteLength(text) + 5002 <= 12000);
+          }
+          const requests = fake.rooms.filter(
+            (r) =>
+              r.path.includes(`project=${project.id}`) &&
+              r.path.startsWith("/v1/sync?"),
+          );
+          assert.ok(
+            requests.every((r) => r.room === "2000"),
+            JSON.stringify(requests),
+          );
+        });
+
         it("links a clone to its project by its git remote, syncs it and says so in one line", async () => {
           const machine = computer();
           const docs = fake.add({

@@ -105,6 +105,73 @@ const mapped = (
   docsHome: { kind: "place", place: docsPlace },
 });
 
+describe("the room a shared AGENTS.md leaves (G1-218)", () => {
+  it("caps the whole block, including large maps, and gives both apps identical bytes", () => {
+    for (const budget of [0, 1, 300, 1000, 2000, 4000, 8000, 12000]) {
+      const input = {
+        ...mapped("codex", "repo", manyEntries(30)),
+        preferences: manyPreferences(100, 600),
+        agentsMdBytes: budget,
+        docsLocations: [
+          {
+            id: "docs",
+            name: "文書 ".repeat(100),
+            kind: "place" as const,
+            place: "https://example.com/",
+            purpose: "Review the current plan.",
+            is_default: true,
+          },
+        ],
+        workPlaces: [
+          {
+            id: "work",
+            name: "Work ".repeat(100),
+            kind: "board" as const,
+            address: null,
+            purpose: "Current work",
+            is_default: true,
+          },
+        ],
+      };
+      const codex = compile(input);
+      const hermes = compile({ ...input, harness: "hermes" });
+      const block = codex.outputs.find((o) => o.kind === "block");
+      assert.deepEqual(
+        block,
+        hermes.outputs.find((o) => o.kind === "block"),
+      );
+      if (block?.kind === "block") {
+        assert.ok(
+          Buffer.byteLength(block.text) <= budget,
+          `${budget}: ${Buffer.byteLength(block.text)}`,
+        );
+        assert.match(block.text, /didn't fit/);
+        assert.match(block.text, /context-locker:end -->\n$/);
+        assert.ok(!block.text.includes("\ufffd"));
+      } else {
+        assert.match(projectText(codex), /block is not loaded/);
+        assert.match(projectText(codex), /get_context/);
+      }
+    }
+  });
+
+  it("leaves ample room and other harnesses' files exactly as before", () => {
+    for (const harness of COMPILED_HARNESSES) {
+      const input = mapped(harness, "repo");
+      assert.deepEqual(
+        compile({ ...input, agentsMdBytes: 12000 }),
+        compile(input),
+      );
+      if (harness !== "codex" && harness !== "hermes") {
+        assert.deepEqual(
+          compile({ ...input, agentsMdBytes: 0 }),
+          compile(input),
+        );
+      }
+    }
+  });
+});
+
 /** The block or session-start text a compile wrote for a project */
 function projectText(compiled: Compiled): string {
   for (const output of compiled.outputs) {
