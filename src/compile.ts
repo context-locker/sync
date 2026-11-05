@@ -300,6 +300,7 @@ function compileProject(
     workPlaces?: WorkPlace[];
   },
   folder: { notes: NoteInput[]; tags: string[] },
+  agentsMdBytes?: number,
 ): Compiled {
   const targets = TARGETS[harness];
   const outputs: Output[] = [];
@@ -380,11 +381,29 @@ function compileProject(
       aboutHeading: TEXT.aboutProject,
       preferences,
       empty: TEXT.noPreferences,
-      budget: shared ? BUDGETS.sharedAgentsMd : BUDGETS.claudeRules,
+      budget: shared
+        ? Math.max(
+            0,
+            Math.min(
+              BUDGETS.sharedAgentsMd,
+              agentsMdBytes ?? BUDGETS.sharedAgentsMd,
+            ),
+          )
+        : BUDGETS.claudeRules,
       shared,
       map: mapPlan,
     });
-    outputs.push(block(targets.projectBlock, rendered));
+    if (rendered.text) outputs.push(block(targets.projectBlock, rendered));
+    else {
+      // No complete block fits. Keep the warning outside the exhausted file,
+      // in the session-start output, including on unchanged/offline runs.
+      outputs.push({
+        kind: "context",
+        text: `${project.name}: ${TEXT.noRoom}\n`,
+        items: [],
+      });
+      notes.push(TEXT.noRoom);
+    }
     notes.push(...capNotes(rendered, targets.projectBlock));
   }
 
@@ -421,6 +440,7 @@ export function compile(input: CompileInput): Compiled {
           workPlaces: input.workPlaces,
         },
         { notes: [...(input.notes ?? [])], tags: [...(input.tags ?? [])] },
+        input.agentsMdBytes,
       )
     : compileGlobal(input.harness, preferences, skillList, input.docsLocations);
 }

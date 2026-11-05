@@ -91,6 +91,14 @@ export const TEXT = {
   /** When the docs home's place has wording or an address some apps refuse */
   docsHomeLeftOut:
     "Keep lasting docs in this playbook's docs home, and add a link for each new one with write_note, if you have it. The place is left out here because some AI apps refuse to load files with wording like it. It's in Context Locker.",
+  mapNeedsReading:
+    "The documentation and work locations didn't fit here. Read them with Context Locker's playbook_map before choosing where to save docs or track work.",
+  startHereNeedsReading:
+    "Some Start here summaries didn't fit here. Read them with Context Locker's playbook_map before work, and open the full entries only when needed.",
+  tightBlock:
+    "The full playbook didn't fit in this file. Before work, call Context Locker's get_context for this playbook and read all Start here summaries. Preferences and documentation or work locations omitted here still apply. If you can't fetch them, tell the user what is missing before acting.",
+  noRoom:
+    "There is no room for a complete Context Locker block in AGENTS.md within the apps' reading limits. The block is not loaded. Before work, call get_context for this playbook and read all Start here summaries. If you can't fetch them, tell the user what is missing before acting. Text outside the block stays unchanged.",
 } as const;
 
 const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/;
@@ -480,7 +488,7 @@ function assemble(
  * where they are, so nothing is cut without saying so.
  */
 export function renderBlock(plan: BlockPlan): RenderedBlock {
-  const map = renderMap(plan.map);
+  const fullMap = renderMap(plan.map);
   const leftOut = plan.shared
     ? plan.preferences.filter(
         (preference) => injectionMatches(preferenceLine(preference)).length > 0,
@@ -490,28 +498,63 @@ export function renderBlock(plan: BlockPlan): RenderedBlock {
     plan.preferences.filter((preference) => !leftOut.includes(preference)),
   );
 
-  const kept: PreferenceInput[] = [];
-  for (const [index, preference] of candidates.entries()) {
-    const remaining = candidates.length - index - 1;
-    const trial = assemble(
-      plan,
-      [...kept, preference],
-      remaining,
-      leftOut.length,
-      map,
-    );
-    if (bytes(trial) > plan.budget) break;
-    kept.push(preference);
-  }
+  const fit = (map: RenderedMap): RenderedBlock => {
+    const kept: PreferenceInput[] = [];
+    for (const [index, preference] of candidates.entries()) {
+      const remaining = candidates.length - index - 1;
+      if (
+        bytes(
+          assemble(plan, [...kept, preference], remaining, leftOut.length, map),
+        ) > plan.budget
+      )
+        break;
+      kept.push(preference);
+    }
+    const overflow = candidates.slice(kept.length);
+    return {
+      text: assemble(plan, kept, overflow.length, leftOut.length, map),
+      items: [
+        ...map.items,
+        ...kept.map(({ id, version }) => ({ id, version })),
+      ],
+      overflow,
+      leftOut,
+      map: map.map,
+    };
+  };
+  const full = fit(fullMap);
+  if (bytes(full.text) <= plan.budget) return full;
 
-  const overflow = candidates.slice(kept.length);
-  const text = assemble(plan, kept, overflow.length, leftOut.length, map);
+  // The map and boilerplate must fit too. Keep whole summaries, never half
+  // a rule or a location, and explicitly require reading what was omitted.
+  if (plan.map) {
+    for (
+      let room = plan.map.startHereBudget;
+      room >= 0;
+      room = Math.max(-1, room - 250)
+    ) {
+      const map = renderMap({ ...plan.map, startHereBudget: room });
+      if (map.docsHome.length) map.docsHome = [TEXT.mapNeedsReading];
+      if (map.map.overflow.length && map.startHere.length)
+        map.startHere[1] = TEXT.startHereNeedsReading;
+      const fitted = fit(map);
+      if (bytes(fitted.text) <= plan.budget) return fitted;
+    }
+  }
+  // Even the ordinary intro may not fit. A complete bootstrap notice, or
+  // no block at all, is safer than a truncated instruction.
+  const compact = `${BLOCK_START}\n${plan.title}\n\n${TEXT.tightBlock}\n${BLOCK_END}\n`;
   return {
-    text,
-    items: [...map.items, ...kept.map(({ id, version }) => ({ id, version }))],
-    overflow,
+    text: bytes(compact) <= plan.budget ? compact : "",
+    items: [],
+    overflow: candidates,
     leftOut,
-    map: map.map,
+    map: {
+      ...fullMap.map,
+      overflow: (plan.map?.startHere ?? []).filter(
+        (entry) => !fullMap.map.leftOut.includes(entry),
+      ),
+    },
   };
 }
 

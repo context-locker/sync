@@ -8,9 +8,9 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v37`](setup/v37), which run `context-locker@0.1.14`. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for the app you are, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
+Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v38`](setup/v38), which run `context-locker@0.1.15`. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for the app you are, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
 
-Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.14 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
+Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.15 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
 
 The browser approval names that app and lets you name the connection. The command takes a cloud session it recognises to run in the Cloud, and any other app to run on this computer, unless you pass `--environment computer` or `--environment cloud`. It writes the selected app's files, adds its sync hook and runs the doctor. Import is separate, with an agreed scope and approval: an app imports only its own files, and reading them doesn't connect or configure anything. When you tick Bring in as you approve the connection, or as you make its one-time code, setup's last line tells the app to import now, and a Claude Code or Codex session start says so once. The import waits in your inbox, where you pick what comes in. Existing connections and hooks are never removed automatically.
 
@@ -73,6 +73,12 @@ Apps stop reading long instruction files at their own limits, and Context Locker
 - OpenClaw reads up to 20,000 characters of each startup file, 4,000 of `USER.md`, and 60,000 across them.
 
 The checks don't read Codex's fallback file names or root markers, or OpenClaw's own limits, so those settings can make an app read more or less than the warning says.
+
+## Fitting shared project instructions
+
+Script 31, setup 38 and CLI 0.1.15 fit Context Locker's project block into the room the rest of `AGENTS.md` leaves. Codex and Hermes calculate the same budget, including Codex's ancestor files and Hermes's head/tail reading windows, round it down to 1,000-byte steps and send it to the API. Alternating their syncs therefore writes the same block without treating omitted preferences as removals.
+
+When space is tight, the block tells the app to fetch guidance and Start here summaries that did not fit. When no block fits, the session output says it is not loaded and names what to read. Existing text outside the block is preserved. Files with room keep their existing output. An override file can still hide `AGENTS.md`; the existing warning says so rather than changing the app's configuration. No new hooks or schedules are added.
 
 ## The scripts
 

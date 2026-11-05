@@ -1,5 +1,5 @@
 #!/bin/sh
-# Context Locker sync, version 24. MIT licence.
+# Context Locker sync, version 31. MIT licence.
 #
 #   sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]
 #   sh sync.sh map <app> [--all]
@@ -131,7 +131,7 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=30
+SCRIPT_VERSION=31
 FIX_OFFSET=0
 FIX_OFFSET_SET=0
 MODE=sync
@@ -706,6 +706,61 @@ hermes_file_limit() {
   [ -f "$hfl" ] || return 0
   hfl=$(tr -d '\r' <"$hfl" | sed -n 's/^context_file_max_chars:[[:space:]]*\([0-9][0-9]*\)[[:space:]]*\(#.*\)\{0,1\}$/\1/p' | head -n 1)
   case $hfl in '' | 0) ;; *) printf '%s' "$hfl" ;; esac
+}
+
+# Both apps write this file, so both measure both limits. Reserve the text
+# around our block and the exact separator write_block adds. A UTF-8 byte
+# cap also bounds Hermes's character count, without splitting characters.
+shared_agents_room() {
+  sar_file=$PROJECT_ROOT/AGENTS.md
+  sar_gap=0
+  : >"$TMP/agents-before"
+  : >"$TMP/agents-after"
+  if [ -f "$sar_file" ]; then
+    sar_pos=$(block_position "$sar_file")
+    case $sar_pos in
+      broken) printf 0; return ;;
+      none)
+        if grep -q '[^[:space:]]' "$sar_file"; then
+          cat "$sar_file" >"$TMP/agents-before"
+          sar_gap=2
+          ends_with_newline "$sar_file" && sar_gap=1
+        fi
+        ;;
+      *)
+        sar_s=${sar_pos% *} sar_e=${sar_pos#* }
+        [ "$sar_s" -le 1 ] || head -n $((sar_s - 1)) "$sar_file" >"$TMP/agents-before"
+        tail -n +$((sar_e + 1)) "$sar_file" >"$TMP/agents-after"
+        ;;
+    esac
+  fi
+  sar_codex=$(codex_doc_limit)
+  folders_above "$PROJECT_ROOT" >"$TMP/agents-ancestors"
+  while IFS= read -r sar_dir; do
+    for sar_name in AGENTS.override.md AGENTS.md; do
+      if [ -f "$sar_dir/$sar_name" ]; then
+        sar_codex=$((sar_codex - $(bytes_of "$sar_dir/$sar_name") - 2))
+        break
+      fi
+    done
+  done <"$TMP/agents-ancestors"
+  sar_codex=$((sar_codex - $(bytes_of "$TMP/agents-before") - sar_gap))
+  sar_limit=$(hermes_file_limit)
+  [ -n "$sar_limit" ] || sar_limit=20000
+  sar_before=$(chars_of <"$TMP/agents-before")
+  sar_after=$(chars_of <"$TMP/agents-after")
+  sar_before=$((sar_before + sar_gap))
+  # A complete file, or a block wholly inside Hermes's 70% head / 20% tail.
+  sar_hermes=$((sar_limit - sar_before - sar_after))
+  sar_head=$((sar_limit * 7 / 10 - sar_before))
+  sar_tail=$((sar_limit * 2 / 10 - sar_after))
+  [ "$sar_head" -le "$sar_hermes" ] || sar_hermes=$sar_head
+  [ "$sar_tail" -le "$sar_hermes" ] || sar_hermes=$sar_tail
+  sar_room=12000
+  [ "$sar_codex" -ge "$sar_room" ] || sar_room=$sar_codex
+  [ "$sar_hermes" -ge "$sar_room" ] || sar_room=$sar_hermes
+  [ "$sar_room" -ge 0 ] || sar_room=0
+  printf '%s' "$((sar_room / 1000 * 1000))"
 }
 
 # What an app misses of Context Locker's block in the file at $2, for target
@@ -1293,6 +1348,9 @@ http() {
   [ -n "$base" ] && set -- "$@" -H "Context-Locker-Base: $base"
   [ -n "$accept" ] && set -- "$@" -H "Accept: $accept"
   [ -n "$upload" ] && set -- "$@" -H "Context-Locker-Upload: $upload"
+  case $path in /v1/sync*\?project=*)
+    [ -z "${AGENTS_MD_BYTES:-}" ] || set -- "$@" -H "Context-Locker-Agents-Md-Bytes: $AGENTS_MD_BYTES"
+    ;; esac
   [ -n "$body" ] && set -- "$@" --data-binary "@$body"
   { [ -z "$TOKEN" ] || printf 'header = "Authorization: Bearer %s"\n' "$TOKEN"; } |
     curl "$@" "$API$path" 2>>"$TMP/curl-errors" || printf '000'
@@ -1633,6 +1691,10 @@ ack_project_removals() {
 
 sync_scope() {
   query=$1 state=$2
+  AGENTS_MD_BYTES=
+  case "$HARNESS $SCOPE" in
+    'codex project' | 'hermes project') AGENTS_MD_BYTES=$(shared_agents_room) ;;
+  esac
   lockfile=$state.lock
   WRITTEN=0 HELD=0
   if [ ! -f "$lockfile" ]; then
