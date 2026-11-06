@@ -78,7 +78,7 @@ export interface NoteInput extends ItemRef {
   title: string;
   /** plan, spec, decision, research, guide, record or profile */
   kind: string;
-  /** How AI apps should use it: source-of-truth, reference or historic */
+  /** How AI apps should use it: source-of-truth or reference */
   useAs: string;
   /** What it holds, in one line */
   summary: string;
@@ -132,8 +132,17 @@ export interface CompileInput {
   harness: CompiledHarness;
   /** Room left in a shared project AGENTS.md, in UTF-8 bytes, markers included. */
   agentsMdBytes?: number;
-  /** Null for the global sync, which carries everything that applies everywhere. */
-  project: { id: string; name: string; layer: ProjectLayer } | null;
+  /**
+   * Null for the global sync, which carries everything that applies
+   * everywhere. personal is true for a playbook whose owner allows personal
+   * details in it (G1-246).
+   */
+  project: {
+    id: string;
+    name: string;
+    layer: ProjectLayer;
+    personal?: boolean;
+  } | null;
   /**
    * The preferences for this sync only: the ones that apply everywhere for the
    * global sync, or the project's own versions for a project sync. In order.
@@ -153,7 +162,7 @@ export interface CompileInput {
   workPlaces?: WorkPlace[];
   /**
    * For a project sync: its live notes and the ones that apply everywhere,
-   * historic ones too, which its notes folder mirrors. Pointers are left out.
+   * which its notes folder mirrors. Pointers are left out.
    */
   notes?: NoteInput[];
   /** For a project sync: the workspace's tag list, which the notes folder's README gives. */

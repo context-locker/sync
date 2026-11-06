@@ -351,6 +351,7 @@ function compileProject(
         preferences,
         BUDGETS.context,
         mapPlan,
+        project.personal === true,
       );
       outputs.push({
         kind: "context",
@@ -377,7 +378,10 @@ function compileProject(
     const shared = targets.projectBlock === "{project}/AGENTS.md";
     const rendered = renderBlock({
       title: TEXT.projectTitle(project.name),
-      intro: TEXT.projectIntro,
+      // A playbook whose owner allows personal details says so (G1-246)
+      intro: project.personal
+        ? `${TEXT.projectIntro} ${TEXT.personalDetails}`
+        : TEXT.projectIntro,
       aboutHeading: TEXT.aboutProject,
       preferences,
       empty: TEXT.noPreferences,

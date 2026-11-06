@@ -749,3 +749,52 @@ describe("a project's map in its block", () => {
     }
   });
 });
+
+describe("the end of a task", () => {
+  it("asks apps to keep what they learn, and what stays in the app, in every footer (G1-245)", () => {
+    for (const footer of [TEXT.endOfTask, TEXT.endOfTaskIn("USER.md")]) {
+      assert.match(
+        footer,
+        /Keep what you learn that another app or a later session would need/,
+      );
+      assert.match(footer, /change the line that holds it before adding one/);
+      assert.match(
+        footer,
+        /leave out secrets, task status and personal details unless the playbook allows them\./,
+      );
+      // Its own example of a local detail, which stays in the app
+      assert.match(footer, /such as a local path/);
+    }
+  });
+});
+
+describe("a playbook that allows personal details (G1-246)", () => {
+  it("says so in a repo's block and the session-start output, only when it does", () => {
+    const words = (compiled: ReturnType<typeof compile>) =>
+      compiled.outputs
+        .filter(
+          (output) => output.kind === "block" || output.kind === "context",
+        )
+        .map((output) => (output as { text?: string }).text ?? "")
+        .join("\n");
+    let checked = 0;
+    for (const harness of COMPILED_HARNESSES) {
+      for (const layer of ["repo", "personal"] as const) {
+        const input = inProject(harness, layer);
+        const plain = words(compile(input));
+        // Hermes prints nothing for a project the repo isn't linked to
+        if (plain === "") continue;
+        const allowed = words(
+          compile({ ...input, project: { ...input.project!, personal: true } }),
+        );
+        assert.ok(
+          allowed.includes(TEXT.personalDetails),
+          `${harness} ${layer}`,
+        );
+        assert.ok(!plain.includes(TEXT.personalDetails), `${harness} ${layer}`);
+        checked += 1;
+      }
+    }
+    assert.ok(checked >= COMPILED_HARNESSES.length);
+  });
+});

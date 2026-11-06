@@ -8,7 +8,7 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v38`](setup/v38), which run `context-locker@0.1.15`. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for the app you are, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
+Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v40`](setup/v40), which run `context-locker@0.1.15` and then the script's `update` command. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for the app you are, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
 
 Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.15 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
 
@@ -43,6 +43,20 @@ sh ~/.contextlocker/sync.sh requests codex answer decision.json --json
 ```
 
 The JSON matches MCP's `pending_changes`, `read_request` and `decide_request`, and the server applies exactly their rules. Read everything relevant first. An answer names the request's source, id and binding, a fresh `request_id` kept for identical retries, the answer, and `consent: {"source":"human_in_chat","instruction":"the person's specific instruction"}`. An import's answer names the exact items picked and where each goes. The person must turn on Chat decisions for the connection, and an answer never makes a ticket ready or completes one. Security and access changes stay with the person, in Context Locker. Request commands never run from a hook or a daily sync, never queue offline and never retry on their own. PowerShell uses the same arguments with `sync.ps1`.
+
+## Notes, suggestions and facts from the script
+
+Script 32 in setup 39 adds `notes <app> search|read|write <request.json>` and `suggest <app> <request.json>`, and script 33 in setup 40 adds `remember <app> <request.json>`, so an app that syncs on a computer can do what MCP's `search_notes`, `read_note`, `write_note`, `suggest` and `remember` do, with the connection's existing credential:
+
+```sh
+sh ~/.contextlocker/sync.sh notes codex search search.json --json
+sh ~/.contextlocker/sync.sh notes codex read note.json
+sh ~/.contextlocker/sync.sh notes codex write change.json
+sh ~/.contextlocker/sync.sh suggest codex suggestion.json
+sh ~/.contextlocker/sync.sh remember codex fact.json
+```
+
+Each takes the matching tool's JSON arguments, and the server applies exactly its rules, recording the change as coming by sync. A notes search takes the current folder's playbook when the request names none; a suggestion names its own, so a fact never lands in a playbook by accident. Archived notes aren't synced, so `notes search` with `include: archive` and `notes read` are how an app reads one when asked, and `notes write` with an `action` archives, deletes or restores one. `remember` keeps one fact or preference, a single line with its name and a reason. A suggestion, a note's write and each item of an import carry a `brief` for the person's inbox: what changes, then why, in two or three sentences. These commands never run from a hook or a daily sync, and never queue offline or retry on their own. No hooks or schedules change, so script 20 and later update in place. PowerShell uses the same arguments with `sync.ps1`.
 
 ## Skill file transfers
 
@@ -178,6 +192,8 @@ Project files go into a repo only when it holds a `.contextlocker.json` naming t
 
 Facts in About come first, under `### About the user` in an app's own files and `### About this project` in a project's block, then the rest under `### Preferences`. A preference can run over several lines, each further line indented under its first, and an edit to it reads back the same way.
 
+Each app's own file ends with what to do when a task is done: fix a preference or skill that misled the app, keep what another app or a later session would need, saving a fact or a preference at once with `remember`, and leave a detail of one computer or app in that app's own memory. A playbook whose owner allows personal details says so in its block, with what an app may keep there; nothing scans for them.
+
 A managed block sits between `<!-- context-locker:start v1 -->` and `<!-- context-locker:end -->`, and nothing outside the markers changes. Each block has a size limit for its app (see `BUDGETS`). Preferences that don't fit are counted in a line saying where they are, and a repo's `AGENTS.md` block leaves out wording that Hermes would refuse, saying so in the block.
 
 A project's block also carries its map: up to 10 Start here entries, notes or pointers, and once the project has a docs home, where its lasting docs go. A pointer stands in for a note kept somewhere else, a file in the repo or a page on the web, and the block links to its address. Every entry goes through the same filter as the rest of the block, as an AI app may have written it.
@@ -186,7 +202,7 @@ The hooks setup adds for each app come from [`src/hooks.ts`](src/hooks.ts), whic
 
 Every app's sync also writes Context Locker's own skill, `context-locker-import` (see [`src/import-skill.ts`](src/import-skill.ts)), with the steps for Import, and takes away the old `context-locker-gather` folder as it writes the new one. Skill names that start with `context-locker-` are kept for Context Locker's own.
 
-A project's sync mirrors its notes into `{project}/.context-locker/notes`, one Markdown file per note with YAML front matter, whose `use_as` says how to use it (source-of-truth, reference or historic), and never a pointer, which has no text of its own, and the notes that apply everywhere in `everywhere/`, with a README on how to edit and add notes (see [`src/notes.ts`](src/notes.ts)). Current source-of-truth notes are standing guidance, including adopted imports. Reference and historic notes are information only; the current conversation takes precedence, and conflicting sources of truth about a decision call for the person. A starred onboarding note is a natural home for long-form rules. An edited or new file there goes to Context Locker at the next sync, and a deleted one comes back, as only Context Locker retires a note. An edit merges with what changed in Context Locker since. Where both changed the same part, the sync writes the newer version in the note's place, keeps the edit beside it as `<name>.md.conflict`, which it never sends, and the session start says so. The first time a sync writes there in a git work tree, it adds `.context-locker/` to `.git/info/exclude`, and it never changes `.gitignore`.
+A project's sync mirrors its notes into `{project}/.context-locker/notes`, one Markdown file per note with YAML front matter, whose `use_as` says how to use it (source-of-truth or reference), and never a pointer, which has no text of its own, and the notes that apply everywhere in `everywhere/`, with a README on how to edit and add notes (see [`src/notes.ts`](src/notes.ts)). Current source-of-truth notes are standing guidance, including adopted imports. Reference notes are information only, and archived ones, which aren't synced, are evidence of what held before; the current conversation takes precedence, and conflicting sources of truth about a decision call for the person. A starred onboarding note is a natural home for long-form rules. An edited or new file there goes to Context Locker at the next sync, and a deleted one comes back: a note is archived or deleted with `notes write`, or in Context Locker. An edit merges with what changed in Context Locker since. Where both changed the same part, the sync writes the newer version in the note's place, keeps the edit beside it as `<name>.md.conflict`, which it never sends, and the session start says so. The first time a sync writes there in a git work tree, it adds `.context-locker/` to `.git/info/exclude`, and it never changes `.gitignore`.
 
 ## The sync protocol
 
@@ -215,7 +231,7 @@ For the other modes:
 
 [`cli`](cli) is the source of `context-locker` on npm, the setup command that setup steps run with `npx`, at the version [`cli/package.json`](cli/package.json) names. It signs one AI app in, saves the sync script from [`scripts`](scripts), writes that app's files, adds its hooks and runs the doctor.
 
-0.1.14 bundles script 30, so `npx context-locker setup` installs the current script without an update step, and setup 36's and 37's steps run it. It takes an app it can't place to run on this computer, sends no app picks with its sign-in, and its last line names `context-locker-import`.
+0.1.15 bundles script 31, so setup 38's steps install the current script without an update step. Setup 39's and 40's steps run it and then the script's `update` command, which takes script 33. It takes an app it can't place to run on this computer, sends no app picks with its sign-in, and its last line names `context-locker-import`.
 
 Its files are copied unchanged from the platform's repo with each release of the command. So they build here as they do there, [`compilers/scripts`](compilers/scripts) links to `scripts`, and [`cli/tsconfig.json`](cli/tsconfig.json) points `@internal/compilers` at [`src`](src) and `@internal/shared` at [`cli/shared.ts`](cli/shared.ts), a copy of the few things the command uses from the platform's shared package.
 

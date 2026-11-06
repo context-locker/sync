@@ -19,11 +19,27 @@ export { plainMarkdown };
 /** The most Start here entries a project's block or session-start output lists. */
 export const START_HERE_MOST = 10;
 
+/**
+ * What an app keeps for the next app or session, said where apps change it:
+ * a synced edit carries no reason, so an inferred fact waits for the person's
+ * word (G1-245)
+ */
+const SHARED_FACTS =
+  "Keep what you learn that another app or a later session would need, or that the person would otherwise have to say again: change the line that holds it before adding one, one line a fact. A fact about the person, the company or the playbook goes in About, how they like work done in Preferences, and decisions or background in a note, in the narrowest playbook that fits. Save what the person said or confirmed, ask before saving anything inferred, and leave out secrets, task status and personal details unless the playbook allows them.";
+
+/**
+ * Said in a playbook's block when its owner allows personal details in it
+ * (G1-246): what apps may keep there. Nothing scans for personal details.
+ */
+const PERSONAL_DETAILS =
+  "This playbook allows personal details: keep what the person shares about themselves here, health and finances included, and what they share about the people in their life for the help they ask for, noting that they shared it. Don't go looking for more.";
+
 /** What a playbook holds, said where apps change it (G1-172) */
 const LOCAL_DETAILS =
   "Context Locker holds only what's true for every AI app and computer: keep a detail of this computer or this app, such as a local path, how this machine is set up or how this app's own tools behave, in this app's own memory.";
 
 export const TEXT = {
+  personalDetails: PERSONAL_DETAILS,
   globalTitle: "## Context Locker",
   globalIntro:
     "Your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
@@ -40,10 +56,10 @@ export const TEXT = {
     "Preferences for this playbook, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
   personalIntro: (name: string) =>
     `Context Locker preferences for ${name}. Where one has the same name as a general preference, it replaces that one here. To change one, ask your user to edit it in Context Locker.`,
-  endOfTask: `When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line here or the skill's files, and say why in your reply. The next sync saves the fix in Context Locker, unless it needs approval first. ${LOCAL_DETAILS}`,
+  endOfTask: `When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line here or the skill's files, and say why in your reply. The next sync saves the fix in Context Locker, unless it needs approval first. ${SHARED_FACTS} To save a fact or a preference at once, send JSON with kind fact or preference, name, one line of text and a reason to the sync script's remember <app>. ${LOCAL_DETAILS}`,
   /** The same question, in a file that doesn't hold all the preference lines. */
   endOfTaskIn: (where: string) =>
-    `When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line in ${where}, or the skill's files, and say why in your reply. The next sync saves the fix in Context Locker, unless it needs approval first. ${LOCAL_DETAILS}`,
+    `When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line in ${where}, or the skill's files, and say why in your reply. The next sync saves the fix in Context Locker, unless it needs approval first. ${SHARED_FACTS} To save a fact or a preference at once, send JSON with kind fact or preference, name, one line of text and a reason to the sync script's remember <app>. ${LOCAL_DETAILS}`,
   overflow: (count: number, where: string | null) =>
     count === 1
       ? `1 more preference didn't fit in this file. ${where ? `It's in ${where}.` : "It's in Context Locker."}`
@@ -564,10 +580,14 @@ export function renderContext(
   preferences: PreferenceInput[],
   budget: number,
   plan?: MapPlan,
+  /** Whether its owner allows personal details in it (G1-246) */
+  personal = false,
 ): RenderedBlock {
   const map = renderMap(plan);
   const kept: PreferenceInput[] = [];
-  const intro = TEXT.personalIntro(projectName);
+  const intro = personal
+    ? `${TEXT.personalIntro(projectName)} ${TEXT.personalDetails}`
+    : TEXT.personalIntro(projectName);
   const ordered = aboutFirst(preferences);
   const headed = map.startHere.length > 0;
   const mapped = headed || map.docsHome.length > 0;
