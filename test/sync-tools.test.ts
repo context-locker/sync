@@ -288,7 +288,10 @@ describe("the sync scripts' tools", () => {
         } else if (
           request.method === "POST" &&
           (url.pathname.startsWith("/v1/sync/tickets/") ||
-            url.pathname.startsWith("/v1/sync/requests/"))
+            url.pathname.startsWith("/v1/sync/requests/") ||
+            url.pathname.startsWith("/v1/sync/notes/") ||
+            url.pathname === "/v1/sync/suggest" ||
+            url.pathname === "/v1/sync/remember")
         ) {
           fake.ticketCalls.push({
             command: url.pathname.split("/").at(-1)!,
@@ -664,6 +667,90 @@ describe("the sync scripts' tools", () => {
           fake.requests.some((request) => request.startsWith("GET /v1/sync?")),
           false,
         );
+      });
+
+      it("sends notes, suggest and remember commands online, with the current playbook (G1-244, G1-245, G1-247)", async () => {
+        const machine = computer(shell);
+        const cwd = project(machine.home);
+        const file = join(machine.home, "note request.json");
+        const payload = JSON.stringify({
+          query: "café plan",
+          include: "archive",
+          text: "Ship it. 世界",
+        });
+        writeFileSync(file, payload);
+        const before = readdirSync(cwd).sort();
+        for (const command of ["search", "read", "write"]) {
+          const result = await run(shell, machine, {
+            mode: "notes",
+            cwd,
+            args: [command, file, "--json"],
+          });
+          assert.equal(result.status, 0, result.stderr);
+          assert.deepEqual(fake.ticketCalls.at(-1), {
+            command,
+            body: payload,
+            accept: "application/json",
+          });
+          assert.ok(
+            fake.requests.includes(
+              `POST /v1/sync/notes/${command}?project=${PROJECT}`,
+            ),
+          );
+        }
+        const suggested = await run(shell, machine, {
+          mode: "suggest",
+          cwd,
+          args: [file],
+        });
+        assert.equal(suggested.status, 0, suggested.stderr);
+        assert.deepEqual(fake.ticketCalls.at(-1), {
+          command: "suggest",
+          body: payload,
+          accept: "text/plain",
+        });
+        assert.ok(
+          fake.requests.includes(`POST /v1/sync/suggest?project=${PROJECT}`),
+        );
+        const remembered = await run(shell, machine, {
+          mode: "remember",
+          cwd,
+          args: [file, "--json"],
+        });
+        assert.equal(remembered.status, 0, remembered.stderr);
+        assert.deepEqual(fake.ticketCalls.at(-1), {
+          command: "remember",
+          body: payload,
+          accept: "application/json",
+        });
+        assert.ok(
+          fake.requests.includes(`POST /v1/sync/remember?project=${PROJECT}`),
+        );
+        const sent = fake.ticketCalls.length;
+        // Each needs its request, and notes a command it knows
+        for (const [mode, args] of [
+          ["notes", []],
+          ["notes", ["search"]],
+          ["notes", ["list", file]],
+          ["notes", ["read", file, "--daily"]],
+          ["suggest", []],
+          ["remember", []],
+          ["remember", [file, "--daily"]],
+        ] as const) {
+          const invalid = await run(shell, machine, {
+            mode,
+            cwd,
+            args: [...args],
+          });
+          assert.equal(invalid.status, 2, `${mode} ${args}: ${invalid.stderr}`);
+        }
+        assert.equal(fake.ticketCalls.length, sent);
+        assert.deepEqual(
+          readdirSync(cwd).sort(),
+          before,
+          "notes commands never write the notes folder",
+        );
+        assert.equal(read(file), payload, "the request file is unchanged");
       });
 
       it("refuses missing requests, unknown commands and oversized imports before sending", async () => {

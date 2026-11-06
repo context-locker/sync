@@ -9,7 +9,7 @@ Your preferences, kept in sync by Context Locker. To change one, edit its line h
 - no-dashes: Don't use em or en dashes.
 - short-sentences: Use short sentences in prose.
 
-When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line here or the skill's files, and say why in your reply. The next sync saves the fix in Context Locker, unless it needs approval first. Context Locker holds only what's true for every AI app and computer: keep a detail of this computer or this app, such as a local path, how this machine is set up or how this app's own tools behave, in this app's own memory.
+When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line here or the skill's files, and say why in your reply. The next sync saves the fix in Context Locker, unless it needs approval first. Keep what you learn that another app or a later session would need, or that the person would otherwise have to say again: change the line that holds it before adding one, one line a fact. A fact about the person, the company or the playbook goes in About, how they like work done in Preferences, and decisions or background in a note, in the narrowest playbook that fits. Save what the person said or confirmed, ask before saving anything inferred, and leave out secrets, task status and personal details unless the playbook allows them. To save a fact or a preference at once, send JSON with kind fact or preference, name, one line of text and a reason to the sync script's remember <app>. Context Locker holds only what's true for every AI app and computer: keep a detail of this computer or this app, such as a local path, how this machine is set up or how this app's own tools behave, in this app's own memory.
 <!-- context-locker:end -->
 
 == skill {hermes}/skills/code-review
@@ -17,5 +17,5 @@ item: 44444444-4444-4444-8444-444444444444@2
 files: SKILL.md, references/checklist.md
 
 == skill {hermes}/skills/context-locker-import
-item: c0de0000-6a7e-4e00-8000-000000000001@18
+item: c0de0000-6a7e-4e00-8000-000000000001@21
 files: SKILL.md, references/plan.md

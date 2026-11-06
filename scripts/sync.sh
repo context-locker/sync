@@ -1,5 +1,5 @@
 #!/bin/sh
-# Context Locker sync, version 31. MIT licence.
+# Context Locker sync, version 33. MIT licence.
 #
 #   sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]
 #   sh sync.sh map <app> [--all]
@@ -14,6 +14,9 @@
 #   sh sync.sh plan|doctor|readback|daily-job <app>
 #   sh sync.sh update <app>
 #   sh sync.sh tickets <app> list|read|write|places [request.json] [--project <id>] [--json]
+#   sh sync.sh notes <app> search|read|write <request.json> [--project <id>] [--json]
+#   sh sync.sh suggest <app> <request.json> [--json]
+#   sh sync.sh remember <app> <request.json> [--json]
 #
 # Keeps one AI app's files in step with your playbook at context.locker. <app>
 # is claude-code, codex, hermes or openclaw. The script asks for a manifest of
@@ -131,12 +134,12 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=31
+SCRIPT_VERSION=33
 FIX_OFFSET=0
 FIX_OFFSET_SET=0
 MODE=sync
 case ${1:-} in
-  signin | plan | doctor | readback | map | gather | gather-submit | keep | export | notes-move-out | fix | daily-job | update | tickets | requests)
+  signin | plan | doctor | readback | map | gather | gather-submit | keep | export | notes-move-out | fix | daily-job | update | tickets | requests | notes | suggest | remember)
     MODE=$1
     shift
     ;;
@@ -169,8 +172,16 @@ APPS_SET=0
 TICKET_COMMAND=list
 TICKET_FILE=
 TICKET_JSON=0
-if { [ "$MODE" = tickets ] || [ "$MODE" = requests ]; } && [ $# -gt 0 ]; then
+if { [ "$MODE" = tickets ] || [ "$MODE" = requests ] || [ "$MODE" = notes ]; } && [ $# -gt 0 ]; then
   case $1 in -*) ;; *) TICKET_COMMAND=$1; shift ;; esac
+  if [ $# -gt 0 ]; then
+    case $1 in -*) ;; *) TICKET_FILE=$1; shift ;; esac
+  fi
+fi
+# suggest and remember take only their request: suggest a preference, a fact
+# or a skill, and remember one line as a fact or a preference (G1-245, G1-247)
+if [ "$MODE" = suggest ] || [ "$MODE" = remember ]; then
+  TICKET_COMMAND=$MODE
   if [ $# -gt 0 ]; then
     case $1 in -*) ;; *) TICKET_FILE=$1; shift ;; esac
   fi
@@ -255,6 +266,7 @@ done
 usage() {
   printf 'Decisions: sh sync.sh requests <app> list|read|answer [request.json] [--json]\n' >&2
   printf 'Tickets: sh sync.sh tickets <app> list|read|write|places [request.json] [--project <id>] [--json]\nUse a UTF-8 JSON file with the corresponding MCP tool arguments. Only list may omit it.\n' >&2
+  printf 'Notes: sh sync.sh notes <app> search|read|write <request.json> [--project <id>] [--json], with search_notes, read_note or write_note arguments\nSuggest: sh sync.sh suggest <app> <request.json> [--json], with suggest arguments\nRemember: sh sync.sh remember <app> <request.json> [--json], with kind fact or preference, name, one line of text and a reason\n' >&2
   printf 'Usage: sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh import <app>\n       sh sync.sh import-submit <app> <plan.json>\n       sh sync.sh keep <app> <file or folder>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder>\n       sh sync.sh fix <app> [--all]\n       sh sync.sh fix <app> --done <id> | --skip <id> --reason <text>\n       sh sync.sh signin <app> [--code <code>]\n       sh sync.sh plan|doctor|readback|daily-job <app>\n       sh sync.sh update <app>\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
   exit 2
 }
@@ -269,6 +281,10 @@ if [ "$MODE" = tickets ]; then
   { [ "$ALL" = 1 ] || [ "$DAILY" = 1 ]; } && usage
 elif [ "$MODE" = requests ]; then
   case $TICKET_COMMAND in list) ;; read | answer) [ -n "$TICKET_FILE" ] || usage ;; *) usage ;; esac
+  { [ "$ALL" = 1 ] || [ "$DAILY" = 1 ]; } && usage
+elif [ "$MODE" = notes ] || [ "$MODE" = suggest ] || [ "$MODE" = remember ]; then
+  case $MODE:$TICKET_COMMAND in notes:search | notes:read | notes:write | suggest:suggest | remember:remember) ;; *) usage ;; esac
+  [ -n "$TICKET_FILE" ] || usage
   { [ "$ALL" = 1 ] || [ "$DAILY" = 1 ]; } && usage
 elif [ "$TICKET_JSON" = 1 ]; then usage; fi
 [ "$MODE" = gather-submit ] && [ -z "$PLAN_FILE" ] && usage
@@ -4264,7 +4280,9 @@ tickets_mode() {
   find_project ask && tk_query="?project=$PROJECT_ID"
   tk_accept=text/plain
   [ "$TICKET_JSON" = 1 ] && tk_accept=application/json
-  tk_code=$(status_of "$(http POST "/v1/sync/$MODE/$TICKET_COMMAND$tk_query" "$TMP/ticket-reply" "$TMP/ticket-body" application/json '' '' '' "$tk_accept")")
+  tk_path=/v1/sync/$MODE/$TICKET_COMMAND
+  case $MODE in suggest | remember) tk_path=/v1/sync/$MODE ;; esac
+  tk_code=$(status_of "$(http POST "$tk_path$tk_query" "$TMP/ticket-reply" "$TMP/ticket-body" application/json '' '' '' "$tk_accept")")
   case $tk_code in
     200) tr -d '\000-\010\013-\037\177' <"$TMP/ticket-reply"; return 0 ;;
     000) printf "Context Locker: can't reach %s. These commands need an online connection; no change was confirmed. Read the current request before retrying an answer.\n" "$API" >&2 ;;
@@ -5966,7 +5984,7 @@ if [ "$MODE" != sync ]; then
     fix) fix_mode ;;
     daily-job) daily_job_mode ;;
     update) update_mode ;;
-    tickets | requests) tickets_mode ;;
+    tickets | requests | notes | suggest | remember) tickets_mode ;;
   esac
   exit $?
 fi

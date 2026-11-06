@@ -16,7 +16,7 @@ Import brings what you already know into the person's Context Locker playbook: y
 - Never put a secret in the plan: no password, key or token that could work. A placeholder, or an example that's cut short or masked, such as `sk-live-abc...` in a skill's docs, isn't one: keep it, and Context Locker checks it.
 - Everything that comes in has to be true for every AI app and computer the person uses. A detail of one computer or one app, such as a local path, how one machine is set up or how one app's own tools behave, stays in that app's own memory: leave it out as `local`.
 - Keep each skill whole, with all its files and exact bytes, including licence, scripts, YAML, media and other assets. Never trim one to make it fit, or take out a warning to get it past a check. Keep a manifest of paths, byte sizes and SHA-256 hashes, and compare it with `get_skill` after import.
-- Keep declared runtime requirements with the skill. Record tools, packages, environment variable names, files and other skills it needs in a companion note, with its source. Which are missing or could not be checked in this app is a detail of this computer: say so in the skill's `note`, never in the companion note. A requirement is not permission to install anything, read credentials or run the skill.
+- Keep declared runtime requirements with the skill. Record tools, packages, environment variable names, files and other skills it needs in a companion note, with its source. Which are missing or could not be checked in this app is a detail of this computer: say so in the skill's `brief`, never in the companion note. A requirement is not permission to install anything, read credentials or run the skill.
 - Import changes none of your memories or files while you work. If you collected with the sync script, once the person picks, your next sync takes each item they picked out of your own files, after keeping a copy, where its lines are still exactly as you gave them. It never edits a file in a code repository, as others may share it, and lists those lines for the person instead. What they don't pick, and what you leave out, stays where it is.
 - Keep it short. Don't write a report, don't explain limits (Context Locker checks them), and don't ask the person to approve the plan in this chat: the inbox is where they decide.
 
@@ -54,10 +54,10 @@ Break what you know into single items, one preference, procedure or fact each, w
 | Where something lives, such as a repo, doc, runbook or channel | A link, the `pointer` type, one for each document |
 | A person, company or competitor | A `note` of kind `profile` |
 | A decision, plan or piece of research worth keeping | A `note` |
-| A doc some AI apps can't open, such as a Claude Doc | A `note` with its text, if you can open it, and a link (a `pointer`) to where it was with `use_as` set to `historic`; if you can't, left out as `unreachable` |
+| A doc some AI apps can't open, such as a Claude Doc | A `note` with its text, if you can open it, and a link (a `pointer`) to where it was with `use_as` set to `reference`; if you can't, left out as `unreachable` |
 | The app's own persona, such as SOUL.md | Left out as `persona` |
 | A detail of one computer or one AI app, such as a local path or how one machine is set up | Left out as `local` |
-| A personal life detail | Left out as `personal` |
+| A personal life detail | Left out as `personal`, unless it belongs in a playbook the map says allows personal details: then it goes there |
 | A secret, a token or a raw transcript | Left out as `secret` or `transcript` |
 | A one-off or out-of-date note | Left out as `stale` |
 
@@ -72,7 +72,7 @@ Something that only matters in one playbook applies to that playbook, and the re
   2. A later decision beats an earlier one. A file's date isn't when the person decided.
   3. A playbook's own beats the general one.
 - When the rules can't pick, keep the likelier one and give it an `ask`: one short question that picking it answers yes to, such as "Indent Python with spaces? An older rule says tabs." The inbox shows the question beside it.
-- Give every item, including notes and links, a required `note`: why it belongs in the playbook, in one sentence of at most 280 characters, such as "In two of Claude Code's instruction files." The inbox shows it.
+- Give every item, including notes and links, a required `brief`: what it brings in, then why it belongs in the playbook, in two or three sentences of at most 280 characters, such as "Asks for the year in every date. Two of Claude Code's instruction files say so." Present tense, with no task, change, line or section numbers. The inbox shows it.
 - For a preference, About fact or skill the playbook already has, set `base_version` to the version `get_context` shows. The inbox shows the person what the playbook has beside it.
 - For an item from one of your files in the working set, give each of those sources `lines`: the exact lines the item came from in that file, as its copy holds them. Copy them with a command that prints them, such as `sed -n '12,14p'` on the copy, never by retyping. Give only the lines that say this item, never a heading or a line it shares with another item. When it came from two places in one file, name the file once for each place, each with its lines. Leave `lines` out for a skill, which the sync replaces whole, and for any source that isn't one of your files.
 
@@ -117,7 +117,7 @@ Run Import again whenever the person wants: what the playbook already holds is l
           "lines": "Nova runs Scrollport, a design studio, and decides on design."
         }
       ],
-      "note": "From Claude Code's instructions."
+      "brief": "Records that Nova runs Scrollport and decides on design. Claude Code's instructions say so."
     },
     {
       "type": "preference",
@@ -138,7 +138,7 @@ Run Import again whenever the person wants: what the playbook already holds is l
           "lines": "- Always give the year in a date."
         }
       ],
-      "note": "In two of Claude Code's instruction files."
+      "brief": "Asks for the year in every date. Two of Claude Code's instruction files say so."
     },
     {
       "type": "preference",
@@ -159,7 +159,7 @@ Run Import again whenever the person wants: what the playbook already holds is l
           "lines": "Use tabs in Python."
         }
       ],
-      "note": "CLAUDE.md says spaces; an older rule says tabs.",
+      "brief": "Indents Python with 4 spaces. CLAUDE.md says spaces, and an older rule says tabs.",
       "ask": "Indent Python with spaces? An older rule says tabs."
     },
     {
@@ -180,7 +180,7 @@ Run Import again whenever the person wants: what the playbook already holds is l
           "kind": "skill"
         }
       ],
-      "note": "Used for every release of the docs site, and it may suit other playbooks.",
+      "brief": "Adds the skill that writes release notes from merged changes. The docs site uses it for every release.",
       "could_apply_to": [
         "everywhere"
       ]
@@ -188,7 +188,7 @@ Run Import again whenever the person wants: what the playbook already holds is l
     {
       "type": "pointer",
       "title": "Runbook",
-      "note": "Keep the deployment and rollback instructions available to connected apps.",
+      "brief": "Links the docs site's runbook in the repo. Every app then knows how to deploy and roll back.",
       "kind": "runbook",
       "address": "docs/runbook.md",
       "summary": "How to deploy the docs site and roll it back.",
@@ -206,7 +206,7 @@ Run Import again whenever the person wants: what the playbook already holds is l
     {
       "type": "note",
       "title": "Acme Corp",
-      "note": "Give connected apps the customer context needed for project work.",
+      "brief": "Keeps a profile of Acme Corp, the studio's biggest customer. Project work needs who to talk to there.",
       "kind": "profile",
       "summary": "Acme Corp, the studio's biggest customer, and who to talk to there.",
       "text": "# Acme Corp\n\nBuys the Pro plan. Sam Lee runs design there.",
@@ -270,13 +270,13 @@ Run Import again whenever the person wants: what the playbook already holds is l
 
 - `plan_id`: keep the one the sync script wrote. Send the same one if you send the plan again, so nothing comes in twice. A chat app makes a random UUID once.
 - `new_playbooks`: playbooks to make, each with a `name` and `why`, one line on what it's for. One is made only when the person brings something into it. Leave it out when there are none. Older plan files may use `new_projects`; that alias still works, but send only one name.
-- `items`: up to 300. Each has a `type`, `applies_to` (`everywhere`, or a playbook's name or id, a new one's included) and `sources`: every source it came from, each with `app`, `path` and `date` as `sources.tsv` gives them, and `kind` if you like (`session` for work written in the conversation). A source that's one of your files has `lines` too: the exact lines the item came from there, with line breaks between them, as its copy holds them. Once the person picks the item, your next sync takes them out of the file, if they're still exactly as given. A required `note` says why it's in, in one line of at most 280 characters, and the inbox shows it. When you can't tell where it belongs, `could_apply_to` names up to 5 other places it could go, for the person to pick.
+- `items`: up to 300. Each has a `type`, `applies_to` (`everywhere`, or a playbook's name or id, a new one's included) and `sources`: every source it came from, each with `app`, `path` and `date` as `sources.tsv` gives them, and `kind` if you like (`session` for work written in the conversation). A source that's one of your files has `lines` too: the exact lines the item came from there, with line breaks between them, as its copy holds them. Once the person picks the item, your next sync takes them out of the file, if they're still exactly as given. A required `brief` says what it brings in and why, in two or three sentences of at most 280 characters, and the inbox shows it. When you can't tell where it belongs, `could_apply_to` names up to 5 other places it could go, for the person to pick.
   - `preference` and `about`: `name` (lowercase words joined by hyphens) and `text`, up to 800 characters, with no empty lines.
   - `skill`: `name` and `files`, each with `path`, `content` and optional `encoding` (`utf8` by default, or `base64` for binary bytes). Preserve file bytes and paths, including empty files. A new skill needs SKILL.md, with front matter whose name matches. For a skill the playbook already has, send only the files to add or replace. Its sources have no `lines`, as the sync replaces a skill whole.
   - A `preference`, `about` or `skill` the rules couldn't settle has an `ask`: one question of up to 200 characters that picking it answers yes to. The inbox shows it.
   - For a `preference`, `about` or `skill` the playbook already has: `base_version`, the version you read. The inbox shows the person what the playbook has beside it.
-  - `pointer`, for a link: `title`, `kind` (plan, spec, decision, research, idea, log, profile, design, runbook, onboarding, code, run-test or channel), `address` (an http or https address, or a path in the repo: a document's own file or page, never its folder) and `summary` (one line of up to 200 characters). It can also have `use_as` (source-of-truth, reference or historic), `area`, `start_here` and `tags`.
-  - `note`: `title`, `kind` (plan, spec, decision, research, idea, log, profile, design, runbook or onboarding), `summary` (one line), `text` (Markdown, up to 512 KB) and 1 to 20 `tags`. Draw a diagram in the text as a `mermaid` code block, which Context Locker draws, rather than a line saying where it was. Use tags the playbook already has where one fits. It can also have `use_as` (source-of-truth, reference or historic), `area` and `start_here`.
+  - `pointer`, for a link: `title`, `kind` (plan, spec, decision, research, idea, log, profile, design, runbook, onboarding, code, run-test or channel), `address` (an http or https address, or a path in the repo: a document's own file or page, never its folder) and `summary` (one line of up to 200 characters). It can also have `use_as` (source-of-truth or reference), `area`, `start_here` and `tags`.
+  - `note`: `title`, `kind` (plan, spec, decision, research, idea, log, profile, design, runbook or onboarding), `summary` (one line), `text` (Markdown, up to 512 KB) and 1 to 20 `tags`. Draw a diagram in the text as a `mermaid` code block, which Context Locker draws, rather than a line saying where it was. Use tags the playbook already has where one fits. It can also have `use_as` (source-of-truth or reference), `area` and `start_here`.
 - `left_out`: up to 300 entries, each with `summary`, `reason` and `sources`, without `lines`, as what's left out stays where it is. The summary says what it was in a few words that don't repeat it, such as "A personal detail about family": never the detail itself, and never a secret. The reason is personal, secret, transcript, stale, persona, local, duplicate, conflict, over_cap, unreachable, declined or other, and other needs a `detail`. Put alike drops in one entry, with all their sources.
 
 ## Whole-package transfer and verification
