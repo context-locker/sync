@@ -8,7 +8,7 @@ Follow current notes marked source-of-truth as standing guidance, including impo
 
 ## Change a note
 
-Edit its file. The next sync saves the edit as a new version, unless added or changed source-of-truth guidance is flagged for review. A waiting edit stays in your local file; the reply links to its inbox request. If the note changed in Context Locker too, the edit isn't saved, and the sync says what to do.
+Edit its file, and the next sync saves the edit as a new version. For a source-of-truth note, send the edit as JSON to the sync script's notes <app> write instead: its id, base_version, the edits or its text, a change_note and a brief for the user's inbox, what changes and then why in two or three sentences. It's saved at once, unless added or changed guidance is flagged for review: then it waits in the user's inbox with your brief, and the reply links to it. An edited file that's flagged waits too, in your local file, with no reason given. If the note changed in Context Locker too, the edit isn't saved, and the sync says what to do.
 
 Deleting a file doesn't delete its note: the file comes back at the next sync. To archive or delete one, send its id, base_version, an action of archive or delete and a brief for the user's inbox, what changes and then why in two or three sentences, as JSON to the sync script's notes <app> write, and its file goes at the next sync. Archived notes aren't here: notes <app> search, with include archive, finds them and notes <app> read reads one, only when asked.
 

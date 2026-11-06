@@ -1,5 +1,5 @@
 #!/bin/sh
-# Context Locker sync, version 33. MIT licence.
+# Context Locker sync, version 34. MIT licence.
 #
 #   sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]
 #   sh sync.sh map <app> [--all]
@@ -10,9 +10,10 @@
 #   sh sync.sh notes-move-out <app> --to <folder>
 #   sh sync.sh fix <app> [--all]
 #   sh sync.sh fix <app> --done <id> | --skip <id> --reason <text>
-#   sh sync.sh signin <app> [--code <code>]
+#   sh sync.sh signin <app> [--code <code>] [--environment computer|cloud]
 #   sh sync.sh plan|doctor|readback|daily-job <app>
 #   sh sync.sh update <app>
+#   sh sync.sh remove <app> [--yes]
 #   sh sync.sh tickets <app> list|read|write|places [request.json] [--project <id>] [--json]
 #   sh sync.sh notes <app> search|read|write <request.json> [--project <id>] [--json]
 #   sh sync.sh suggest <app> <request.json> [--json]
@@ -114,7 +115,10 @@
 #             to wait up to --wait seconds (50) for the approval: it exits 0
 #             once connected, and 3 while still waiting. With --code, it
 #             connects with a one-time code the person made in Context Locker
-#             instead, with nothing to approve, and exits 0 once connected.
+#             instead, with nothing to approve, and exits 0 once connected. In
+#             Claude in Cowork, which gets Context Locker from the person's
+#             Claude account connector, it stops with exit 1 unless
+#             --environment cloud says to connect the sandbox on purpose.
 #   plan      shows what a sync would write, and the hooks to add. It changes
 #             nothing.
 #   doctor    checks the connection, the files, the hooks and the daily job,
@@ -128,18 +132,24 @@
 #             says yes. One that's there already stays as it is. Claude Code
 #             and Codex can't run one in the background.
 #   readback  prints what Context Locker has put in the app's files
+#   remove    takes Context Locker off this computer for the app, once the
+#             person says yes: the hook that runs the sync, the files the
+#             sync wrote that are still as it wrote them, and the app's folder
+#             here, with the shared script once no other app uses it. Without
+#             --yes it only says what it would take out. It never revokes or
+#             deletes the connection in Context Locker, and keeps the backups.
 set -u
 # What the script writes is this account's alone, apart from notes moved out
 # into a repo, which get the permissions the repo's files usually have
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=33
+SCRIPT_VERSION=34
 FIX_OFFSET=0
 FIX_OFFSET_SET=0
 MODE=sync
 case ${1:-} in
-  signin | plan | doctor | readback | map | gather | gather-submit | keep | export | notes-move-out | fix | daily-job | update | tickets | requests | notes | suggest | remember)
+  signin | plan | doctor | readback | map | gather | gather-submit | keep | export | notes-move-out | fix | daily-job | update | remove | tickets | requests | notes | suggest | remember)
     MODE=$1
     shift
     ;;
@@ -166,6 +176,8 @@ FIX_MARKS=0
 REASON=
 REASON_SET=0
 CODE=
+ENVIRONMENT=
+YES=0
 KEEP_PATH=
 APPS=
 APPS_SET=0
@@ -250,6 +262,11 @@ while [ $# -gt 0 ]; do
       CODE=${2:-}
       [ $# -gt 1 ] && shift
       ;;
+    --environment)
+      ENVIRONMENT=${2:-}
+      [ $# -gt 1 ] && shift
+      ;;
+    --yes) YES=1 ;;
     --apps)
       APPS=${2:-}
       APPS_SET=1
@@ -267,7 +284,7 @@ usage() {
   printf 'Decisions: sh sync.sh requests <app> list|read|answer [request.json] [--json]\n' >&2
   printf 'Tickets: sh sync.sh tickets <app> list|read|write|places [request.json] [--project <id>] [--json]\nUse a UTF-8 JSON file with the corresponding MCP tool arguments. Only list may omit it.\n' >&2
   printf 'Notes: sh sync.sh notes <app> search|read|write <request.json> [--project <id>] [--json], with search_notes, read_note or write_note arguments\nSuggest: sh sync.sh suggest <app> <request.json> [--json], with suggest arguments\nRemember: sh sync.sh remember <app> <request.json> [--json], with kind fact or preference, name, one line of text and a reason\n' >&2
-  printf 'Usage: sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh import <app>\n       sh sync.sh import-submit <app> <plan.json>\n       sh sync.sh keep <app> <file or folder>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder>\n       sh sync.sh fix <app> [--all]\n       sh sync.sh fix <app> --done <id> | --skip <id> --reason <text>\n       sh sync.sh signin <app> [--code <code>]\n       sh sync.sh plan|doctor|readback|daily-job <app>\n       sh sync.sh update <app>\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
+  printf 'Usage: sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh import <app>\n       sh sync.sh import-submit <app> <plan.json>\n       sh sync.sh keep <app> <file or folder>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder>\n       sh sync.sh fix <app> [--all]\n       sh sync.sh fix <app> --done <id> | --skip <id> --reason <text>\n       sh sync.sh signin <app> [--code <code>] [--environment computer|cloud]\n       sh sync.sh plan|doctor|readback|daily-job <app>\n       sh sync.sh update <app>\n       sh sync.sh remove <app> [--yes]\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
   exit 2
 }
 case $FIX_OFFSET in '' | *[!0-9]*) usage ;; esac
@@ -301,6 +318,13 @@ QUIET=0
 [ "$HOOK" = 1 ] && { [ "$HARNESS" = hermes ] || [ "$HARNESS" = openclaw ]; } && QUIET=1
 [ "$DAILY" = 1 ] && QUIET=1
 case $WAIT in '' | *[!0-9]*) usage ;; esac
+# --environment is for signin, to say where the app runs (G1-260), and --yes
+# for remove, once the person has said yes
+if [ -n "$ENVIRONMENT" ]; then
+  [ "$MODE" = signin ] || usage
+  case $ENVIRONMENT in computer | cloud) ;; *) usage ;; esac
+fi
+[ "$YES" = 1 ] && [ "$MODE" != remove ] && usage
 # --code is for signin, with a one-time code from Context Locker
 if [ -n "$CODE" ]; then
   [ "$MODE" = signin ] || usage
@@ -441,6 +465,12 @@ can_update() {
   [ -n "$(sed -n "s/^entry update \($HASH\) \([0-9]\{1,6\}\)\$/\1/p" "$APP_DIR/global.lock" 2>/dev/null | head -n 1)" ]
 }
 
+# A computer that never had Context Locker has nothing to take off (G1-260)
+if [ "$MODE" = remove ] && [ ! -d "$CL_HOME" ]; then
+  printf 'Context Locker: nothing of it is on this computer for %s.\n' "$APP_NAME"
+  exit 0
+fi
+
 # Only a sync needs the projects folder, so plan leaves no trace
 case $MODE in
   sync) mkdir -p "$APP_DIR/projects" ;;
@@ -455,8 +485,9 @@ LOCK=
 trap 'rm -rf "$TMP"; [ -z "$LOCK" ] || rm -rf "$LOCK"' EXIT
 trap 'exit 1' HUP INT TERM
 
-# One sync at a time on this computer. A lock older than 10 minutes is stale.
-if [ "$MODE" = sync ]; then
+# One sync at a time on this computer, and no removal during one. A lock older
+# than 10 minutes is stale.
+if [ "$MODE" = sync ] || { [ "$MODE" = remove ] && [ "$YES" = 1 ]; }; then
   tries=0
   while ! mkdir "$CL_HOME/sync.lock" 2>/dev/null; do
     if [ -n "$(find "$CL_HOME/sync.lock" -maxdepth 0 -mmin +10 2>/dev/null)" ]; then
@@ -2662,6 +2693,32 @@ machine_id() {
   printf '%s' "$id"
 }
 
+# Where this app runs, as the setup command finds it: what --environment says,
+# or a Claude cloud session or codespace, and otherwise left to Context Locker,
+# which takes it to run on the computer (G1-204, G1-260)
+environment_here() {
+  if [ -n "$ENVIRONMENT" ]; then
+    printf '%s' "$ENVIRONMENT"
+  elif [ "${CODESPACES:-}" = true ] || [ "${CLAUDE_CODE_REMOTE:-}" = true ]; then
+    printf cloud
+  fi
+}
+
+# Claude in Cowork gets Context Locker from the person's Claude account
+# connector, so signin stops there unless --environment cloud says to connect
+# the sandbox on purpose. Another Claude cloud session hears that its sandbox
+# may not last, and goes on. Keyed on CLAUDE_CODE_REMOTE, so a codespace
+# signs in as before (G1-260).
+claude_cloud_check() {
+  [ "$HARNESS" = claude-code ] && [ "${CLAUDE_CODE_REMOTE:-}" = true ] &&
+    [ "$ENVIRONMENT" != cloud ] || return 0
+  if [ "${CLAUDE_CODE_ENTRYPOINT:-}" = remote_cowork ]; then
+    printf "Context Locker: this is a Claude cloud session, such as Cowork or Claude on the web. It gets Context Locker from your account's Claude connector, which covers every chat, so device sync isn't needed here. To connect this sandbox on purpose, add --environment cloud.\n" >&2
+    return 1
+  fi
+  printf 'Context Locker: this is a Claude cloud session, whose sandbox may not last: a device connection made here ends with it.\n'
+}
+
 save_device_state() {
   printf 'device_code=%s\nuser_code=%s\nlink=%s\nexpires=%s\ninterval=%s\nlast=%s\n' \
     "$device_code" "$user_code" "$link" "$expires" "$interval" "$last" >"$state.tmp" &&
@@ -2677,11 +2734,13 @@ claim_code() {
   TOKEN=
   name=$(machine_name)
   id=$(machine_id)
+  env=$(environment_here)
   {
     printf '{"grant_type":"urn:context-locker:params:oauth:grant-type:invite","invite_code":"%s","harness":"%s","agent_name":"%s","client_version":"sync.sh %s"' \
       "$CODE" "$HARNESS" "$APP_NAME" "$SCRIPT_VERSION"
     [ -n "$name" ] && printf ',"machine_name":"%s"' "$name"
     [ -n "$id" ] && printf ',"machine_id":"%s"' "$id"
+    [ -n "$env" ] && printf ',"environment":"%s"' "$env"
     [ -n "$OS_NAME" ] && printf ',"os":"%s"' "$OS_NAME"
     printf '}\n'
   } >"$TMP/claim"
@@ -2736,6 +2795,7 @@ claim_code() {
 # Connects this app with a device code (RFC 8628). Only the link and the code
 # are shown: the token goes straight into a file only this account can read.
 signin() {
+  claude_cloud_check || return 1
   if [ -n "$CODE" ]; then
     claim_code
     return
@@ -2774,10 +2834,12 @@ signin() {
     rm -f "$state"
     name=$(machine_name)
     id=$(machine_id)
+    env=$(environment_here)
     {
       printf '{"harness":"%s","agent_name":"%s","client_version":"sync.sh %s"' "$HARNESS" "$APP_NAME" "$SCRIPT_VERSION"
       [ -n "$name" ] && printf ',"machine_name":"%s"' "$name"
       [ -n "$id" ] && printf ',"machine_id":"%s"' "$id"
+      [ -n "$env" ] && printf ',"environment":"%s"' "$env"
       [ -n "$OS_NAME" ] && printf ',"os":"%s"' "$OS_NAME"
       printf '}\n'
     } >"$TMP/start"
@@ -3935,7 +3997,15 @@ doctor() {
         connected=1
         check_pass "Connected: $(connected_as)."
         ;;
-      401) check_fail "This computer's connection was revoked or has expired. Run: $RUN signin $HARNESS" ;;
+      401)
+        # A revoked connection offers to come off the computer, never to set
+        # up again (G1-260)
+        if [ "$(reply_field error "$TMP/agent")" = connection_revoked ]; then
+          check_fail "This computer's connection for $APP_NAME was revoked in Context Locker, so nothing syncs here any more. To take Context Locker off this computer, run $RUN remove $HARNESS to see what it takes out, and only once the person says yes, run it again with --yes."
+        else
+          check_fail "This computer's connection was revoked or has expired. Run: $RUN signin $HARNESS"
+        fi
+        ;;
       000) check_fail "Can't reach Context Locker at $API." ;;
       *) check_fail "Context Locker answered $code when asked about this connection." ;;
     esac
@@ -5967,6 +6037,229 @@ update_mode() {
     "$up_newest" "$up_url" "$SCRIPT_VERSION" "$INSTALLED.previous"
 }
 
+# --- Taking Context Locker off this computer (G1-260) ------------------------
+
+# Takes the session-start hooks that run this script out of a JSON settings
+# file, as setup put them in, with node, keeping everything else in it and its
+# indent. Fails, changing nothing, when node isn't here or the file isn't as
+# setup leaves it.
+take_out_json_hook() {
+  have node || return 1
+  node -e '
+const fs = require("fs");
+const [file, installed] = process.argv.slice(1);
+const raw = fs.readFileSync(file, "utf8");
+const settings = JSON.parse(raw);
+const runs = (hook) =>
+  hook !== null && typeof hook === "object" &&
+  [hook.command, hook.commandWindows, hook.args]
+    .flat()
+    .filter((word) => typeof word === "string")
+    .some((word) => /contextlocker[\\/]+sync[.](sh|ps1)/.test(word) || word.includes(installed));
+const hooks = settings && settings.hooks;
+if (!hooks || !Array.isArray(hooks.SessionStart)) process.exit(1);
+const kept = hooks.SessionStart
+  .map((group) => group && Array.isArray(group.hooks) ? { ...group, hooks: group.hooks.filter((hook) => !runs(hook)) } : group)
+  .filter((group) => !(group && Array.isArray(group.hooks) && group.hooks.length === 0));
+if (kept.length > 0) hooks.SessionStart = kept;
+else delete hooks.SessionStart;
+if (Object.keys(hooks).length === 0) delete settings.hooks;
+const indent = (/^([ \t]+)"/m.exec(raw) || [])[1] || 2;
+fs.writeFileSync(file + ".ctx-tmp", JSON.stringify(settings, null, indent) + "\n", { mode: 0o600 });
+fs.renameSync(file + ".ctx-tmp", file);
+' "$1" "$INSTALLED" 2>/dev/null
+}
+
+# Each thing a lock file says the sync wrote, as "<kind> <hash> <target>":
+# blocks and skills, and a project's notes and their README
+rm_written() {
+  awk '$1 == "wrote" && ($2 == "block" || $2 == "skill" || $2 == "note" || $2 == "file") &&
+    $3 ~ /^[0-9a-f]+$/ && length($3) == 64 && $4 ~ /^[{][a-z]+[}]\// && $4 !~ /[.][.]/ { print $2, $3, $4 }' "$1" 2>/dev/null
+}
+
+# What's there now for something the sync wrote, hashed as the sync hashes it:
+# a hash, or "none" when it's gone
+rm_local() {
+  case $1 in
+    block)
+      [ -f "$2" ] || { printf none; return; }
+      rl_pos=$(block_position "$2")
+      case $rl_pos in none | broken) printf '%s' "$rl_pos" ;; *) block_lines "$2" "${rl_pos% *}" "${rl_pos#* }" | sha_stdin ;; esac
+      ;;
+    skill)
+      if [ -L "$2" ] || [ ! -d "$2" ] || [ ! -f "$2/.ctx-managed" ]; then printf none; else tree_hash "$2"; fi
+      ;;
+    *)
+      if [ -L "$2" ] || [ ! -f "$2" ]; then printf none; else sha_file "$2"; fi
+      ;;
+  esac
+}
+
+# Takes out, or with no --yes only names, what one lock says the sync wrote
+# that's still as it wrote it. A project's notes stay while another app here
+# syncs that project.
+rm_lock() {
+  rl_shared=$2
+  rm_written "$1" >"$TMP/remove-items"
+  while read -r rk_kind rk_hash rk_target; do
+    case $rk_target in
+      '{project}/'*)
+        [ -n "$PROJECT_ROOT" ] || continue
+        inside_project "$rk_target" || continue
+        rk_path=$PROJECT_ROOT${rk_target#\{project\}}
+        ;;
+      *) rk_path=$(resolve "$rk_target") || continue ;;
+    esac
+    case $rk_kind in
+      block) rk_what="Context Locker's part of $rk_path" ;;
+      skill) rk_what="the skill ${rk_target##*/} at $rk_path" ;;
+      *) rk_what=$rk_path ;;
+    esac
+    if [ "$rl_shared" = 1 ] && { [ "$rk_kind" = note ] || [ "$rk_kind" = file ]; }; then
+      printf '%s, as another app here syncs that project\n' "$rk_what" >>"$TMP/remove-kept"
+      continue
+    fi
+    rk_local=$(rm_local "$rk_kind" "$rk_path")
+    [ "$rk_local" = none ] && continue
+    if [ "$rk_local" != "$rk_hash" ]; then
+      printf '%s, which changed since the sync wrote it\n' "$rk_what" >>"$TMP/remove-kept"
+      continue
+    fi
+    printf '%s\n' "$rk_what" >>"$TMP/remove-taken"
+    [ "$YES" = 1 ] || continue
+    backup "$rk_path" "$rk_target" || {
+      printf "%s, as it couldn't be backed up first\n" "$rk_what" >>"$TMP/remove-failed"
+      continue
+    }
+    case $rk_kind in
+      block) remove_block "$rk_path" "$rk_target" ;;
+      skill) rm -rf "$rk_path" ;;
+      *) rm -f "$rk_path" ;;
+    esac || printf "%s, which couldn't be taken out\n" "$rk_what" >>"$TMP/remove-failed"
+  done <"$TMP/remove-items"
+}
+
+# The hook that runs the sync, taken out where setup put it, or named for the
+# app to take out where the file isn't JSON or node isn't here
+rm_hook() {
+  case $HARNESS in
+    claude-code | codex)
+      if [ "$HARNESS" = claude-code ]; then
+        rh_file=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
+      else
+        rh_file=$(root_dir codex)/hooks.json
+      fi
+      if hook_in "$rh_file"; then
+        printf 'the session-start hook in %s\n' "$rh_file" >>"$TMP/remove-taken"
+        if [ "$YES" = 1 ] && { ! backup "$rh_file" "hook-$(basename "$rh_file")" || ! take_out_json_hook "$rh_file"; }; then
+          printf 'Take the session-start hook that runs sync.sh out of %s.\n' "$rh_file" >>"$TMP/remove-manual"
+        fi
+      elif [ "$HARNESS" = codex ] && hook_in "$(root_dir codex)/config.toml"; then
+        printf 'Take the [[hooks.SessionStart]] entry that runs sync.sh out of %s.\n' "$(root_dir codex)/config.toml" >>"$TMP/remove-manual"
+      fi
+      ;;
+    hermes)
+      hermes_hooks_in "$(root_dir hermes)/config.yaml" &&
+        printf 'Take the hooks that run sync.sh out of the hooks in %s.\n' "$(root_dir hermes)/config.yaml" >>"$TMP/remove-manual"
+      ;;
+    openclaw)
+      if openclaw_hook_in; then
+        printf "OpenClaw's hook at %s\n" "$OPENCLAW_HOOK" >>"$TMP/remove-taken"
+        if [ "$YES" = 1 ]; then
+          { have openclaw && openclaw hooks disable context-locker-sync >/dev/null 2>&1; } || :
+          { backup "$OPENCLAW_HOOK" hook-openclaw && rm -rf "$OPENCLAW_HOOK"; } ||
+            printf "Take OpenClaw's hook out: %s\n" "$OPENCLAW_HOOK" >>"$TMP/remove-manual"
+        fi
+      fi
+      ;;
+  esac
+  rd_job=$(saved_daily_job | awk '{ print $1 }')
+  [ -n "$rd_job" ] && printf "Its daily job, %s, stays in %s's scheduler. To stop it, run: %s cron remove %s\n" \
+    "$rd_job" "$APP_NAME" "$HARNESS" "$rd_job" >>"$TMP/remove-manual"
+  return 0
+}
+
+# Takes Context Locker off this computer for the app, once the person says
+# yes: the hook that runs the sync, the files the sync wrote that are still as
+# it wrote them, and the app's folder here, with the shared script and files
+# once no other app uses them. What changed since the sync wrote it stays, and
+# is named, and so do the backups. Without --yes it only says what it would
+# take out. It never revokes or deletes the connection in Context Locker,
+# which stays the person's to change in Connections.
+remove_mode() {
+  : >"$TMP/remove-taken"
+  : >"$TMP/remove-kept"
+  : >"$TMP/remove-manual"
+  : >"$TMP/remove-failed"
+  others=
+  for rm_app in claude-code codex hermes openclaw; do
+    [ "$rm_app" != "$HARNESS" ] && [ -d "$CL_HOME/$rm_app" ] && others="$others $rm_app"
+  done
+
+  # What the sync wrote for the app itself, then in each project linked here
+  PROJECT_ROOT= PROJECT_ID=
+  rm_lock "$APP_DIR/global.lock" 0
+  if [ -f "$CL_HOME/projects" ]; then
+    while read -r rm_id rm_folder; do
+      [ -f "$APP_DIR/projects/$rm_id.lock" ] && [ -d "$rm_folder" ] || continue
+      rm_shared=0
+      for rm_app in $others; do
+        [ -f "$CL_HOME/$rm_app/projects/$rm_id.lock" ] && rm_shared=1
+      done
+      PROJECT_ROOT=$rm_folder PROJECT_ID=$rm_id
+      rm_lock "$APP_DIR/projects/$rm_id.lock" "$rm_shared"
+      if [ "$YES" = 1 ] && [ "$rm_shared" = 0 ]; then
+        rmdir "$rm_folder/.context-locker/notes/everywhere" "$rm_folder/.context-locker/notes" \
+          "$rm_folder/.context-locker" 2>/dev/null || :
+      fi
+    done <"$CL_HOME/projects"
+  fi
+  PROJECT_ROOT= PROJECT_ID=
+  rm_hook
+
+  # The app's folder here, and once no other app uses them, the shared script
+  # and what goes with it. The backups stay.
+  [ -d "$APP_DIR" ] && printf '%s, with its token and what its syncs kept\n' "$APP_DIR" >>"$TMP/remove-taken"
+  [ -z "$others" ] && [ -f "$INSTALLED" ] && printf 'the sync script at %s\n' "$INSTALLED" >>"$TMP/remove-taken"
+
+  if [ "$YES" != 1 ]; then
+    printf 'Context Locker: taking it off this computer for %s takes out:\n' "$APP_NAME"
+    sed 's/^/- /' "$TMP/remove-taken"
+    if [ -s "$TMP/remove-kept" ]; then
+      printf 'It leaves:\n'
+      sed 's/^/- /' "$TMP/remove-kept"
+    fi
+    [ -s "$TMP/remove-manual" ] && sed 's/^/Then: /' "$TMP/remove-manual"
+    printf "The connection stays in Context Locker, and so do the backups in %s.\nAsk the person, and only once they say yes, run: %s remove %s --yes\n" \
+      "$CL_HOME/backups" "$RUN" "$HARNESS"
+    return 0
+  fi
+
+  rm -rf "$APP_DIR"
+  if [ -z "$others" ]; then
+    for rm_shared_file in "$INSTALLED" "$INSTALLED.previous" "$CL_HOME/sync.ps1" "$CL_HOME/sync.ps1.previous" \
+      "$CL_HOME/machine-id" "$CL_HOME/projects" "$CL_HOME/sources" "$CL_HOME/config"; do
+      rm -f "$rm_shared_file"
+    done
+    rm -rf "$CL_HOME/gather"
+  fi
+  printf 'Context Locker is off this computer for %s. It took out:\n' "$APP_NAME"
+  sed 's/^/- /' "$TMP/remove-taken"
+  if [ -s "$TMP/remove-kept" ]; then
+    printf 'It left:\n'
+    sed 's/^/- /' "$TMP/remove-kept"
+  fi
+  if [ -s "$TMP/remove-failed" ]; then
+    printf 'It couldn'"'"'t take out:\n'
+    sed 's/^/- /' "$TMP/remove-failed"
+  fi
+  [ -s "$TMP/remove-manual" ] && sed 's/^/Still to do: /' "$TMP/remove-manual"
+  printf 'The backups stay in %s. The connection stays in Context Locker: revoke or remove it from its page in Connections if you like.\n' \
+    "$CL_HOME/backups"
+  [ -s "$TMP/remove-failed" ] && return 1
+  return 0
+}
+
 # --- Run ------------------------------------------------------------------
 
 if [ "$MODE" != sync ]; then
@@ -5984,6 +6277,7 @@ if [ "$MODE" != sync ]; then
     fix) fix_mode ;;
     daily-job) daily_job_mode ;;
     update) update_mode ;;
+    remove) remove_mode ;;
     tickets | requests | notes | suggest | remember) tickets_mode ;;
   esac
   exit $?

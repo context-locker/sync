@@ -7,6 +7,11 @@ import { IMPORT_SKILL_NAME, hookRun } from "@internal/compilers";
 import type { Environment } from "@internal/shared";
 import { appName, selectApp, namesOf, type App } from "./apps.js";
 import { canOpenBrowser, openBrowser } from "./browser.js";
+import {
+  CLOUD_SANDBOX_WARNING,
+  COWORK_REFUSAL,
+  claudeCloudOf,
+} from "./environment.js";
 import { stamp } from "./files.js";
 import { addHook } from "./hooks.js";
 import { VERSION, type Fetch } from "./http.js";
@@ -76,6 +81,20 @@ export async function setup(options: SetupOptions): Promise<number> {
     return USAGE;
   }
   const apps = [selected.app];
+
+  // Claude in Cowork gets Context Locker from the person's Claude account
+  // connector, so setup connects a cloud session only when told to, before
+  // saving or asking for anything (G1-260)
+  const cloud =
+    selected.app === "claude-code" ? claudeCloudOf(place.env) : null;
+  if (cloud && options.environment !== "cloud") {
+    if (cloud === "cowork") {
+      out(COWORK_REFUSAL);
+      return FAILED;
+    }
+    out(CLOUD_SANDBOX_WARNING);
+    out("");
+  }
   out(`Setting up ${appName(selected.app)}.`);
 
   const installed = installScript(place, options.scripts ?? bundledScripts());

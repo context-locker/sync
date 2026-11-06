@@ -1,4 +1,4 @@
-# Context Locker sync, version 33. MIT licence.
+# Context Locker sync, version 34. MIT licence.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 map <app> [-All]
@@ -9,9 +9,10 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 notes-move-out <app> -To <folder>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 fix <app> [-All]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text>
-#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 signin <app> [-Code <code>]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 signin <app> [-Code <code>] [-Environment computer|cloud]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 plan|doctor|readback|daily-job <app>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 update <app>
+#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 remove <app> [-Yes]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 tickets <app> list|read|write|places [request.json] [-Project <id>] [-Json]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 notes <app> search|read|write <request.json> [-Project <id>] [-Json]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 suggest <app> <request.json> [-Json]
@@ -113,7 +114,10 @@
 #             to wait up to -Wait seconds (50) for the approval: it exits 0
 #             once connected, and 3 while still waiting. With -Code, it
 #             connects with a one-time code the person made in Context Locker
-#             instead, with nothing to approve, and exits 0 once connected.
+#             instead, with nothing to approve, and exits 0 once connected. In
+#             Claude in Cowork, which gets Context Locker from the person's
+#             Claude account connector, it stops with exit 1 unless
+#             -Environment cloud says to connect the sandbox on purpose.
 #   plan      shows what a sync would write, and the hooks to add. It changes
 #             nothing.
 #   doctor    checks the connection, the files, the hooks and the daily job,
@@ -127,10 +131,17 @@
 #             says yes. One that's there already stays as it is. Claude Code
 #             and Codex can't run one in the background.
 #   readback  prints what Context Locker has put in the app's files
+#   remove    takes Context Locker off this computer for the app, once the
+#             person says yes: the hook that runs the sync, the files the
+#             sync wrote that are still as it wrote them, and the app's folder
+#             here, with the shared script once no other app uses it. Without
+#             -Yes it only says what it would take out. It never revokes or
+#             deletes the connection in Context Locker, and keeps the backups.
 #
 # The same steps as sync.sh, for Windows PowerShell 5.1 and PowerShell 7.
 # sync.sh's spellings of the options (--daily, --now, --hook, --project,
-# --wait, --all, --to, --done, --skip, --reason, --code and --apps) work too.
+# --wait, --all, --to, --done, --skip, --reason, --code, --apps, --environment
+# and --yes) work too.
 param(
   [Parameter(Position = 0)][string]$First = '',
   [Parameter(Position = 1)][string]$Second = '',
@@ -151,6 +162,8 @@ param(
   [int]$Offset = 0,
   [string]$Code = '',
   [string]$Apps = '',
+  [string]$Environment = '',
+  [switch]$Yes,
   [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest = @()
 )
 
@@ -158,7 +171,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 33
+$ScriptVersion = 34
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -172,7 +185,7 @@ if ($Second.StartsWith('-')) {
 }
 $Mode = 'sync'
 $Harness = $First
-if (@('signin', 'plan', 'doctor', 'readback', 'map', 'gather', 'gather-submit', 'keep', 'export', 'notes-move-out', 'fix', 'daily-job', 'update', 'tickets', 'requests', 'notes', 'suggest', 'remember') -contains $First) {
+if (@('signin', 'plan', 'doctor', 'readback', 'map', 'gather', 'gather-submit', 'keep', 'export', 'notes-move-out', 'fix', 'daily-job', 'update', 'remove', 'tickets', 'requests', 'notes', 'suggest', 'remember') -contains $First) {
   $Mode = $First
   $Harness = $Second
 } elseif (@('import', 'import-submit') -contains $First) {
@@ -242,6 +255,8 @@ for ($i = 0; $i -lt $extra.Count; $i++) {
   elseif ($option -eq '--reason' -and $value) { $Reason = $value; $ReasonSet = $true; $i++ }
   elseif ($option -eq '--code' -and $value) { $Code = $value; $i++ }
   elseif ($option -eq '--apps' -and $value) { $Apps = $value; $AppsSet = $true; $i++ }
+  elseif ($option -eq '--environment' -and $value) { $Environment = $value; $i++ }
+  elseif ($option -eq '--yes') { $Yes = [switch]$true }
   else { $badOption = $true }
 }
 # -To is for export and notes-move-out, which needs it
@@ -256,6 +271,10 @@ else { $ReasonSet }
 if ($Offset -lt 0 -or ($OffsetSet -and $FixAs -ne 'read')) { $badFix = $true }
 # -Code is for signin, with a one-time code from Context Locker
 $badCode = $Code -and (($Mode -ne 'signin') -or ($Code -cnotmatch '^ctxl_ic_[A-Za-z0-9_-]{43}$'))
+# -Environment is for signin, to say where the app runs (G1-260), and -Yes for
+# remove, once the person has said yes
+$badEnvironment = $Environment -and (($Mode -ne 'signin') -or (@('computer', 'cloud') -cnotcontains $Environment))
+$badYes = $Yes -and ($Mode -ne 'remove')
 # -Now and -Hook are for a sync
 $badSync = ($Mode -ne 'sync') -and ($Now -or $Hook)
 $badTickets = if ($Mode -eq 'tickets') {
@@ -272,13 +291,13 @@ $badTickets = if ($Mode -eq 'tickets') {
 # -Apps was for gather, to read some of every app's files (G1-11). Import
 # reads only this app's own (G1-206), so it's taken and left unused
 $badApps = $AppsSet -and ($Mode -ne 'gather')
-if ($badOption -or $badTo -or $badFix -or $badCode -or $badSync -or $badApps -or $badTickets -or (@('claude-code', 'codex', 'hermes', 'openclaw') -notcontains $Harness) -or $Wait -lt 0 -or ($Mode -eq 'gather-submit' -and -not $PlanFile) -or ($Mode -eq 'keep' -and -not $KeepPath)) {
+if ($badOption -or $badTo -or $badFix -or $badCode -or $badEnvironment -or $badYes -or $badSync -or $badApps -or $badTickets -or (@('claude-code', 'codex', 'hermes', 'openclaw') -notcontains $Harness) -or $Wait -lt 0 -or ($Mode -eq 'gather-submit' -and -not $PlanFile) -or ($Mode -eq 'keep' -and -not $KeepPath)) {
   [Console]::Error.WriteLine('Decisions: sync.ps1 requests <app> list|read|answer [request.json] [-Json]')
   [Console]::Error.WriteLine('Tickets: sync.ps1 tickets <app> list|read|write|places [request.json] [-Project <id>] [-Json]. Use a UTF-8 JSON file with the corresponding MCP tool arguments. Only list may omit it.')
   [Console]::Error.WriteLine('Notes: sync.ps1 notes <app> search|read|write <request.json> [-Project <id>] [-Json], with search_notes, read_note or write_note arguments')
   [Console]::Error.WriteLine('Suggest: sync.ps1 suggest <app> <request.json> [-Json], with suggest arguments')
   [Console]::Error.WriteLine('Remember: sync.ps1 remember <app> <request.json> [-Json], with kind fact or preference, name, one line of text and a reason')
-  [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 import <app>`n       sync.ps1 import-submit <app> <plan.json>`n       sync.ps1 keep <app> <file or folder>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder>`n       sync.ps1 fix <app> [-All]`n       sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text>`n       sync.ps1 signin <app> [-Code <code>]`n       sync.ps1 plan|doctor|readback|daily-job <app>`n       sync.ps1 update <app>`n<app> is claude-code, codex, hermes or openclaw.")
+  [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 import <app>`n       sync.ps1 import-submit <app> <plan.json>`n       sync.ps1 keep <app> <file or folder>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder>`n       sync.ps1 fix <app> [-All]`n       sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text>`n       sync.ps1 signin <app> [-Code <code>] [-Environment computer|cloud]`n       sync.ps1 plan|doctor|readback|daily-job <app>`n       sync.ps1 update <app>`n       sync.ps1 remove <app> [-Yes]`n<app> is claude-code, codex, hermes or openclaw.")
   exit 2
 }
 $AppName = @{ 'claude-code' = 'Claude Code'; 'codex' = 'Codex'; 'hermes' = 'Hermes'; 'openclaw' = 'OpenClaw' }[$Harness]
@@ -423,6 +442,12 @@ function Set-OwnerOnly([string]$Path) {
   }
 }
 
+# A computer that never had Context Locker has nothing to take off (G1-260)
+if ($Mode -eq 'remove' -and -not (Test-Path -LiteralPath $ClHome)) {
+  [Console]::Out.WriteLine("Context Locker: nothing of it is on this computer for $AppName.")
+  exit 0
+}
+
 try {
   # Only a sync needs the projects folder, so plan leaves no trace
   $newHome = -not (Test-Path -LiteralPath $ClHome)
@@ -435,11 +460,12 @@ try {
   Stop-Early "can't write to $ClHome."
 }
 
-# One sync at a time on this computer. A lock older than 10 minutes is stale.
+# One sync at a time on this computer, and no removal during one. A lock older
+# than 10 minutes is stale.
 $Lock = Join-Path $ClHome 'sync.lock'
 $HaveLock = $false
 $tries = 0
-while ($Mode -eq 'sync') {
+while ($Mode -eq 'sync' -or ($Mode -eq 'remove' -and $Yes)) {
   try {
     [void](New-Item -ItemType Directory -Path $Lock -ErrorAction Stop)
     $HaveLock = $true
@@ -2792,6 +2818,8 @@ function Invoke-Claim {
   $name = Get-MachineName
   if ($name) { $claim['machine_name'] = $name }
   $claim['machine_id'] = Get-MachineId
+  $where = Get-EnvironmentHere
+  if ($where) { $claim['environment'] = $where }
   $reply = Invoke-Api 'POST' '/oauth/token' ($Utf8.GetBytes(($claim | ConvertTo-Json -Compress))) 'application/json' @{}
   if ($reply.Status -eq 0) { [Console]::Error.WriteLine("Context Locker: can't reach $Api. Check the internet connection and try again."); return 1 }
   if ($reply.Status -eq 400) { [Console]::Error.WriteLine("Context Locker: that code can't be used. It works once, for 15 minutes. Ask for a new one: the person makes it in Context Locker, from the connection's New code."); return 1 }
@@ -2816,7 +2844,32 @@ function Invoke-Claim {
 
 # Connects this app with a device code (RFC 8628). Only the link and the code
 # are shown: the token goes straight into a file only this account can read.
+# Where this app runs, as the setup command finds it: what -Environment says,
+# or a Claude cloud session or codespace, and otherwise left to Context
+# Locker, which takes it to run on the computer (G1-204, G1-260)
+function Get-EnvironmentHere {
+  if ($Environment) { return $Environment }
+  if ($env:CODESPACES -eq 'true' -or $env:CLAUDE_CODE_REMOTE -eq 'true') { return 'cloud' }
+  return ''
+}
+
+# Claude in Cowork gets Context Locker from the person's Claude account
+# connector, so signin stops there unless -Environment cloud says to connect
+# the sandbox on purpose. Another Claude cloud session hears that its sandbox
+# may not last, and goes on. Keyed on CLAUDE_CODE_REMOTE, so a codespace
+# signs in as before (G1-260).
+function Test-ClaudeCloud {
+  if ($Harness -ne 'claude-code' -or $env:CLAUDE_CODE_REMOTE -ne 'true' -or $Environment -eq 'cloud') { return $true }
+  if ($env:CLAUDE_CODE_ENTRYPOINT -eq 'remote_cowork') {
+    [Console]::Error.WriteLine("Context Locker: this is a Claude cloud session, such as Cowork or Claude on the web. It gets Context Locker from your account's Claude connector, which covers every chat, so device sync isn't needed here. To connect this sandbox on purpose, add -Environment cloud.")
+    return $false
+  }
+  Say 'Context Locker: this is a Claude cloud session, whose sandbox may not last: a device connection made here ends with it.'
+  return $true
+}
+
 function Invoke-Signin {
+  if (-not (Test-ClaudeCloud)) { return 1 }
   if ($Code) { return Invoke-Claim }
   if (-not (Get-TokenProblem)) {
     $reply = Invoke-Api 'GET' '/v1/agent' $null '' @{}
@@ -2845,6 +2898,8 @@ function Invoke-Signin {
     $name = Get-MachineName
     if ($name) { $start['machine_name'] = $name }
     $start['machine_id'] = Get-MachineId
+    $where = Get-EnvironmentHere
+    if ($where) { $start['environment'] = $where }
     $reply = Invoke-Api 'POST' '/oauth/device_authorization' ($Utf8.GetBytes(($start | ConvertTo-Json -Compress))) 'application/json' @{}
     if ($reply.Status -eq 0) { [Console]::Error.WriteLine("Context Locker: can't reach $Api. Check the internet connection and try again."); return 1 }
     if ($reply.Status -eq 429) { [Console]::Error.WriteLine('Context Locker: too many sign-ins from this network just now. Try again in a few minutes.'); return 1 }
@@ -3970,7 +4025,13 @@ function Invoke-Doctor {
     }
     $reply = Invoke-Api 'GET' '/v1/agent' $null '' @{}
     if ($reply.Status -eq 200) { $connected = $true; Pass "Connected: $(Get-ConnectedAs $reply.Body)." }
-    elseif ($reply.Status -eq 401) { Fail "This computer's connection was revoked or has expired. Run: $Run signin $Harness" }
+    elseif ($reply.Status -eq 401) {
+      # A revoked connection offers to come off the computer, never to set up
+      # again (G1-260)
+      if ((Get-Field (ConvertFrom-Reply $reply.Body) 'error') -eq 'connection_revoked') {
+        Fail "This computer's connection for $AppName was revoked in Context Locker, so nothing syncs here any more. To take Context Locker off this computer, run $Run remove $Harness to see what it takes out, and only once the person says yes, run it again with -Yes."
+      } else { Fail "This computer's connection was revoked or has expired. Run: $Run signin $Harness" }
+    }
     elseif ($reply.Status -eq 0) { Fail "Can't reach Context Locker at $Api." }
     else { Fail "Context Locker answered $($reply.Status) when asked about this connection." }
   }
@@ -6008,6 +6069,236 @@ function Invoke-Update {
   return 0
 }
 
+# --- Taking Context Locker off this computer (G1-260) ------------------------
+
+# Takes the session-start hooks that run this script out of a JSON settings
+# file, as setup put them in, with node, keeping everything else in it and its
+# indent. Fails, changing nothing, when node isn't here or the file isn't as
+# setup leaves it.
+function Remove-JsonHook([string]$Path) {
+  $node = Get-Command node -ErrorAction SilentlyContinue
+  if (-not $node) { return $false }
+  $js = Join-Path $Tmp 'take-out-hook.js'
+  [IO.File]::WriteAllText($js, @'
+const fs = require("fs");
+const [file, installed] = process.argv.slice(2);
+const raw = fs.readFileSync(file, "utf8");
+const settings = JSON.parse(raw);
+const runs = (hook) =>
+  hook !== null && typeof hook === "object" &&
+  [hook.command, hook.commandWindows, hook.args]
+    .flat()
+    .filter((word) => typeof word === "string")
+    .some((word) => /contextlocker[\\/]+sync[.](sh|ps1)/.test(word) || word.includes(installed));
+const hooks = settings && settings.hooks;
+if (!hooks || !Array.isArray(hooks.SessionStart)) process.exit(1);
+const kept = hooks.SessionStart
+  .map((group) => group && Array.isArray(group.hooks) ? { ...group, hooks: group.hooks.filter((hook) => !runs(hook)) } : group)
+  .filter((group) => !(group && Array.isArray(group.hooks) && group.hooks.length === 0));
+if (kept.length > 0) hooks.SessionStart = kept;
+else delete hooks.SessionStart;
+if (Object.keys(hooks).length === 0) delete settings.hooks;
+const indent = (/^([ \t]+)"/m.exec(raw) || [])[1] || 2;
+fs.writeFileSync(file + ".ctx-tmp", JSON.stringify(settings, null, indent) + "\n", { mode: 0o600 });
+fs.renameSync(file + ".ctx-tmp", file);
+'@, $Utf8)
+  & $node.Source $js $Path $Installed 2>$null | Out-Null
+  return ($LASTEXITCODE -eq 0)
+}
+
+# Each thing a lock file says the sync wrote: blocks and skills, and a
+# project's notes and their README
+function Get-WrittenItems([string]$LockFile) {
+  $items = New-Object System.Collections.Generic.List[object]
+  if (-not (Test-Path -LiteralPath $LockFile -PathType Leaf)) { return , $items }
+  foreach ($line in [IO.File]::ReadAllLines($LockFile)) {
+    if ($line -cmatch '^wrote (block|skill|note|file) ([0-9a-f]{64}) (\{[a-z]+\}/\S+)' -and -not $Matches[3].Contains('..')) {
+      $items.Add(@{ Kind = $Matches[1]; Hash = $Matches[2]; Target = $Matches[3] })
+    }
+  }
+  return , $items
+}
+
+# What's there now for something the sync wrote, hashed as the sync hashes
+# it: a hash, or "none" when it's gone
+function Get-RemoveLocal([string]$Kind, [string]$Path) {
+  if ($Kind -eq 'block') {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return 'none' }
+    $lines = Get-Lines (Read-Text $Path)
+    $pos = Get-BlockPosition $lines
+    if ($pos -eq 'none' -or $pos -eq 'broken') { return $pos }
+    return Get-Sha256Text (Get-BlockText $lines $pos)
+  }
+  if ($Kind -eq 'skill') {
+    if ((Test-Link $Path) -or -not (Test-Path -LiteralPath $Path -PathType Container) -or
+      -not (Test-Path -LiteralPath (Join-Path $Path '.ctx-managed') -PathType Leaf)) { return 'none' }
+    return Get-TreeHash $Path
+  }
+  if ((Test-Link $Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return 'none' }
+  return Get-Sha256File $Path
+}
+
+# Takes out, or with no -Yes only names, what one lock says the sync wrote
+# that's still as it wrote it. A project's notes stay while another app here
+# syncs that project.
+function Invoke-RemoveLock([string]$LockFile, [bool]$Shared, $Lists) {
+  foreach ($item in (Get-WrittenItems $LockFile)) {
+    $target = $item.Target
+    if ($target.StartsWith('{project}/')) {
+      if (-not $Script:ProjectRoot -or -not (Test-InsideProject $target)) { continue }
+    }
+    $path = Resolve-Target $target
+    if (-not $path) { continue }
+    $what = switch ($item.Kind) {
+      'block' { "Context Locker's part of $path" }
+      'skill' { "the skill $($target.Substring($target.LastIndexOf('/') + 1)) at $path" }
+      default { $path }
+    }
+    if ($Shared -and ($item.Kind -eq 'note' -or $item.Kind -eq 'file')) {
+      $Lists.Kept.Add("$what, as another app here syncs that project")
+      continue
+    }
+    $local = Get-RemoveLocal $item.Kind $path
+    if ($local -eq 'none') { continue }
+    if ($local -ne $item.Hash) {
+      $Lists.Kept.Add("$what, which changed since the sync wrote it")
+      continue
+    }
+    $Lists.Taken.Add($what)
+    if (-not $Yes) { continue }
+    if (-not (Backup-Item $path $target)) {
+      $Lists.Failed.Add("$what, as it couldn't be backed up first")
+      continue
+    }
+    try {
+      switch ($item.Kind) {
+        'block' { if ((Remove-Block $path $target) -ne 0) { throw 'broken' } }
+        'skill' { Remove-Item -LiteralPath $path -Recurse -Force }
+        default { Remove-Item -LiteralPath $path -Force }
+      }
+    } catch { $Lists.Failed.Add("$what, which couldn't be taken out") }
+  }
+}
+
+# The hook that runs the sync, taken out where setup put it, or named for
+# the app to take out where the file isn't JSON or node isn't here
+function Invoke-RemoveHook($Lists) {
+  if ($Harness -eq 'claude-code' -or $Harness -eq 'codex') {
+    $file = if ($Harness -eq 'claude-code') { Join-Path (Get-RootDir 'claude') 'settings.json' } else { Join-Path (Get-RootDir 'codex') 'hooks.json' }
+    $toml = Join-Path (Get-RootDir 'codex') 'config.toml'
+    if (Test-HookIn $file) {
+      $Lists.Taken.Add("the session-start hook in $file")
+      if ($Yes -and (-not (Backup-Item $file "hook-$(Split-Path -Leaf $file)") -or -not (Remove-JsonHook $file))) {
+        $Lists.Manual.Add("Take the session-start hook that runs sync.ps1 out of $file.")
+      }
+    } elseif ($Harness -eq 'codex' -and (Test-HookIn $toml)) {
+      $Lists.Manual.Add("Take the [[hooks.SessionStart]] entry that runs sync.ps1 out of $toml.")
+    }
+  } elseif ($Harness -eq 'hermes') {
+    $config = Join-Path (Get-RootDir 'hermes') 'config.yaml'
+    if (Test-HermesHooksIn $config) { $Lists.Manual.Add("Take the hooks that run sync.ps1 out of the hooks in $config.") }
+  } elseif ($Harness -eq 'openclaw' -and (Test-OpenClawHookIn)) {
+    $Lists.Taken.Add("OpenClaw's hook at $OpenClawHook")
+    if ($Yes) {
+      $openclaw = Get-Command openclaw -ErrorAction SilentlyContinue
+      if ($openclaw) { try { & $openclaw.Source hooks disable context-locker-sync 2>$null | Out-Null } catch { } }
+      try {
+        if (-not (Backup-Item $OpenClawHook 'hook-openclaw')) { throw 'no backup' }
+        Remove-Item -LiteralPath $OpenClawHook -Recurse -Force
+      } catch { $Lists.Manual.Add("Take OpenClaw's hook out: $OpenClawHook") }
+    }
+  }
+  $job = ((Get-SavedDailyJob) -split ' ')[0]
+  if ($job) { $Lists.Manual.Add("Its daily job, $job, stays in $AppName's scheduler. To stop it, run: $Harness cron remove $job") }
+}
+
+# Takes Context Locker off this computer for the app, once the person says
+# yes: the hook that runs the sync, the files the sync wrote that are still
+# as it wrote them, and the app's folder here, with the shared script and
+# files once no other app uses them. What changed since the sync wrote it
+# stays, and is named, and so do the backups. Without -Yes it only says what
+# it would take out. It never revokes or deletes the connection in Context
+# Locker, which stays the person's to change in Connections.
+function Invoke-Remove {
+  $lists = @{
+    Taken = New-Object System.Collections.Generic.List[string]
+    Kept = New-Object System.Collections.Generic.List[string]
+    Manual = New-Object System.Collections.Generic.List[string]
+    Failed = New-Object System.Collections.Generic.List[string]
+  }
+  $others = @(@('claude-code', 'codex', 'hermes', 'openclaw') | Where-Object { $_ -ne $Harness -and (Test-Path -LiteralPath (Join-Path $ClHome $_) -PathType Container) })
+
+  # What the sync wrote for the app itself, then in each project linked here
+  $Script:ProjectRoot = ''
+  $Script:ProjectId = ''
+  Invoke-RemoveLock (Join-Path $AppDir 'global.lock') $false $lists
+  $projects = Join-Path $ClHome 'projects'
+  if (Test-Path -LiteralPath $projects -PathType Leaf) {
+    foreach ($line in [IO.File]::ReadAllLines($projects)) {
+      $id, $folder = $line.Split(' ', 2)
+      if (-not $folder -or $id -cnotmatch $Uuid) { continue }
+      $lock = Join-Path (Join-Path $AppDir 'projects') "$id.lock"
+      if (-not (Test-Path -LiteralPath $lock -PathType Leaf) -or -not (Test-Path -LiteralPath $folder -PathType Container)) { continue }
+      $shared = [bool]@($others | Where-Object { Test-Path -LiteralPath (Join-Path (Join-Path (Join-Path $ClHome $_) 'projects') "$id.lock") -PathType Leaf }).Count
+      $Script:ProjectRoot = $folder
+      $Script:ProjectId = $id
+      Invoke-RemoveLock $lock $shared $lists
+      if ($Yes -and -not $shared) {
+        $notes = Join-Path (Join-Path $folder '.context-locker') 'notes'
+        foreach ($empty in @((Join-Path $notes 'everywhere'), $notes, (Join-Path $folder '.context-locker'))) {
+          if ((Test-Path -LiteralPath $empty -PathType Container) -and -not @(Get-ChildItem -LiteralPath $empty -Force).Count) {
+            Remove-Item -LiteralPath $empty -Force -ErrorAction SilentlyContinue
+          }
+        }
+      }
+    }
+  }
+  $Script:ProjectRoot = ''
+  $Script:ProjectId = ''
+  Invoke-RemoveHook $lists
+
+  # The app's folder here, and once no other app uses them, the shared script
+  # and what goes with it. The backups stay.
+  if (Test-Path -LiteralPath $AppDir -PathType Container) { $lists.Taken.Add("$AppDir, with its token and what its syncs kept") }
+  if (-not $others.Count -and (Test-Path -LiteralPath $Installed -PathType Leaf)) { $lists.Taken.Add("the sync script at $Installed") }
+  $backups = Join-Path $ClHome 'backups'
+
+  if (-not $Yes) {
+    Say "Context Locker: taking it off this computer for $AppName takes out:"
+    foreach ($line in $lists.Taken) { Say "- $line" }
+    if ($lists.Kept.Count) {
+      Say 'It leaves:'
+      foreach ($line in $lists.Kept) { Say "- $line" }
+    }
+    foreach ($line in $lists.Manual) { Say "Then: $line" }
+    Say "The connection stays in Context Locker, and so do the backups in $backups."
+    Say "Ask the person, and only once they say yes, run: $Run remove $Harness -Yes"
+    return 0
+  }
+
+  Remove-Item -LiteralPath $AppDir -Recurse -Force -ErrorAction SilentlyContinue
+  if (-not $others.Count) {
+    foreach ($name in @('sync.sh', 'sync.sh.previous', 'sync.ps1', 'sync.ps1.previous', 'machine-id', 'projects', 'sources', 'config')) {
+      Remove-Item -LiteralPath (Join-Path $ClHome $name) -Force -ErrorAction SilentlyContinue
+    }
+    Remove-Item -LiteralPath (Join-Path $ClHome 'gather') -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  Say "Context Locker is off this computer for $AppName. It took out:"
+  foreach ($line in $lists.Taken) { Say "- $line" }
+  if ($lists.Kept.Count) {
+    Say 'It left:'
+    foreach ($line in $lists.Kept) { Say "- $line" }
+  }
+  if ($lists.Failed.Count) {
+    Say "It couldn't take out:"
+    foreach ($line in $lists.Failed) { Say "- $line" }
+  }
+  foreach ($line in $lists.Manual) { Say "Still to do: $line" }
+  Say "The backups stay in $backups. The connection stays in Context Locker: revoke or remove it from its page in Connections if you like."
+  if ($lists.Failed.Count) { return 1 }
+  return 0
+}
+
 # --- Run ------------------------------------------------------------------
 
 if ($Mode -ne 'sync') {
@@ -6027,6 +6318,7 @@ if ($Mode -ne 'sync') {
       'fix' { $exitCode = Invoke-Fix }
       'daily-job' { $exitCode = Invoke-DailyJob }
       'update' { $exitCode = Invoke-Update }
+      'remove' { $exitCode = Invoke-Remove }
       'tickets' { $exitCode = Invoke-Tickets }
       'requests' { $exitCode = Invoke-Tickets }
       'notes' { $exitCode = Invoke-Tickets }
