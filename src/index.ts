@@ -92,6 +92,7 @@ export {
   workPlacesRule,
   linkDestination,
   plainMarkdown,
+  PLAIN_WORDS,
   preferenceLine,
   startHereLine,
 } from "./render.js";

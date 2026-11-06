@@ -34,6 +34,15 @@ const SHARED_FACTS =
 const PERSONAL_DETAILS =
   "This playbook allows personal details: keep what the person shares about themselves here, health and finances included, and what they share about the people in their life for the help they ask for, noting that they shared it. Don't go looking for more.";
 
+/**
+ * How an app speaks to the person (G1-257): what is so and what they need to
+ * decide, in plain English, with the main points only, and one link to the
+ * detail in place of the numbers that name it. Said in every app's global
+ * block, the MCP server's instructions and get_context.
+ */
+export const PLAIN_WORDS =
+  "When you tell the person what you did or found, say what is so and what they need to decide, in the present tense and in plain English, with the main points only. Leave ticket, change, version, requirement and section numbers out unless they ask or need one to act: keep them in the ticket or note, and give one link to the detail. Name things by what they are, such as the PRD, not by id.";
+
 /** What a playbook holds, said where apps change it (G1-172) */
 const LOCAL_DETAILS =
   "Context Locker holds only what's true for every AI app and computer: keep a detail of this computer or this app, such as a local path, how this machine is set up or how this app's own tools behave, in this app's own memory.";
@@ -43,6 +52,8 @@ export const TEXT = {
   globalTitle: "## Context Locker",
   globalIntro:
     "Your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
+  /** How to speak to the person, after the global block's intro (G1-257) */
+  plainWords: PLAIN_WORDS,
   /** The intro of OpenClaw's second file, for preferences that didn't fit in USER.md. */
   moreIntro:
     "More of your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",

@@ -5,6 +5,8 @@ items: a1111111-1111-4111-8111-111111111111@1, a3333333-3333-4333-8333-333333333
 
 Your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.
 
+When you tell the person what you did or found, say what is so and what they need to decide, in the present tense and in plain English, with the main points only. Leave ticket, change, version, requirement and section numbers out unless they ask or need one to act: keep them in the ticket or note, and give one link to the detail. Name things by what they are, such as the PRD, not by id.
+
 ### About the user
 
 - role: I'm Nova, the founder of Scrollport, in London.

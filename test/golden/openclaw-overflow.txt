@@ -25,6 +25,8 @@ items: 00000000-0000-4000-8000-000000000010@1, 00000000-0000-4000-8000-000000000
 
 More of your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.
 
+When you tell the person what you did or found, say what is so and what they need to decide, in the present tense and in plain English, with the main points only. Leave ticket, change, version, requirement and section numbers out unless they ask or need one to act: keep them in the ticket or note, and give one link to the detail. Name things by what they are, such as the PRD, not by id.
+
 - rule-010: Rule 10: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it p
 - rule-011: Rule 11: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it p
 - rule-012: Rule 12: keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it plain keep it p

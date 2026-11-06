@@ -363,6 +363,7 @@ describe("compiled output", () => {
     const fixed = [
       TEXT.globalTitle,
       TEXT.globalIntro,
+      TEXT.plainWords,
       TEXT.noPreferences,
       TEXT.projectTitle("Docs site"),
       TEXT.projectIntro,
