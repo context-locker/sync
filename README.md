@@ -8,9 +8,9 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v40`](setup/v40), which run `context-locker@0.1.15` and then the script's `update` command. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for the app you are, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
+Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v42`](setup/v42), which runs `context-locker@0.1.16`, bundling script 34. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for the app you are, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
 
-Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.15 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
+Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.16 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
 
 The browser approval names that app and lets you name the connection. The command takes a cloud session it recognises to run in the Cloud, and any other app to run on this computer, unless you pass `--environment computer` or `--environment cloud`. It writes the selected app's files, adds its sync hook and runs the doctor. Import is separate, with an agreed scope and approval: an app imports only its own files, and reading them doesn't connect or configure anything. When you tick Bring in as you approve the connection, or as you make its one-time code, setup's last line tells the app to import now, and a Claude Code or Codex session start says so once. The import waits in your inbox, where you pick what comes in. Existing connections and hooks are never removed automatically.
 
@@ -57,6 +57,19 @@ sh ~/.contextlocker/sync.sh remember codex fact.json
 ```
 
 Each takes the matching tool's JSON arguments, and the server applies exactly its rules, recording the change as coming by sync. A notes search takes the current folder's playbook when the request names none; a suggestion names its own, so a fact never lands in a playbook by accident. Archived notes aren't synced, so `notes search` with `include: archive` and `notes read` are how an app reads one when asked, and `notes write` with an `action` archives, deletes or restores one. `remember` keeps one fact or preference, a single line with its name and a reason. A suggestion, a note's write and each item of an import carry a `brief` for the person's inbox: what changes, then why, in two or three sentences. These commands never run from a hook or a daily sync, and never queue offline or retry on their own. No hooks or schedules change, so script 20 and later update in place. PowerShell uses the same arguments with `sync.ps1`.
+
+## Claude cloud sessions and taking Context Locker off a computer
+
+Script 34, in setup 41, and the setup command 0.1.16 stop with exit 1 in Claude in Cowork, where `CLAUDE_CODE_REMOTE` is `true` and `CLAUDE_CODE_ENTRYPOINT` is `remote_cowork`, as Cowork gets Context Locker from the person's Claude account connector, which covers every chat. To connect that sandbox on purpose, add `--environment cloud`. In any other Claude cloud session they say the sandbox may not last, as a connection made there ends with it, and go on. The script's `signin` takes `--environment computer|cloud` and sends it with the sign-in.
+
+When the connection was revoked in Context Locker, the doctor says so and offers `remove <app>`, never signing in again. Without `--yes` it only says what it would take out, so the app can ask the person first:
+
+```sh
+sh ~/.contextlocker/sync.sh remove codex
+sh ~/.contextlocker/sync.sh remove codex --yes
+```
+
+With `--yes` it takes out the hook that runs the sync, the files the sync wrote that are still as it wrote them, after a backup, and the app's folder, with the shared script once no other app uses it. It keeps what changed since the sync wrote it, and the backups, says what's left to do by hand, and never revokes or deletes the connection in Context Locker. PowerShell uses `-Environment` and `-Yes`.
 
 ## Skill file transfers
 
@@ -231,7 +244,7 @@ For the other modes:
 
 [`cli`](cli) is the source of `context-locker` on npm, the setup command that setup steps run with `npx`, at the version [`cli/package.json`](cli/package.json) names. It signs one AI app in, saves the sync script from [`scripts`](scripts), writes that app's files, adds its hooks and runs the doctor.
 
-0.1.15 bundles script 31, so setup 38's steps install the current script without an update step. Setup 39's and 40's steps run it and then the script's `update` command, which takes script 33. It takes an app it can't place to run on this computer, sends no app picks with its sign-in, and its last line names `context-locker-import`.
+0.1.16 bundles script 34, so setup 42's steps install the current script without an update step. It refuses in Claude in Cowork, and warns in any other Claude cloud session, before it saves or asks for anything, unless given `--environment cloud`. It takes an app it can't place to run on this computer, sends no app picks with its sign-in, and its last line names `context-locker-import`. Setup 41 published script 34 while its steps still ran 0.1.15, which bundles script 31, and then the script's `update` command.
 
 Its files are copied unchanged from the platform's repo with each release of the command. So they build here as they do there, [`compilers/scripts`](compilers/scripts) links to `scripts`, and [`cli/tsconfig.json`](cli/tsconfig.json) points `@internal/compilers` at [`src`](src) and `@internal/shared` at [`cli/shared.ts`](cli/shared.ts), a copy of the few things the command uses from the platform's shared package.
 
