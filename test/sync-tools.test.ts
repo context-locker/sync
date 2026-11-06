@@ -414,6 +414,8 @@ describe("the sync scripts' tools", () => {
               "--done": "-Done",
               "--skip": "-Skip",
               "--waiting": "-Waiting",
+              "--working": "-Working",
+              "--recap": "-Recap",
               "--allow-auto-approve": "-AllowAutoApprove",
               "--request": "-Request",
               "--offset": "-Offset",
@@ -843,6 +845,84 @@ describe("the sync scripts' tools", () => {
             fake.marks.at(-1)?.body,
             `${outcome}\nThe user's exact words.\n`,
           );
+        }
+        // An app says it has started on one (G1-269), saying what it's
+        // doing only if it likes
+        const started = await run(shell, machine, {
+          mode: "fix",
+          args: ["--working", id],
+        });
+        assert.equal(started.status, 0, started.stderr);
+        assert.equal(fake.marks.at(-1)?.body, "working\n\n");
+        const doing = await run(shell, machine, {
+          mode: "fix",
+          args: ["--working", id, "--reason", "Checking the house style."],
+        });
+        assert.equal(doing.status, 0, doing.stderr);
+        assert.equal(
+          fake.marks.at(-1)?.body,
+          "working\nChecking the house style.\n",
+        );
+        // A recap goes with any reply, as JSON, and never with a read
+        // (G1-270)
+        const recapped = await run(shell, machine, {
+          mode: "fix",
+          args: [
+            "--done",
+            id,
+            "--recap",
+            'The guide is "current". Nothing left to check.',
+          ],
+        });
+        assert.equal(recapped.status, 0, recapped.stderr);
+        assert.match(fake.marks.at(-1)?.type ?? "", /^application\/json/);
+        assert.deepEqual(JSON.parse(fake.marks.at(-1)?.body ?? ""), {
+          outcome: "done",
+          reason: "",
+          recap: 'The guide is "current". Nothing left to check.',
+        });
+        const reading = await run(shell, machine, {
+          mode: "fix",
+          args: ["--request", id, "--recap", "No."],
+        });
+        assert.equal(reading.status, 2);
+        // A question back with 2 to 4 choices goes with --waiting, as JSON
+        // with a fresh request_id the script makes (G1-272)
+        const asking = await run(shell, machine, {
+          mode: "fix",
+          args: [
+            "--waiting",
+            id,
+            "--reason",
+            "Which guide should the steps follow?",
+            "--choice",
+            "The 2025 guide",
+            "--choice",
+            'The "2026" guide',
+          ],
+        });
+        assert.equal(asking.status, 0, asking.stderr);
+        assert.match(fake.marks.at(-1)?.type ?? "", /^application\/json/);
+        const asked = JSON.parse(fake.marks.at(-1)?.body ?? "");
+        assert.deepEqual(
+          { ...asked, request_id: undefined },
+          {
+            outcome: "waiting",
+            reason: "Which guide should the steps follow?",
+            choices: ["The 2025 guide", 'The "2026" guide'],
+            request_id: undefined,
+          },
+        );
+        assert.match(
+          asked.request_id,
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+        );
+        for (const args of [
+          ["--waiting", id, "--reason", "Which?", "--choice", "Only one"],
+          ["--done", id, "--choice", "One", "--choice", "Two"],
+        ]) {
+          const refused = await run(shell, machine, { mode: "fix", args });
+          assert.equal(refused.status, 2, args.join(" "));
         }
         const original = await run(shell, machine, {
           mode: "fix",

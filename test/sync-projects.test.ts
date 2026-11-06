@@ -48,7 +48,7 @@ const SHELLS = ["dash", "bash", "pwsh"].filter(
 );
 const HAVE_GIT = spawnSync("sh", ["-c", "command -v git"]).status === 0;
 const NEWER_LINE =
-  "Context Locker: a newer version of its sync script is out. When it suits the user, offer to set Context Locker up again from https://context.locker/setup. The one installed keeps working until then.";
+  "Context Locker: a newer version of its sync script is out. When it suits the user, offer to set Context Locker up again for them: once they say yes, download the newest steps with `curl -fsSL https://context.locker/setup/SKILL.md` and follow them. The one installed keeps working until then.";
 
 interface FakeProject {
   id: string;
@@ -820,7 +820,7 @@ describe("a project in the sync", () => {
           });
           assert.match(
             doctor.stdout,
-            /^WARN  A newer version of the sync script is out\. When it suits you, set Context Locker up again from context\.locker\/setup\. This one keeps working until then\.$/m,
+            /^WARN  A newer version of the sync script is out\. When it suits the person, offer to set Context Locker up again for them: once they say yes, download the newest steps with `curl -fsSL https:\/\/context\.locker\/setup\/SKILL\.md` and follow them\. This one keeps working until then\.$/m,
           );
           // Nothing was saved over the script or anywhere else
           assert.equal(

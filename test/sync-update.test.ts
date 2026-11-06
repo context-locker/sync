@@ -283,7 +283,7 @@ describe("the sync scripts' update command", () => {
         assert.equal(again.status, 0, again.stdout + again.stderr);
         assert.ok(
           again.stdout.includes(
-            "Context Locker: a newer version of its sync script is out. When it suits the user, offer to set Context Locker up again from https://context.locker/setup. The one installed keeps working until then.\n",
+            "Context Locker: a newer version of its sync script is out. When it suits the user, offer to set Context Locker up again for them: once they say yes, download the newest steps with `curl -fsSL https://context.locker/setup/SKILL.md` and follow them. The one installed keeps working until then.\n",
           ),
           again.stdout,
         );
@@ -376,7 +376,7 @@ describe("the sync scripts' update command", () => {
             set: () => {
               fake.script = { status: 200, body: `script ${NEXT}\n` };
             },
-            says: /version \d+ of the sync script needs more than the script, such as a new hook, so update can't take it\. Set Context Locker up again from https:\/\/context\.locker\/setup\./,
+            says: /version \d+ of the sync script needs more than the script, such as a new hook, so update can't take it\. Offer to set Context Locker up again for the person: once they say yes, download the newest steps with `curl -fsSL https:\/\/context\.locker\/setup\/SKILL\.md` and follow them\./,
           },
           {
             why: "a connection that's gone",

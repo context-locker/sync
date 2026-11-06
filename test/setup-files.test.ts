@@ -8,7 +8,11 @@ import { readFileSync, readdirSync } from "node:fs";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { SYNC_SCRIPT_RELEASE, SYNC_SCRIPT_VERSION } from "../src/index.js";
+import {
+  PLAIN_WORDS,
+  SYNC_SCRIPT_RELEASE,
+  SYNC_SCRIPT_VERSION,
+} from "../src/index.js";
 
 const SITE = fileURLToPath(new URL("../", import.meta.url));
 const SCRIPTS = fileURLToPath(new URL("../scripts/", import.meta.url));
@@ -23,6 +27,15 @@ const versions = readdirSync(`${SITE}setup`)
 describe("the published setup files", () => {
   it("include at least one version", () => {
     assert.ok(versions.length > 0);
+  });
+
+  it("ask apps to speak to the person in plain words, in the newest version (G1-257)", () => {
+    const skill = readFileSync(
+      `${SITE}setup/${versions.at(-1)}/SKILL.md`,
+      "utf8",
+    );
+    const rules = skill.split("## Ground rules")[1]?.split("\n## ")[0] ?? "";
+    assert.ok(rules.includes(`- ${PLAIN_WORDS}\n`), rules);
   });
 
   it("match the scripts here in the newest version", () => {

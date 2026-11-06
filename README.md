@@ -8,7 +8,7 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v42`](setup/v42), which runs `context-locker@0.1.16`, bundling script 34. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for the app you are, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
+Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v48`](setup/v48), which runs `context-locker@0.1.16`, bundling script 34, and then the script's `update`, which takes script 39. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for the app you are, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
 
 Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.16 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
 
@@ -70,6 +70,28 @@ sh ~/.contextlocker/sync.sh remove codex --yes
 ```
 
 With `--yes` it takes out the hook that runs the sync, the files the sync wrote that are still as it wrote them, after a backup, and the app's folder, with the shared script once no other app uses it. It keeps what changed since the sync wrote it, and the backups, says what's left to do by hand, and never revokes or deletes the connection in Context Locker. PowerShell uses `-Environment` and `-Yes`.
+
+## When a sync stops working
+
+Script 35, in setup 43, puts the reason first in what the app reads at the start of a session, the hook's JSON for Claude Code and what the sync prints for Codex, whenever a sync can't get Context Locker's answer. It gives the day of the last sync that did, or says nothing has synced yet, and what the app offers you, doing it only once you say yes: taking Context Locker off the computer with `remove` when the connection was revoked, connecting again from the newest setup steps for any other refused or missing token, or setting up again for a script too old to read the answer. When Context Locker can't be reached, the next sync tries again, and a newer script's line starts "as of the last sync, on <day>", so an old answer doesn't read as live.
+
+Wherever an app reads that more than the script changed, in the session start, the doctor, `update` and every command's refusal, it's told to offer to set Context Locker up again, and once you say yes, to download the newest steps with `curl -fsSL https://context.locker/setup/SKILL.md` and follow them.
+
+## A skill the app also loads from elsewhere
+
+Script 36, in setup 45, lists a skill once when the app also loads one of the same name from a place Context Locker doesn't write: for Claude Code, the skills the Claude app hands it from claude.ai and those of its installed plugins; for Codex, `~/.codex/skills` and its system skills; for Hermes, the skills in its category folders; and for OpenClaw, its workspace's skills and `~/.openclaw/skills`. A project's skill also meets your own copy that applies everywhere. While the two copies are the same, by their files' hashes, Context Locker's is left out on that computer, after a backup, and written again as soon as either changes or the other goes. When they differ, Context Locker keeps its copy up to date, and the session start says once that the skill is listed twice and how to turn the other off. The doctor names every such skill. The script only reads those places, and never writes to, moves or removes anything there.
+
+## Asks: working, recaps and questions back
+
+When you ask an app to look at something in your inbox, scripts 37 to 39 let it say where it has got to with `fix`:
+
+```sh
+sh ~/.contextlocker/sync.sh fix codex --working <id> --reason "<what it's doing>"
+sh ~/.contextlocker/sync.sh fix codex --done <id> --recap "<what's now true, then what isn't done>"
+sh ~/.contextlocker/sync.sh fix codex --waiting <id> --reason "<question>" --choice "<label>" --choice "<label>"
+```
+
+`--working`, from script 37 in setup 46, says it has started, so the request reads Working in your inbox. `--recap`, from script 38 in setup 47, adds what's now true and what isn't done or checked to any mark, in at most 300 characters, and the request's row shows it. `--choice`, from script 39 in setup 48, two to four times with `--waiting`, asks you a question you answer in one press, or in your own words, and the answer comes back to the same app in its next `fix`. It answers that question only, and approves nothing. Choices without `--waiting`, or fewer than two or more than four, are a usage error. With a recap or choices, the script sends the mark as JSON, with a fresh `request_id` it makes for a question. No hooks or schedules change, so script 20 and later update in place. PowerShell uses the same arguments with `sync.ps1`, as `-Working` and `-Recap`, and takes `--choice` as written.
 
 ## Skill file transfers
 
@@ -170,11 +192,14 @@ Tidy-up lists what in your playbook may need a look, such as a preference nobody
 sh ~/.contextlocker/sync.sh fix codex                                # the project's items and the ones everywhere
 sh ~/.contextlocker/sync.sh fix codex --all                          # every item
 sh ~/.contextlocker/sync.sh fix codex --request <id> --offset 0      # read the original proposal
+sh ~/.contextlocker/sync.sh fix codex --working <id>                 # once it starts on one
 sh ~/.contextlocker/sync.sh fix codex --waiting <id> --reason "<question or blocker>"
 sh ~/.contextlocker/sync.sh fix codex --allow-auto-approve <id> --reason "<explicit human instruction>"
 sh ~/.contextlocker/sync.sh fix codex --done <id>                    # once it's fixed
 sh ~/.contextlocker/sync.sh fix codex --skip <id> --reason "<why>"   # left for you to decide
 ```
+
+Any mark can carry `--recap`, and a question with `--waiting` can carry two to four `--choice` options, as [Asks](#asks-working-recaps-and-questions-back) says.
 
 `fix` prints the list as Context Locker words it, each item with its id, the evidence, a fix and its risk, and how the app makes a change: in the files the sync writes, which the next sync sends back. The app reads requests immediately and resolves authorised work or proposes the concrete next step. Questions and temporary failures stay open. A revision responding to feedback waits for review by default, even with Auto-approve on. Only an explicit human instruction recorded for that response permits the normal approval checks; it never bypasses risk checks. Repeated submissions return the same linked revision. A configured scheduled agent follows the same workflow at its existing cadence and stays quiet when nothing needs attention. A plain file-sync job is not an agent. `--done` checks the item again at once, and `--skip` leaves it in Tidy-up with the app's reason.
 
@@ -184,7 +209,7 @@ When changes wait for your approval, the script says so once at the start of a C
 sh ~/.contextlocker/sync.sh update codex     # takes the newest script, checked, keeping this one beside it
 ```
 
-`update` asks Context Locker which script is the newest and whether this one can take it in place. It downloads it from setup's folder for that version at context.locker/setup, and nowhere else, without the connection's token, and uses it only if it matches the SHA-256 Context Locker gives, says it's that version and reads as a script in its shell. The old one stays beside it, the new one takes its place in one step, and nothing else changes. When a release changes more than the script, such as a hook, the session start says to set Context Locker up again instead.
+`update` asks Context Locker which script is the newest and whether this one can take it in place. It downloads it from setup's folder for that version at context.locker/setup, and nowhere else, without the connection's token, and uses it only if it matches the SHA-256 Context Locker gives, says it's that version and reads as a script in its shell. The old one stays beside it, the new one takes its place in one step, and nothing else changes. When a release changes more than the script, such as a hook, the session start says to offer to set Context Locker up again instead, from the newest steps, once you say yes.
 
 The scripts only write where an app reads its files, and refuse anything else the server sends.
 
@@ -204,6 +229,8 @@ Roots in braces are worked out on the computer: `{claude}` is `CLAUDE_CONFIG_DIR
 Project files go into a repo only when it holds a `.contextlocker.json` naming the same workspace. Otherwise the session-start output carries the project's preferences, and only the notes folder, which git leaves out, is written there.
 
 Facts in About come first, under `### About the user` in an app's own files and `### About this project` in a project's block, then the rest under `### Preferences`. A preference can run over several lines, each further line indented under its first, and an edit to it reads back the same way.
+
+Since setup 44, each app's own file, after its intro, asks it to speak to you in plain English: to say what is so and what you need to decide, in the present tense, with the main points only, and to leave ticket, change, version, requirement and section numbers out unless you ask or need one to act, giving one link to the detail. OpenClaw has it in `AGENTS.md`, as `USER.md`'s room is for preferences.
 
 Each app's own file ends with what to do when a task is done: fix a preference or skill that misled the app, keep what another app or a later session would need, saving a fact or a preference at once with `remember`, and leave a detail of one computer or app in that app's own memory. A playbook whose owner allows personal details says so in its block, with what an app may keep there; nothing scans for them.
 
@@ -231,7 +258,7 @@ For the other modes:
 
 - `GET /v1/sync/caps` answers a `PASS`, `WARN` or `FAIL` line for each of the playbook's limits, which the doctor prints as they are.
 - `GET /v1/sync/script` answers the global manifest's lines about the newest script, for `update`, without a sync.
-- `GET /v1/sync/fixes[?project=<id>]` answers assigned requests and Tidy-up as text: the project's items and the ones that apply everywhere, or with no project every item. `?request=<id>&offset=0` reads a bounded page of one original proposal. `POST /v1/sync/fixes/<id>` with `done`, or `skipped` and the reason on the next line, marks one. `waiting` keeps it open with a question or temporary blocker; `auto_approve_allowed` records the person's explicit words for that feedback response only.
+- `GET /v1/sync/fixes[?project=<id>]` answers assigned requests and Tidy-up as text: the project's items and the ones that apply everywhere, or with no project every item. `?request=<id>&offset=0` reads a bounded page of one original proposal. `POST /v1/sync/fixes/<id>` with `done`, or `skipped` and the reason on the next line, marks one. `working` says the app has started on it. `waiting` keeps it open with a question or temporary blocker; `auto_approve_allowed` records the person's explicit words for that feedback response only. A mark with a recap or choices goes as JSON instead: `outcome`, `reason`, `recap`, and for a question, `choices` and a fresh `request_id`.
 - `POST /v1/gather` takes the plan `import-submit` sends, checks it whole, and stages it in the inbox for the person to pick from.
 - `GET /v1/sync/moves` answers the lines an import moves out of the app's own files, as `move <id> <count>`, the file's path, then its lines, and `POST /v1/sync/moves/<id>` says what came of one.
 - `POST /v1/sync/tickets/<command>` and `POST /v1/sync/requests/<command>` take the JSON of the matching MCP tool, with the connection's credential as the actor.
@@ -242,9 +269,9 @@ For the other modes:
 
 ## The setup command
 
-[`cli`](cli) is the source of `context-locker` on npm, the setup command that setup steps run with `npx`, at the version [`cli/package.json`](cli/package.json) names. It signs one AI app in, saves the sync script from [`scripts`](scripts), writes that app's files, adds its hooks and runs the doctor.
+[`cli`](cli) is the source of `context-locker` on npm, the setup command that setup steps run with `npx`. It signs one AI app in, saves the sync script from [`scripts`](scripts), writes that app's files, adds its hooks and runs the doctor.
 
-0.1.16 bundles script 34, so setup 42's steps install the current script without an update step. It refuses in Claude in Cowork, and warns in any other Claude cloud session, before it saves or asks for anything, unless given `--environment cloud`. It takes an app it can't place to run on this computer, sends no app picks with its sign-in, and its last line names `context-locker-import`. Setup 41 published script 34 while its steps still ran 0.1.15, which bundles script 31, and then the script's `update` command.
+[`cli/package.json`](cli/package.json) names 0.1.17, the next release, which bundles the newest script with no other change. It isn't on npm yet: its release there is by hand, and a setup version of its own will run it. Until then, setup 43 to 48's steps run 0.1.16, which bundles script 34, and then the script's `update` command, as setup 41's steps did with 0.1.15. 0.1.16 refuses in Claude in Cowork, and warns in any other Claude cloud session, before it saves or asks for anything, unless given `--environment cloud`. It takes an app it can't place to run on this computer, sends no app picks with its sign-in, and its last line names `context-locker-import`.
 
 Its files are copied unchanged from the platform's repo with each release of the command. So they build here as they do there, [`compilers/scripts`](compilers/scripts) links to `scripts`, and [`cli/tsconfig.json`](cli/tsconfig.json) points `@internal/compilers` at [`src`](src) and `@internal/shared` at [`cli/shared.ts`](cli/shared.ts), a copy of the few things the command uses from the platform's shared package.
 
@@ -262,7 +289,7 @@ npm run typecheck
 npm test
 ```
 
-`npm test` checks the compilers against the expected files in `test/golden` (`UPDATE_GOLDEN=1` rewrites them), runs the scripts against a fake API to check they refuse anything they may not write, runs `import` against a fake home folder with every app's files, to check each app reads only its own, runs the doctor, an import's moves, `export`, `notes-move-out`, `fix` and `update` against a fake API, and checks the published setup files. Then it runs the setup command's tests, in [`cli/test`](cli/test). When `pwsh` and PSScriptAnalyzer are installed, it also checks `sync.ps1` against Windows PowerShell 5.1's syntax and commands.
+`npm test` checks the compilers against the expected files in `test/golden` (`UPDATE_GOLDEN=1` rewrites them), runs the scripts against a fake API to check they refuse anything they may not write, runs `import` against a fake home folder with every app's files, to check each app reads only its own, runs the doctor, an import's moves, `export`, `notes-move-out`, `fix` and `update` against a fake API, checks what a session start says when a sync can't get Context Locker's answer and that a skill the app also loads from elsewhere is listed once, and checks the published setup files. Then it runs the setup command's tests, in [`cli/test`](cli/test). When `pwsh` and PSScriptAnalyzer are installed, it also checks `sync.ps1` against Windows PowerShell 5.1's syntax and commands.
 
 ## Licence
 

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Context Locker sync, version 34. MIT licence.
+# Context Locker sync, version 36. MIT licence.
 #
 #   sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]
 #   sh sync.sh map <app> [--all]
@@ -9,7 +9,8 @@
 #   sh sync.sh export <app> [--to <folder>]
 #   sh sync.sh notes-move-out <app> --to <folder>
 #   sh sync.sh fix <app> [--all]
-#   sh sync.sh fix <app> --done <id> | --skip <id> --reason <text>
+#   sh sync.sh fix <app> --done <id> | --skip <id> --reason <text> | --working <id> [--recap <text>]
+#   sh sync.sh fix <app> --waiting <id> --reason <question> --choice <label> --choice <label> ...
 #   sh sync.sh signin <app> [--code <code>] [--environment computer|cloud]
 #   sh sync.sh plan|doctor|readback|daily-job <app>
 #   sh sync.sh update <app>
@@ -27,7 +28,11 @@
 # backs up anything it replaces that it didn't write, and never deletes a
 # file of yours. Once the person picks from the app's import, it also takes
 # what they picked out of the app's own files, after a backup. When Context
-# Locker can't be reached, the app keeps the files it has.
+# Locker can't be reached, or the connection no longer works, the app keeps
+# the files it has, and its session start says why, from when its files are
+# and what to offer the person. A skill the app also gets elsewhere, such as
+# from a plugin, is listed once: Context Locker's copy is left out while the
+# two are the same, and the session start says once when they differ.
 #
 # In a project, the notes folder, .context-locker/notes, holds the project's
 # notes and, in everywhere/, the ones that apply everywhere, one Markdown
@@ -100,6 +105,13 @@
 # whole playbook's with --all or outside a project. Once an item is fixed,
 # --done <id> marks it done, and Context Locker checks it again at once.
 # --skip <id> --reason <text> leaves it for the person, with the reason.
+# --working <id> says the app has started on a request or an ask, which the
+# person's inbox shows, with what it's doing if --reason says. --recap <text>
+# with any of them gives the recap the request's row shows: what's now true,
+# then what's not done or not checked.
+# --waiting <id> --reason <question> with 2 to 4 --choice <label> asks the
+# person a question back, which they answer in one press, or with something
+# else, and the answer comes back in the next fix.
 #
 # update takes the newest sync script, once the person says yes, when Context
 # Locker says this one can. It downloads it from where setup publishes it, at
@@ -107,7 +119,7 @@
 # gives, that it's the version it says and that sh can read it, keeps this one
 # beside it as sync.sh.previous and puts the new one in its place. It changes
 # nothing else. When the newest script needs more than the script, such as a
-# new hook, it says to set Context Locker up again instead.
+# new hook, it says to offer to set Context Locker up again instead.
 #
 # For setup (see context.locker/setup):
 #   signin    connects the app with a code you approve in your browser. The
@@ -144,7 +156,7 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=34
+SCRIPT_VERSION=39
 FIX_OFFSET=0
 FIX_OFFSET_SET=0
 MODE=sync
@@ -175,6 +187,10 @@ FIX_ID=
 FIX_MARKS=0
 REASON=
 REASON_SET=0
+RECAP=
+RECAP_SET=0
+CHOICES=
+CHOICE_COUNT=0
 CODE=
 ENVIRONMENT=
 YES=0
@@ -238,9 +254,10 @@ while [ $# -gt 0 ]; do
       FIX_MARKS=$((FIX_MARKS + 1))
       [ $# -gt 1 ] && shift
       ;;
-    --waiting | --allow-auto-approve | --request)
+    --waiting | --allow-auto-approve | --request | --working)
       case $1 in
         --waiting) FIX_AS=waiting ;;
+        --working) FIX_AS=working ;;
         --allow-auto-approve) FIX_AS=auto_approve_allowed ;;
         --request) FIX_AS=read ;;
       esac
@@ -256,6 +273,18 @@ while [ $# -gt 0 ]; do
     --reason)
       REASON=${2:-}
       REASON_SET=1
+      [ $# -gt 1 ] && shift
+      ;;
+    --recap)
+      RECAP=${2:-}
+      RECAP_SET=1
+      [ $# -gt 1 ] && shift
+      ;;
+    --choice)
+      # One line each, for a question back (G1-272)
+      CHOICES="$CHOICES$(printf '%s' "${2:-}" | tr '\n\r' '  ')
+"
+      CHOICE_COUNT=$((CHOICE_COUNT + 1))
       [ $# -gt 1 ] && shift
       ;;
     --code)
@@ -284,7 +313,7 @@ usage() {
   printf 'Decisions: sh sync.sh requests <app> list|read|answer [request.json] [--json]\n' >&2
   printf 'Tickets: sh sync.sh tickets <app> list|read|write|places [request.json] [--project <id>] [--json]\nUse a UTF-8 JSON file with the corresponding MCP tool arguments. Only list may omit it.\n' >&2
   printf 'Notes: sh sync.sh notes <app> search|read|write <request.json> [--project <id>] [--json], with search_notes, read_note or write_note arguments\nSuggest: sh sync.sh suggest <app> <request.json> [--json], with suggest arguments\nRemember: sh sync.sh remember <app> <request.json> [--json], with kind fact or preference, name, one line of text and a reason\n' >&2
-  printf 'Usage: sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh import <app>\n       sh sync.sh import-submit <app> <plan.json>\n       sh sync.sh keep <app> <file or folder>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder>\n       sh sync.sh fix <app> [--all]\n       sh sync.sh fix <app> --done <id> | --skip <id> --reason <text>\n       sh sync.sh signin <app> [--code <code>] [--environment computer|cloud]\n       sh sync.sh plan|doctor|readback|daily-job <app>\n       sh sync.sh update <app>\n       sh sync.sh remove <app> [--yes]\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
+  printf 'Usage: sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh import <app>\n       sh sync.sh import-submit <app> <plan.json>\n       sh sync.sh keep <app> <file or folder>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder>\n       sh sync.sh fix <app> [--all]\n       sh sync.sh fix <app> --done <id> | --skip <id> --reason <text> | --working <id> [--recap <text>]\n       sh sync.sh fix <app> --waiting <id> --reason <question> --choice <label> --choice <label> ...\n       sh sync.sh signin <app> [--code <code>] [--environment computer|cloud]\n       sh sync.sh plan|doctor|readback|daily-job <app>\n       sh sync.sh update <app>\n       sh sync.sh remove <app> [--yes]\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
   exit 2
 }
 case $FIX_OFFSET in '' | *[!0-9]*) usage ;; esac
@@ -342,7 +371,7 @@ esac
 # needs its reason, and only a skip has one
 if [ "$MODE" = fix ]; then
   case $FIX_MARKS in
-    0) [ "$REASON_SET" = 1 ] && usage ;;
+    0) { [ "$REASON_SET" = 1 ] || [ "$RECAP_SET" = 1 ] || [ "$CHOICE_COUNT" -gt 0 ]; } && usage ;;
     1)
       [ "$ALL" = 1 ] && usage
       case $FIX_ID in
@@ -351,13 +380,27 @@ if [ "$MODE" = fix ]; then
       esac
       if [ "$FIX_AS" = skipped ] || [ "$FIX_AS" = waiting ] || [ "$FIX_AS" = auto_approve_allowed ]; then
         [ -n "$(printf '%s' "$REASON" | tr -d '[:space:]')" ] || usage
+      elif [ "$FIX_AS" = working ]; then
+        # What it's doing is optional
+        :
       else
         [ "$REASON_SET" = 1 ] && usage
+      fi
+      # A recap goes with a reply, never a read (G1-270)
+      if [ "$RECAP_SET" = 1 ]; then
+        [ "$FIX_AS" = read ] && usage
+        [ -n "$(printf '%s' "$RECAP" | tr -d '[:space:]')" ] || usage
+      fi
+      # A question back has 2 to 4 choices, with --waiting (G1-272)
+      if [ "$CHOICE_COUNT" -gt 0 ]; then
+        [ "$FIX_AS" = waiting ] || usage
+        { [ "$CHOICE_COUNT" -ge 2 ] && [ "$CHOICE_COUNT" -le 4 ]; } || usage
+        printf '%s' "$CHOICES" | grep -q '^[[:space:]]*$' && usage
       fi
       ;;
     *) usage ;;
   esac
-elif [ "$FIX_MARKS" -gt 0 ] || [ "$REASON_SET" = 1 ]; then
+elif [ "$FIX_MARKS" -gt 0 ] || [ "$REASON_SET" = 1 ] || [ "$RECAP_SET" = 1 ] || [ "$CHOICE_COUNT" -gt 0 ]; then
   usage
 fi
 
@@ -380,6 +423,9 @@ W_BLOCKS=0
 W_SKILLS=0
 W_NOTES=0
 FAILED=0
+# Why the sync couldn't get Context Locker's answer, for the session start
+# (G1-258)
+BROKEN=
 SKILLS_CHANGED=0
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 
@@ -393,6 +439,95 @@ finish_early() {
   printf 'Context Locker: %s\n' "$1" >&2
   [ "$MODE" = sync ] && [ "$DAILY" = 0 ] && exit 0
   exit 1
+}
+
+# Text as a JSON string holds it, without the quotes, from a file, or with -
+# what's piped in
+json_escape() {
+  awk 'BEGIN { ORS = "" }
+    {
+      gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); gsub(/\r/, "\\r")
+      if (NR > 1) print "\\n"
+      print
+    }' "$1"
+}
+
+# Some text as a JSON string holds it, without the quotes or the control
+# characters JSON can't hold as they are (G1-270)
+json_text() {
+  printf '%s' "$1" | tr -d '\000-\010\013\014\016-\037' | json_escape -
+}
+
+# Setting Context Locker up again, which the app offers and does once the
+# person says yes, rather than telling them to (G1-258)
+SETUP_STEPS="download the newest steps with \`curl -fsSL https://context.locker/setup/SKILL.md\` and follow them"
+CONNECT_OFFER="Offer to connect it again: once the person says yes, $SETUP_STEPS, and give them the link and code the setup command prints."
+# Taking Context Locker off the computer, which the app offers when the
+# connection was revoked in Context Locker (G1-260)
+remove_offer() {
+  printf "Offer to take Context Locker off this computer: run \`%s remove %s\`, which says what it would take out and changes nothing, and only once the person says yes, run it again with \`--yes\`." \
+    "$RUN" "$HARNESS"
+}
+
+# The day of the last sync that got Context Locker's answer, such as
+# "26 Oct 2026", from the global lock, or nothing before the first
+last_sync_day() {
+  ls_at=$(sed -n 's/^synced //p' "$APP_DIR/global.lock" 2>/dev/null | head -n 1)
+  case $ls_at in
+    [0-9][0-9][0-9][0-9]-[01][0-9]-[0-3][0-9]T*) ;;
+    *) return 0 ;;
+  esac
+  printf '%s' "$ls_at" | awk -F '[-T]' '{
+    split("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec", m, " ")
+    if ($2 + 0 >= 1 && $2 + 0 <= 12) printf "%d %s %s", $3, m[$2 + 0], $1
+  }'
+}
+
+# The session start's line when a sync can't get Context Locker's answer: why,
+# since when the app's files are as they are, and what to offer the person,
+# as what goes to stderr never reaches the app (G1-258). $1 is revoked,
+# gone, unconnected, damaged, old, unreachable or the status Context Locker
+# answered with.
+broken_line() {
+  bl_day=$(last_sync_day)
+  if [ -n "$bl_day" ]; then
+    bl_files="$APP_NAME's files are as they were on $bl_day"
+  else
+    bl_files="nothing has synced here yet"
+  fi
+  case $1 in
+    revoked)
+      # Revoked in Context Locker, so it offers to come off the computer,
+      # never to set up again (G1-260)
+      printf "Context Locker: this computer's connection for %s was revoked in Context Locker, so nothing syncs here any more, and %s. %s\n" \
+        "$APP_NAME" "$bl_files" "$(remove_offer)"
+      ;;
+    gone) printf "Context Locker: this computer's connection for %s was revoked or has expired, so %s. %s\n" "$APP_NAME" "$bl_files" "$CONNECT_OFFER" ;;
+    unconnected) printf "Context Locker: %s isn't connected on this computer, so %s. %s\n" "$APP_NAME" "$bl_files" "$CONNECT_OFFER" ;;
+    damaged) printf "Context Locker: the saved token for %s is damaged, so %s. %s\n" "$APP_NAME" "$bl_files" "$CONNECT_OFFER" ;;
+    old)
+      printf "Context Locker: this sync script is too old to read Context Locker's answers, so %s. Offer to set Context Locker up again for them: once they say yes, %s.\n" \
+        "$bl_files" "$SETUP_STEPS"
+      ;;
+    *)
+      if [ "$1" = unreachable ]; then bl_why="can't reach Context Locker"; else bl_why="Context Locker answered $1"; fi
+      printf "Context Locker: %s, so %s. The next sync tries again. If it keeps happening, offer to look into it with \`%s doctor %s\`.\n" \
+        "$bl_why" "$bl_files" "$RUN" "$HARNESS"
+      ;;
+  esac
+}
+
+# Says a line to the app at the start of its session, when the sync stops
+# before it gets to say anything else: Claude Code reads the hook's JSON, and
+# Codex what it prints (G1-258)
+say_at_start() {
+  [ "$MODE" = sync ] && [ "$DAILY" = 0 ] && [ "$QUIET" = 0 ] || return 0
+  if [ "$HARNESS" = claude-code ]; then
+    printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' \
+      "$(printf '%s\n' "$1" | json_escape -)"
+  else
+    printf '%s\n' "$1"
+  fi
 }
 
 for tool in curl tar awk sed find mkdir mktemp xargs; do
@@ -447,22 +582,42 @@ token_problem() {
   return 1
 }
 case $MODE in
-  sync | plan | map | gather | gather-submit | export | notes-move-out | fix | daily-job | update) problem=$(token_problem) && finish_early "$problem" ;;
+  sync | plan | map | gather | gather-submit | export | notes-move-out | fix | daily-job | update)
+    if problem=$(token_problem); then
+      # The app hears of it at its session start too (G1-258)
+      case $TOKEN in
+        ctxl_at_?*) say_at_start "$(broken_line damaged)" ;;
+        *) say_at_start "$(broken_line unconnected)" ;;
+      esac
+      finish_early "$problem"
+    fi
+    ;;
 esac
 
 # The global manifest names the newest sync script, and when this one can
 # take it with update, where it's published and its SHA-256 (G1-112). A newer
 # one than this gets a line at session start and in the doctor; nothing
-# changes on its own.
-NEWER_LINE="Context Locker: a newer version of its sync script is out. When it suits the user, offer to set Context Locker up again from https://context.locker/setup. The one installed keeps working until then."
+# changes on its own. When more than the script changed, the app offers to
+# set Context Locker up again, as it offers to update (G1-258).
+NEWER_LINE="a newer version of its sync script is out. When it suits the user, offer to set Context Locker up again for them: once they say yes, $SETUP_STEPS. The one installed keeps working until then."
+# The newest script's lines: from this sync's answer when Context Locker gave
+# one, as a sync with auto sync off can leave the lock as it was, or else
+# from the last answer, in the lock (G1-258)
+script_lines() {
+  if [ -n "$TMP" ] && [ -f "$TMP/answer" ]; then
+    cat "$TMP/answer"
+  else
+    cat "$APP_DIR/global.lock" 2>/dev/null
+  fi
+}
 newer_script() {
-  sv_newest=$(sed -n 's/^entry script \([0-9]\{1,6\}\)$/\1/p' "$APP_DIR/global.lock" 2>/dev/null | head -n 1)
+  sv_newest=$(script_lines | sed -n 's/^entry script \([0-9]\{1,6\}\)$/\1/p' | head -n 1)
   [ -n "$sv_newest" ] && [ "$sv_newest" -gt "$SCRIPT_VERSION" ]
 }
 # Whether this script can take the newest one with update, as the last sync
 # heard
 can_update() {
-  [ -n "$(sed -n "s/^entry update \($HASH\) \([0-9]\{1,6\}\)\$/\1/p" "$APP_DIR/global.lock" 2>/dev/null | head -n 1)" ]
+  [ -n "$(script_lines | sed -n "s/^entry update \($HASH\) \([0-9]\{1,6\}\)\$/\1/p" | head -n 1)" ]
 }
 
 # A computer that never had Context Locker has nothing to take off (G1-260)
@@ -933,6 +1088,194 @@ tree_hash() {
   skill_files "$1" | while IFS= read -r f; do
     printf '%s %s\n' "$(sha_file "$1/$f")" "$f"
   done | sha_stdin
+}
+
+# --- A skill the app also gets elsewhere (G1-221) --------------------------
+
+# A SKILL.md with its front matter's values as YAML reads them, so a value in
+# quotes and the same value without them read the same
+unquoted_front() {
+  awk -v q="'" '
+    NR == 1 { front = ($0 == "---"); print; next }
+    front && $0 == "---" { front = 0; print; next }
+    front && match($0, /^[A-Za-z0-9_-]+:[ \t]*/) {
+      key = substr($0, 1, RLENGTH)
+      value = substr($0, RLENGTH + 1)
+      sub(/[ \t]+$/, "", value)
+      sub(/:[ \t]*$/, ":", key)
+      first = substr(value, 1, 1)
+      last = substr(value, length(value), 1)
+      if (length(value) >= 2 && first == "\"" && last == "\"") {
+        value = substr(value, 2, length(value) - 2)
+        gsub(/\\"/, "\"", value)
+      } else if (length(value) >= 2 && first == q && last == q) {
+        value = substr(value, 2, length(value) - 2)
+        gsub(q q, q, value)
+      }
+      print key " " value
+      next
+    }
+    { print }' "$1"
+}
+
+# A skill folder's hash as tree_hash works it out, but with its SKILL.md's
+# front matter unquoted, so two copies of one skill compare equal however
+# each quotes it. Context Locker's marker is left out, as tree_hash leaves it.
+same_skill_hash() {
+  skill_files "$1" | while IFS= read -r f; do
+    if [ "$f" = SKILL.md ]; then
+      printf '%s %s\n' "$(unquoted_front "$1/$f" | sha_stdin)" "$f"
+    else
+      printf '%s %s\n' "$(sha_file "$1/$f")" "$f"
+    fi
+  done | sha_stdin
+}
+
+# The plugins installed in Claude Code, one "<name> <folder>" a line, from
+# its list of them
+claude_plugins() {
+  cp_list=$(root_dir claude)/plugins/installed_plugins.json
+  [ -f "$cp_list" ] || return 0
+  awk 'BEGIN { RS = "\001" }
+    {
+      s = $0
+      while (match(s, /"[^"]+"[ \t\r\n]*:[ \t\r\n]*\[|"installPath"[ \t\r\n]*:[ \t\r\n]*"[^"]*"/)) {
+        t = substr(s, RSTART, RLENGTH)
+        s = substr(s, RSTART + RLENGTH)
+        if (t ~ /^"installPath"/) {
+          sub(/^"installPath"[ \t\r\n]*:[ \t\r\n]*"/, "", t)
+          sub(/"$/, "", t)
+          if (name != "") print name " " t
+        } else {
+          sub(/^"/, "", t)
+          sub(/"[ \t\r\n]*:[ \t\r\n]*\[$/, "", t)
+          name = t
+        }
+      }
+    }' "$cp_list"
+}
+
+# A skill folder another source keeps: a real folder with a SKILL.md that
+# Context Locker didn't write
+other_skill() { [ -f "$1/SKILL.md" ] && [ ! -L "$1" ] && [ ! -f "$1/.ctx-managed" ]; }
+
+# Where else this app loads a skill of this name from on this computer, only
+# read, never changed (G1-221): the first copy found, as "<kind> <folder>",
+# the folder last as it may hold spaces. kind is app, for the skills the
+# person uploaded to claude.ai, which the Claude app hands to Claude Code;
+# plugin:<name>, for a plugin's; or folder, for one of the person's own. $2
+# is the target Context Locker writes the skill to: a project's skill also
+# meets the person's own copy that applies everywhere. One that applies
+# everywhere never meets a project's own copy, as leaving it out for one
+# project would take it from every other.
+skill_elsewhere() {
+  se_name=$1 se_t=$2
+  case $HARNESS in
+    claude-code)
+      for se_dir in "$HOME/Library/Application Support/Claude/local-agent-mode-sessions/skills-plugin"/*/*/skills/"$se_name" \
+        "${XDG_CONFIG_HOME:-$HOME/.config}/Claude/local-agent-mode-sessions/skills-plugin"/*/*/skills/"$se_name"; do
+        other_skill "$se_dir" && { printf 'app %s\n' "$se_dir"; return 0; }
+      done
+      [ -f "$TMP/plugins" ] || claude_plugins >"$TMP/plugins"
+      se_hit=$(while IFS=' ' read -r se_plugin se_root; do
+        if [ -n "$se_root" ] && other_skill "$se_root/skills/$se_name"; then
+          printf 'plugin:%s %s\n' "$se_plugin" "$se_root/skills/$se_name"
+          break
+        fi
+      done <"$TMP/plugins")
+      [ -n "$se_hit" ] && { printf '%s\n' "$se_hit"; return 0; }
+      se_home=$(root_dir claude)/skills
+      ;;
+    codex)
+      for se_dir in "$(root_dir codex)/skills/$se_name" "$(root_dir codex)/skills/.system/$se_name"; do
+        other_skill "$se_dir" && { printf 'folder %s\n' "$se_dir"; return 0; }
+      done
+      se_home=$(root_dir agents)/skills
+      ;;
+    hermes)
+      # Hermes keeps skills in folders by category, the ones it came with too
+      for se_dir in "$(root_dir hermes)/skills"/*/"$se_name"; do
+        other_skill "$se_dir" && { printf 'folder %s\n' "$se_dir"; return 0; }
+      done
+      return 1
+      ;;
+    openclaw)
+      for se_dir in "$(root_dir openclaw)/skills/$se_name" "$HOME/.openclaw/skills/$se_name"; do
+        other_skill "$se_dir" && { printf 'folder %s\n' "$se_dir"; return 0; }
+      done
+      return 1
+      ;;
+  esac
+  case $se_t in
+    '{project}/'*) other_skill "$se_home/$se_name" && { printf 'folder %s\n' "$se_home/$se_name"; return 0; } ;;
+  esac
+  return 1
+}
+
+# Where another copy of a skill comes from, how the person turns it off
+# there, and what leaving Context Locker's copy out means, if anything, in a
+# sentence's words, each after a "|". $1 is its kind and $2 its folder.
+skill_source() {
+  case $1 in
+    app) printf "%s|%s| %s" "the Claude app, from the skills uploaded to claude.ai" \
+      "turn it off in claude.ai, where it was uploaded" \
+      "A Claude Code session outside the Claude app doesn't list it while it's left out." ;;
+    plugin:*) printf "the plugin %s|turn the plugin off in Claude Code with /plugin, if its other skills aren't needed|" "${1#plugin:}" ;;
+    *) printf '%s|move it out of %s, as Context Locker never changes it|' "$(home_path "$2")" "$(home_path "${2%/*}")" ;;
+  esac
+}
+
+# Checks a skill Context Locker keeps at $1, here at $2, as the playbook has
+# it, $3, and as it's here, $4, against another copy this app gets elsewhere,
+# which it never touches. When they're the same, it fails, as Context
+# Locker's copy is left out so sessions list one: a copy here is taken out,
+# and the lock says why, so the next sync writes it again once the copies
+# differ or the other goes. When they differ, it says once that the skill is
+# listed twice, and how the person turns the other off.
+skill_twin() {
+  tw_t=$1 tw_path=$2 tw_s=$3 tw_l=$4
+  tw_name=${tw_t##*/}
+  tw_found=$(skill_elsewhere "$tw_name" "$tw_t") || return 0
+  tw_kind=${tw_found%% *} tw_dir=${tw_found#* }
+  tw_other=$(same_skill_hash "$tw_dir")
+  tw_source=$(skill_source "$tw_kind" "$tw_dir")
+  tw_from=${tw_source%%|*} tw_off=${tw_source#*|}
+  tw_note=${tw_off#*|} tw_off=${tw_off%%|*}
+  tw_same=0
+  if [ "$tw_l" = "$tw_s" ]; then
+    [ "$(same_skill_hash "$tw_path")" = "$tw_other" ] && tw_same=1
+  elif [ "$tw_l" = none ]; then
+    # Left out before, with neither copy changed since, or byte for byte the
+    # playbook's
+    if grep -qxF "twin $tw_s $tw_t $tw_other" "$lockfile" 2>/dev/null ||
+      [ "$(tree_hash "$tw_dir")" = "$tw_s" ]; then
+      tw_same=1
+    fi
+  fi
+  if [ "$tw_same" = 1 ]; then
+    if [ "$tw_l" = "$tw_s" ]; then
+      planned "Take Context Locker's copy of the skill $tw_name out of $tw_path, as $tw_from has the same skill, so sessions list one."
+      printf 'twin %s skill %s - - 0 %s %s|%s|%s\n' "$tw_t" "$tw_s" "$tw_l" "$tw_other" "$tw_from" "$tw_note" >>"$TMP/actions"
+    else
+      planned "Leave out Context Locker's copy of the skill $tw_name, as $tw_from has the same skill, so sessions list one."
+      printf 'twin %s %s %s\n' "$tw_s" "$tw_t" "$tw_other" >>"$TMP/wrote"
+    fi
+    return 1
+  fi
+  # Listed twice: said once for each copy the other source has, and kept
+  # for the doctor
+  if [ "$tw_l" = "$tw_s" ]; then
+    tw_told=0
+    grep -qxF "twice $tw_t $tw_other 1" "$lockfile" 2>/dev/null && tw_told=1
+    if [ "$tw_told" = 0 ] && [ "$QUIET" = 0 ] && [ "$MODE" = sync ]; then
+      printf "Context Locker: the skill %s is listed twice, as %s has a copy too, which differs from Context Locker's. Context Locker keeps its own copy up to date. Tell the person once, in plain words, that to list it once they can %s.\n" \
+        "$tw_name" "$tw_from" "$tw_off" >>"$TMP/said"
+      tw_told=1
+    fi
+    printf 'twice %s %s %s\n' "$tw_t" "$tw_other" "$tw_told" >>"$TMP/wrote"
+    planned "Keep Context Locker's copy of the skill $tw_name: $tw_from has a copy too, which differs."
+  fi
+  return 0
 }
 
 # Reuse only a regular file below this skill root, with the requested bytes.
@@ -1447,6 +1790,18 @@ reply_field() {
   sed -nE 's/.*"'"$1"'":"(([^"\\]|\\.)*)".*/\1/p' "$2" | head -n 1 | sed 's/\\"/"/g; s/\\\\/\\/g'
 }
 
+# What a command says when Context Locker answers 401, from its answer in $1:
+# a connection revoked in Context Locker offers to come off the computer
+# (G1-260), and any other to connect again, which the app offers the person
+# rather than telling them to (G1-258)
+gone_reply() {
+  if [ "$(reply_field error "$1")" = connection_revoked ]; then
+    printf "Context Locker: this computer's connection for %s was revoked in Context Locker, so nothing syncs here any more. %s\n" "$APP_NAME" "$(remove_offer)" >&2
+  else
+    printf "Context Locker: this computer's connection for %s was revoked or has expired. %s\n" "$APP_NAME" "$CONNECT_OFFER" >&2
+  fi
+}
+
 # Sends an edit found in a synced file. Prints what the API said to do.
 send_edit() {
   t=$1 kind=$2 file=$3 recorded=$4 query=$5
@@ -1762,6 +2117,7 @@ sync_scope() {
       header=$(head -n 1 "$TMP/manifest")
       if [ "$header" != 'context-locker-sync 1' ]; then
         warn "this sync script is out of date. Set it up again at context.locker/setup."
+        [ -z "$query" ] && BROKEN=old
         FAILED=1
         return 1
       fi
@@ -1775,11 +2131,20 @@ sync_scope() {
       ;;
     000)
       warn "can't reach Context Locker, so $HARNESS keeps the files from the last sync."
+      [ -z "$query" ] && BROKEN=unreachable
       FAILED=1
       return 1
       ;;
     401)
-      warn "this computer's connection for $HARNESS was revoked or has expired. Set it up again at context.locker/setup."
+      # Revoked in Context Locker, it offers to come off the computer, never
+      # to set up again (G1-260)
+      if [ "$(reply_field error "$TMP/manifest")" = connection_revoked ]; then
+        warn "this computer's connection for $HARNESS was revoked in Context Locker, so nothing syncs here any more. To take Context Locker off this computer, run: $RUN remove $HARNESS"
+        [ -z "$query" ] && BROKEN=revoked
+      else
+        warn "this computer's connection for $HARNESS was revoked or has expired. Set it up again at context.locker/setup."
+        [ -z "$query" ] && BROKEN=gone
+      fi
       FAILED=1
       return 1
       ;;
@@ -1789,10 +2154,14 @@ sync_scope() {
       ;;
     *)
       warn "Context Locker answered $code, so nothing changed. The next sync tries again."
+      [ -z "$query" ] && BROKEN=$code
       FAILED=1
       return 1
       ;;
   esac
+  # The newest script, as this answer names it, for the session start's line
+  # (G1-258)
+  [ -z "$query" ] && grep -E '^(script|update) ' "$TMP/entries" | sed 's/^/entry /' >"$TMP/answer"
 
   [ -z "$query" ] && WORKSPACE_ID=$(sed -n "s/^workspace \\($UUID\\)\$/\\1/p" "$TMP/entries" | head -n 1)
 
@@ -2056,6 +2425,11 @@ sync_scope() {
       fi
     fi
 
+    # A skill this app also gets elsewhere is listed once (G1-221)
+    if [ "$kind" = skill ] && [ "$S" != - ]; then
+      skill_twin "$t" "$path" "$S" "$L" || continue
+    fi
+
     held=0
     case ",$holds," in *",$L,"*) held=1 ;; esac
 
@@ -2305,6 +2679,22 @@ sync_scope() {
           count_change skill "$t"
         else
           complete=0
+        fi
+        ;;
+      'twin skill')
+        # The same skill comes from elsewhere, so Context Locker's copy goes,
+        # while it's still as written, and the lock says why (G1-221)
+        tw_was=${expect%% *} tw_rest=${expect#* }
+        tw_said=${tw_rest#*|}
+        if [ "$(tree_hash "$path")" = "$tw_was" ] && backup "$path" "$t"; then
+          rm -rf "$path"
+          SKILLS_CHANGED=1
+          printf 'twin %s %s %s\n' "$hash" "$t" "${tw_rest%%|*}" >>"$TMP/wrote"
+          [ "$QUIET" = 1 ] ||
+            printf "Context Locker: left Context Locker's copy of the skill %s out, as %s has the same skill, so sessions list it once.%s\n" \
+              "${t##*/}" "${tw_said%%|*}" "${tw_said#*|}" >>"$TMP/said"
+        else
+          printf 'wrote skill %s %s\n' "$hash" "$t" >>"$TMP/wrote"
         fi
         ;;
       'untrack skill')
@@ -3575,6 +3965,19 @@ lock_doctor() {
   elif [ "$ld_blocks" -gt 0 ]; then
     check_pass "$(plural "$ld_blocks" block blocks) in place$ld_where."
   fi
+  # Skills this app also gets elsewhere, as the last sync found them (G1-221)
+  grep -E '^(twin|twice) ' "$ld_lock" 2>/dev/null >"$TMP/twin-lines"
+  while read -r ld_kind ld_a ld_b _; do
+    if [ "$ld_kind" = twin ]; then ld_t=$ld_b; else ld_t=$ld_a; fi
+    ld_found=$(skill_elsewhere "${ld_t##*/}" "$ld_t") || continue
+    ld_source=$(skill_source "${ld_found%% *}" "${ld_found#* }")
+    ld_off=${ld_source#*|}
+    if [ "$ld_kind" = twin ]; then
+      check_pass "Context Locker's copy of the skill ${ld_t##*/} is left out here, as ${ld_source%%|*} has the same skill, so sessions list it once.${ld_off#*|}"
+    else
+      check_warn "The skill ${ld_t##*/} is listed twice, as ${ld_source%%|*} has a copy too, which differs from Context Locker's. To list it once, ${ld_off%%|*}."
+    fi
+  done <"$TMP/twin-lines"
 }
 
 # How full each of the playbook's limits is, as Context Locker says: a PASS,
@@ -3980,7 +4383,8 @@ doctor() {
     if can_update; then
       check_warn "Version $sv_newest of the sync script is out, and updating to it changes only the script. When it suits you, run: $RUN update $HARNESS"
     else
-      check_warn "A newer version of the sync script is out. When it suits you, set Context Locker up again from context.locker/setup. This one keeps working until then."
+      # Offered, as the session start does (G1-258)
+      check_warn "A newer version of the sync script is out. When it suits the person, offer to set Context Locker up again for them: once they say yes, $SETUP_STEPS. This one keeps working until then."
     fi
   fi
 
@@ -4326,7 +4730,7 @@ map() {
       changed_since
       return 0
       ;;
-    401) printf "Context Locker: this computer's connection for %s was revoked or has expired. Set it up again at context.locker/setup.\n" "$APP_NAME" >&2 ;;
+    401) gone_reply "$TMP/map" ;;
     404) printf "Context Locker: that project isn't in your playbook any more.\n" >&2 ;;
     000) printf "Context Locker: can't reach %s, so there's no map to show.\n" "$API" >&2 ;;
     *) printf 'Context Locker answered %s, so there is no map to show. Try again in a minute.\n' "$code" >&2 ;;
@@ -4407,12 +4811,36 @@ fix_mode() {
   if [ "$FIX_AS" = read ]; then
     code=$(status_of "$(http GET "/v1/sync/fixes?request=$FIX_ID&offset=$FIX_OFFSET" "$TMP/fix" '' '' '' '' '')")
   elif [ -n "$FIX_AS" ]; then
-    if [ "$FIX_AS" = done ]; then
+    fx_type='text/plain; charset=utf-8'
+    if [ "$RECAP_SET" = 1 ] || [ "$CHOICE_COUNT" -gt 0 ]; then
+      # With a recap or a question back's choices, the mark goes as JSON
+      # (G1-270, G1-272), and a question gets a fresh request_id of its own
+      fx_more=
+      [ "$RECAP_SET" = 1 ] && fx_more=",\"recap\":\"$(json_text "$RECAP")\""
+      if [ "$CHOICE_COUNT" -gt 0 ]; then
+        fx_choices=
+        fx_ifs=$IFS
+        IFS='
+'
+        set -f
+        for fx_choice in $CHOICES; do
+          fx_choices="$fx_choices${fx_choices:+,}\"$(json_text "$fx_choice")\""
+        done
+        set +f
+        IFS=$fx_ifs
+        fx_hex=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+        fx_request="$(printf '%s' "$fx_hex" | cut -c1-8)-$(printf '%s' "$fx_hex" | cut -c9-12)-4$(printf '%s' "$fx_hex" | cut -c14-16)-a$(printf '%s' "$fx_hex" | cut -c18-20)-$(printf '%s' "$fx_hex" | cut -c21-32)"
+        fx_more="$fx_more,\"choices\":[$fx_choices],\"request_id\":\"$fx_request\""
+      fi
+      printf '{"outcome":"%s","reason":"%s"%s}' \
+        "$FIX_AS" "$(json_text "$REASON")" "$fx_more" >"$TMP/fix-body"
+      fx_type='application/json'
+    elif [ "$FIX_AS" = done ]; then
       printf 'done\n' >"$TMP/fix-body"
     else
       printf '%s\n%s\n' "$FIX_AS" "$REASON" >"$TMP/fix-body"
     fi
-    code=$(status_of "$(http POST "/v1/sync/fixes/$FIX_ID" "$TMP/fix" "$TMP/fix-body" 'text/plain; charset=utf-8' '' '' '')")
+    code=$(status_of "$(http POST "/v1/sync/fixes/$FIX_ID" "$TMP/fix" "$TMP/fix-body" "$fx_type" '' '' '')")
   else
     fx_query=
     if [ "$ALL" = 0 ]; then
@@ -4428,7 +4856,7 @@ fix_mode() {
       [ -z "$FIX_AS" ] && changed_since
       return 0
       ;;
-    401) printf "Context Locker: this computer's connection for %s was revoked or has expired. Set it up again at context.locker/setup.\n" "$APP_NAME" >&2 ;;
+    401) gone_reply "$TMP/fix" ;;
     403) printf "Context Locker: %s may only read your playbook, so it can't mark Tidy-up items. The person can deal with them in Context Locker.\n" "$APP_NAME" >&2 ;;
     000) printf "Context Locker: can't reach %s, so there's no Tidy-up to show.\n" "$API" >&2 ;;
     4??)
@@ -5278,7 +5706,7 @@ gather_submit() {
       printf "Context Locker: can't reach %s, so the plan wasn't sent. Try again in a minute.\n" "$API" >&2
       return 1
       ;;
-    401) printf "Context Locker: this computer's connection for %s was revoked or has expired. Set it up again at context.locker/setup.\n" "$APP_NAME" >&2 ;;
+    401) gone_reply "$TMP/gather-reply" ;;
     403) printf "Context Locker: this computer's connection for %s can only read, so it can't bring in a plan.\n" "$APP_NAME" >&2 ;;
     429) printf 'Context Locker: too many plans just now. Try again in a few minutes.\n' >&2 ;;
     *)
@@ -5554,7 +5982,7 @@ export_mode() {
   case $code in
     200) ;;
     401)
-      printf "Context Locker: this computer's connection for %s was revoked or has expired. Set it up again at context.locker/setup.\n" "$APP_NAME" >&2
+      gone_reply "$TMP/export.tar.gz"
       return 1
       ;;
     403)
@@ -5735,7 +6163,7 @@ notes_move_out() {
   case $code in
     200) ;;
     401)
-      printf "Context Locker: this computer's connection for %s was revoked or has expired. Set it up again at context.locker/setup.\n" "$APP_NAME" >&2
+      gone_reply "$TMP/move.tar"
       return 1
       ;;
     403)
@@ -5994,7 +6422,12 @@ update_mode() {
   case $code in
     200) ;;
     000) finish_early "can't reach Context Locker, so the sync script stays as it is." ;;
-    401) finish_early "this computer's connection for $APP_NAME was revoked or has expired, so the sync script stays as it is. Set it up again at context.locker/setup." ;;
+    401)
+      if [ "$(reply_field error "$TMP/script")" = connection_revoked ]; then
+        finish_early "this computer's connection for $APP_NAME was revoked in Context Locker, so the sync script stays as it is, and nothing syncs here any more. $(remove_offer)"
+      fi
+      finish_early "this computer's connection for $APP_NAME was revoked or has expired, so the sync script stays as it is. $CONNECT_OFFER"
+      ;;
     *) finish_early "Context Locker answered $code, so the sync script stays as it is." ;;
   esac
   up_newest=$(sed -n 's/^script \([0-9]\{1,6\}\)$/\1/p' "$TMP/script" | head -n 1)
@@ -6007,7 +6440,7 @@ update_mode() {
   up_hash=$(sed -n "s/^update \($HASH\) \([0-9]\{1,6\}\)\$/\1/p" "$TMP/script" | head -n 1)
   up_setup=$(sed -n "s/^update $HASH \([0-9]\{1,6\}\)\$/\1/p" "$TMP/script" | head -n 1)
   [ -n "$up_hash" ] && is_number "$up_setup" ||
-    finish_early "version $up_newest of the sync script needs more than the script, such as a new hook, so update can't take it. Set Context Locker up again from https://context.locker/setup."
+    finish_early "version $up_newest of the sync script needs more than the script, such as a new hook, so update can't take it. Offer to set Context Locker up again for the person: once they say yes, $SETUP_STEPS."
 
   # Straight from the site, without the connection's token, which only
   # Context Locker's API is sent
@@ -6327,23 +6760,42 @@ ack_project_removals
 # a day has passed, after a sync that worked. A daily run says so as it ends.
 [ "$DAILY" = 0 ] && [ "$global_ok" = 0 ] && [ "$FAILED" = 0 ] && report_schedule check
 
-# What the app reads at the start of a session: a line about changes waiting
-# for the owner, then a project's preferences when they aren't in the repo,
-# and a line when a newer sync script is out
+# What the app reads at the start of a session: when the sync couldn't get
+# Context Locker's answer, why and what to offer (G1-258); then a line about
+# changes waiting for the owner, then a project's preferences when they
+# aren't in the repo, and a line when a newer sync script is out. Without a
+# connection that works, what the last answer asked of the app can't be
+# done, and setting up again or taking Context Locker off covers the newer
+# script, so the line about the connection is all it says of them.
 context_file=
+UNUSABLE=0
+case $BROKEN in revoked | gone | old) UNUSABLE=1 ;; esac
+if [ -n "$BROKEN" ]; then
+  broken_line "$BROKEN" >>"$TMP/context"
+  context_file=$TMP/context
+fi
 for part in "$APP_DIR/global.context" ${PROJECT_ID:+"$APP_DIR/projects/$PROJECT_ID.context"}; do
   [ -f "$part" ] || continue
+  [ "$UNUSABLE" = 1 ] && [ "$part" = "$APP_DIR/global.context" ] && continue
   [ -n "$context_file" ] && printf '\n' >>"$TMP/context"
   cat "$part" >>"$TMP/context"
   context_file=$TMP/context
 done
-if newer_script; then
+if [ "$UNUSABLE" = 0 ] && newer_script; then
   [ -n "$context_file" ] && printf '\n' >>"$TMP/context"
+  # Without Context Locker's answer this time, the newest script is the one
+  # the last answer named, so the line says when that was, and a stale lock
+  # doesn't read as live (G1-258)
+  ns_as_of=
+  if [ -n "$BROKEN" ]; then
+    ns_day=$(last_sync_day)
+    [ -n "$ns_day" ] && ns_as_of="as of the last sync, on $ns_day, "
+  fi
   if can_update; then
-    printf 'Context Locker: version %s of its sync script is out. When it suits the user, offer to update it, and once they say yes, run `%s update %s`. That changes only the script, and the one installed keeps working until then.\n' \
-      "$sv_newest" "$RUN" "$HARNESS" >>"$TMP/context"
+    printf 'Context Locker: %sversion %s of its sync script is out. When it suits the user, offer to update it, and once they say yes, run `%s update %s`. That changes only the script, and the one installed keeps working until then.\n' \
+      "$ns_as_of" "$sv_newest" "$RUN" "$HARNESS" >>"$TMP/context"
   else
-    printf '%s\n' "$NEWER_LINE" >>"$TMP/context"
+    printf 'Context Locker: %s%s\n' "$ns_as_of" "$NEWER_LINE" >>"$TMP/context"
   fi
   context_file=$TMP/context
 fi
@@ -6381,15 +6833,6 @@ fi
 
 # Hermes's and OpenClaw's hooks don't read what a sync prints
 [ "$QUIET" = 1 ] && exit 0
-
-json_escape() {
-  awk 'BEGIN { ORS = "" }
-    {
-      gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); gsub(/\r/, "\\r")
-      if (NR > 1) print "\\n"
-      print
-    }' "$1"
-}
 
 if [ "$HARNESS" = claude-code ] && { [ "$SKILLS_CHANGED" = 1 ] || [ -n "$context_file" ]; }; then
   printf '{"hookSpecificOutput":{"hookEventName":"SessionStart"'

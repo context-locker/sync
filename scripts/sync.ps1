@@ -1,4 +1,4 @@
-# Context Locker sync, version 34. MIT licence.
+# Context Locker sync, version 36. MIT licence.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 map <app> [-All]
@@ -8,7 +8,7 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 export <app> [-To <folder>]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 notes-move-out <app> -To <folder>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 fix <app> [-All]
-#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text>
+#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text> | -Working <id> [-Recap <text>]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 signin <app> [-Code <code>] [-Environment computer|cloud]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 plan|doctor|readback|daily-job <app>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 update <app>
@@ -26,7 +26,11 @@
 # backs up anything it replaces that it didn't write, and never deletes a
 # file of yours. Once the person picks from the app's import, it also takes
 # what they picked out of the app's own files, after a backup. When Context
-# Locker can't be reached, the app keeps the files it has.
+# Locker can't be reached, or the connection no longer works, the app keeps
+# the files it has, and its session start says why, from when its files are
+# and what to offer the person. A skill the app also gets elsewhere, such as
+# from a plugin, is listed once: Context Locker's copy is left out while the
+# two are the same, and the session start says once when they differ.
 #
 # In a project, the notes folder, .context-locker/notes, holds the project's
 # notes and, in everywhere/, the ones that apply everywhere, one Markdown
@@ -99,6 +103,12 @@
 # whole playbook's with -All or outside a project. Once an item is fixed,
 # -Done <id> marks it done, and Context Locker checks it again at once.
 # -Skip <id> -Reason <text> leaves it for the person, with the reason.
+# -Working <id> says the app has started on a request or an ask, which the
+# person's inbox shows, with what it's doing if -Reason says. -Recap <text>
+# with any of them gives the recap the request's row shows: what's now true,
+# then what's not done or not checked. -Waiting <id> -Reason <question> with
+# 2 to 4 --choice <label> asks the person a question back, which they answer
+# in one press, or with something else, and the answer comes back in fix.
 #
 # update takes the newest sync script, once the person says yes, when Context
 # Locker says this one can. It downloads it from where setup publishes it, at
@@ -156,7 +166,9 @@ param(
   [string]$Done = '',
   [string]$Skip = '',
   [string]$Reason = '',
+  [string]$Recap = '',
   [string]$Waiting = '',
+  [string]$Working = '',
   [string]$AllowAutoApprove = '',
   [string]$Request = '',
   [int]$Offset = 0,
@@ -171,7 +183,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 34
+$ScriptVersion = 39
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -228,11 +240,15 @@ $FixAs = ''
 $FixId = ''
 $FixMarks = 0
 $ReasonSet = $PSBoundParameters.ContainsKey('Reason')
+$RecapSet = $PSBoundParameters.ContainsKey('Recap')
+# A question back's choices, from --choice, one line each (G1-272)
+$Choices = New-Object System.Collections.Generic.List[string]
 $AppsSet = $PSBoundParameters.ContainsKey('Apps')
 if ($PSBoundParameters.ContainsKey('Done')) { $FixAs = 'done'; $FixId = $Done; $FixMarks++ }
 if ($PSBoundParameters.ContainsKey('Skip')) { $FixAs = 'skipped'; $FixId = $Skip; $FixMarks++ }
 $OffsetSet = $PSBoundParameters.ContainsKey('Offset')
 if ($PSBoundParameters.ContainsKey('Waiting')) { $FixAs = 'waiting'; $FixId = $Waiting; $FixMarks++ }
+if ($PSBoundParameters.ContainsKey('Working')) { $FixAs = 'working'; $FixId = $Working; $FixMarks++ }
 if ($PSBoundParameters.ContainsKey('AllowAutoApprove')) { $FixAs = 'auto_approve_allowed'; $FixId = $AllowAutoApprove; $FixMarks++ }
 if ($PSBoundParameters.ContainsKey('Request')) { $FixAs = 'read'; $FixId = $Request; $FixMarks++ }
 for ($i = 0; $i -lt $extra.Count; $i++) {
@@ -249,10 +265,13 @@ for ($i = 0; $i -lt $extra.Count; $i++) {
   elseif ($option -eq '--done' -and $value) { $FixAs = 'done'; $FixId = $value; $FixMarks++; $i++ }
   elseif ($option -eq '--skip' -and $value) { $FixAs = 'skipped'; $FixId = $value; $FixMarks++; $i++ }
   elseif ($option -eq '--waiting' -and $value) { $FixAs = 'waiting'; $FixId = $value; $FixMarks++; $i++ }
+  elseif ($option -eq '--working' -and $value) { $FixAs = 'working'; $FixId = $value; $FixMarks++; $i++ }
   elseif ($option -eq '--allow-auto-approve' -and $value) { $FixAs = 'auto_approve_allowed'; $FixId = $value; $FixMarks++; $i++ }
   elseif ($option -eq '--request' -and $value) { $FixAs = 'read'; $FixId = $value; $FixMarks++; $i++ }
   elseif ($option -eq '--offset' -and $value -match '^\d{1,9}$') { $Offset = [int]$value; $OffsetSet = $true; $i++ }
   elseif ($option -eq '--reason' -and $value) { $Reason = $value; $ReasonSet = $true; $i++ }
+  elseif ($option -eq '--recap' -and $value) { $Recap = $value; $RecapSet = $true; $i++ }
+  elseif ($option -eq '--choice' -and $value) { $Choices.Add(($value -replace '[\r\n]', ' ')); $i++ }
   elseif ($option -eq '--code' -and $value) { $Code = $value; $i++ }
   elseif ($option -eq '--apps' -and $value) { $Apps = $value; $AppsSet = $true; $i++ }
   elseif ($option -eq '--environment' -and $value) { $Environment = $value; $i++ }
@@ -263,10 +282,15 @@ for ($i = 0; $i -lt $extra.Count; $i++) {
 $badTo = if ($Mode -eq 'export') { $ToSet -and -not $To } elseif ($Mode -eq 'notes-move-out') { -not $To } else { $ToSet }
 # -Done and -Skip are for fix, one at a time, with an item's id; a skip needs
 # its reason, and only a skip has one
-$badFix = if ($Mode -ne 'fix') { ($FixMarks -gt 0) -or $ReasonSet }
-elseif ($FixMarks -eq 0) { $ReasonSet }
+$badFix = if ($Mode -ne 'fix') { ($FixMarks -gt 0) -or $ReasonSet -or $RecapSet -or ($Choices.Count -gt 0) }
+elseif ($FixMarks -eq 0) { $ReasonSet -or $RecapSet -or ($Choices.Count -gt 0) }
+# A question back has 2 to 4 choices, with -Waiting (G1-272)
+elseif ($Choices.Count -gt 0 -and (($FixAs -ne 'waiting') -or ($Choices.Count -lt 2) -or ($Choices.Count -gt 4) -or @($Choices | Where-Object { -not $_.Trim() }).Count)) { $true }
+# A recap goes with a reply, never a read (G1-270)
+elseif ($RecapSet -and (($FixAs -eq 'read') -or -not $Recap.Trim())) { $true }
 elseif ($FixMarks -gt 1 -or $All -or $FixId -cnotmatch $Uuid) { $true }
 elseif (@('skipped', 'waiting', 'auto_approve_allowed') -contains $FixAs) { -not $Reason.Trim() }
+elseif ($FixAs -eq 'working') { $false }
 else { $ReasonSet }
 if ($Offset -lt 0 -or ($OffsetSet -and $FixAs -ne 'read')) { $badFix = $true }
 # -Code is for signin, with a one-time code from Context Locker
@@ -297,7 +321,7 @@ if ($badOption -or $badTo -or $badFix -or $badCode -or $badEnvironment -or $badY
   [Console]::Error.WriteLine('Notes: sync.ps1 notes <app> search|read|write <request.json> [-Project <id>] [-Json], with search_notes, read_note or write_note arguments')
   [Console]::Error.WriteLine('Suggest: sync.ps1 suggest <app> <request.json> [-Json], with suggest arguments')
   [Console]::Error.WriteLine('Remember: sync.ps1 remember <app> <request.json> [-Json], with kind fact or preference, name, one line of text and a reason')
-  [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 import <app>`n       sync.ps1 import-submit <app> <plan.json>`n       sync.ps1 keep <app> <file or folder>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder>`n       sync.ps1 fix <app> [-All]`n       sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text>`n       sync.ps1 signin <app> [-Code <code>] [-Environment computer|cloud]`n       sync.ps1 plan|doctor|readback|daily-job <app>`n       sync.ps1 update <app>`n       sync.ps1 remove <app> [-Yes]`n<app> is claude-code, codex, hermes or openclaw.")
+  [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 import <app>`n       sync.ps1 import-submit <app> <plan.json>`n       sync.ps1 keep <app> <file or folder>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder>`n       sync.ps1 fix <app> [-All]`n       sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text> | -Working <id> [-Recap <text>]`n       sync.ps1 fix <app> -Waiting <id> -Reason <question> --choice <label> --choice <label> ...`n       sync.ps1 signin <app> [-Code <code>] [-Environment computer|cloud]`n       sync.ps1 plan|doctor|readback|daily-job <app>`n       sync.ps1 update <app>`n       sync.ps1 remove <app> [-Yes]`n<app> is claude-code, codex, hermes or openclaw.")
   exit 2
 }
 $AppName = @{ 'claude-code' = 'Claude Code'; 'codex' = 'Codex'; 'hermes' = 'Hermes'; 'openclaw' = 'OpenClaw' }[$Harness]
@@ -340,6 +364,9 @@ $Script:WNotes = 0
 $Script:Said = New-Object System.Collections.Generic.List[string]
 # With auto sync off, whether a sync found changes it left for later
 $Script:ChangesWaiting = $false
+# Why the sync couldn't get Context Locker's answer, for the session start
+# (G1-258)
+$Script:Broken = ''
 # Dates and times in one fixed form, whatever the computer's region
 $Invariant = [Globalization.CultureInfo]::InvariantCulture
 $Stamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ', $Invariant)
@@ -351,6 +378,71 @@ function Stop-Early([string]$Message) {
   [Console]::Error.WriteLine("Context Locker: $Message")
   if ($Mode -eq 'sync' -and -not $Daily) { exit 0 }
   exit 1
+}
+
+# Setting Context Locker up again, which the app offers and does once the
+# person says yes, rather than telling them to (G1-258). Windows PowerShell
+# takes curl for its own command, so there it's curl.exe.
+$Curl = if ($OnWindows) { 'curl.exe' } else { 'curl' }
+$SetupSteps = "download the newest steps with ``$Curl -fsSL https://context.locker/setup/SKILL.md`` and follow them"
+$ConnectOffer = "Offer to connect it again: once the person says yes, $SetupSteps, and give them the link and code the setup command prints."
+# Taking Context Locker off the computer, which the app offers when the
+# connection was revoked in Context Locker (G1-260)
+function Get-RemoveOffer {
+  return "Offer to take Context Locker off this computer: run ``$Run remove $Harness``, which says what it would take out and changes nothing, and only once the person says yes, run it again with ``-Yes``."
+}
+
+# The day of the last sync that got Context Locker's answer, such as
+# "26 Oct 2026", from the global lock, or '' before the first
+function Get-LastSyncDay {
+  $lock = Join-Path $AppDir 'global.lock'
+  if (-not (Test-Path -LiteralPath $lock -PathType Leaf)) { return '' }
+  foreach ($line in [IO.File]::ReadAllLines($lock)) {
+    if ($line -cmatch '^synced ([0-9]{4})-([0-9]{2})-([0-9]{2})T') {
+      $month = [int]$Matches[2]
+      if ($month -lt 1 -or $month -gt 12) { return '' }
+      $names = @('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+      return "$([int]$Matches[3]) $($names[$month - 1]) $($Matches[1])"
+    }
+  }
+  return ''
+}
+
+# The session start's line when a sync can't get Context Locker's answer: why,
+# since when the app's files are as they are, and what to offer the person,
+# as what goes to stderr never reaches the app (G1-258). $Why is revoked,
+# gone, unconnected, damaged, old, unreachable or the status Context Locker
+# answered with.
+function Get-BrokenLine([string]$Why) {
+  $day = Get-LastSyncDay
+  $files = if ($day) { "$AppName's files are as they were on $day" } else { 'nothing has synced here yet' }
+  switch ($Why) {
+    # Revoked in Context Locker, so it offers to come off the computer, never
+    # to set up again (G1-260)
+    'revoked' { return "Context Locker: this computer's connection for $AppName was revoked in Context Locker, so nothing syncs here any more, and $files. $(Get-RemoveOffer)" }
+    'gone' { return "Context Locker: this computer's connection for $AppName was revoked or has expired, so $files. $ConnectOffer" }
+    'unconnected' { return "Context Locker: $AppName isn't connected on this computer, so $files. $ConnectOffer" }
+    'damaged' { return "Context Locker: the saved token for $AppName is damaged, so $files. $ConnectOffer" }
+    'old' { return "Context Locker: this sync script is too old to read Context Locker's answers, so $files. Offer to set Context Locker up again for them: once they say yes, $SetupSteps." }
+  }
+  $reason = if ($Why -eq 'unreachable') { "can't reach Context Locker" } else { "Context Locker answered $Why" }
+  return "Context Locker: $reason, so $files. The next sync tries again. If it keeps happening, offer to look into it with ``$Run doctor $Harness``."
+}
+
+# Says a line to the app at the start of its session, when the sync stops
+# before it gets to say anything else: Claude Code reads the hook's JSON, and
+# Codex what it prints (G1-258)
+function Write-AtStart([string]$Line) {
+  if ($Mode -ne 'sync' -or $Daily -or $Quiet) { return }
+  if ($Harness -eq 'claude-code') {
+    $text = (@{ hookSpecificOutput = [ordered]@{ hookEventName = 'SessionStart'; additionalContext = $Line } } | ConvertTo-Json -Compress -Depth 4) + "`n"
+  } else {
+    $text = "$Line`n"
+  }
+  $bytes = $Utf8.GetBytes($text)
+  $out = [Console]::OpenStandardOutput()
+  $out.Write($bytes, 0, $bytes.Length)
+  $out.Flush()
 }
 
 function Read-Setting([string]$Name, [string]$File) {
@@ -400,19 +492,33 @@ function Get-TokenProblem {
 }
 if (@('sync', 'plan', 'map', 'gather', 'gather-submit', 'export', 'notes-move-out', 'fix', 'daily-job', 'update') -contains $Mode) {
   $problem = Get-TokenProblem
-  if ($problem) { Stop-Early $problem }
+  if ($problem) {
+    # The app hears of it at its session start too (G1-258)
+    if ($Script:Token.StartsWith('ctxl_at_') -and $Script:Token.Length -gt 8) { Write-AtStart (Get-BrokenLine 'damaged') }
+    else { Write-AtStart (Get-BrokenLine 'unconnected') }
+    Stop-Early $problem
+  }
 }
 
 # The global manifest names the newest sync script, and when this one can
 # take it with update, where it's published and its SHA-256 (G1-112). A newer
 # one than this gets a line at session start and in the doctor; nothing
-# changes on its own.
-$NewerLine = 'Context Locker: a newer version of its sync script is out. When it suits the user, offer to set Context Locker up again from https://context.locker/setup. The one installed keeps working until then.'
+# changes on its own. When more than the script changed, the app offers to
+# set Context Locker up again, as it offers to update (G1-258).
+$NewerLine = "a newer version of its sync script is out. When it suits the user, offer to set Context Locker up again for them: once they say yes, $SetupSteps. The one installed keeps working until then."
 $Script:NewestScript = 0
-function Test-NewerScript {
+# The newest script's lines: from this sync's answer when Context Locker gave
+# one, as a sync with auto sync off can leave the lock as it was, or else
+# from the last answer, in the lock (G1-258)
+$Script:Answer = $null
+function Get-ScriptLines {
+  if ($null -ne $Script:Answer) { return $Script:Answer }
   $lock = Join-Path $AppDir 'global.lock'
-  if (-not (Test-Path -LiteralPath $lock -PathType Leaf)) { return $false }
-  foreach ($line in [IO.File]::ReadAllLines($lock)) {
+  if (-not (Test-Path -LiteralPath $lock -PathType Leaf)) { return @() }
+  return [IO.File]::ReadAllLines($lock)
+}
+function Test-NewerScript {
+  foreach ($line in (Get-ScriptLines)) {
     if ($line -cmatch '^entry script ([0-9]{1,6})\z') {
       $Script:NewestScript = [int]$Matches[1]
       return ($Script:NewestScript -gt $ScriptVersion)
@@ -423,9 +529,7 @@ function Test-NewerScript {
 # Whether this script can take the newest one with update, as the last sync
 # heard
 function Test-CanUpdate {
-  $lock = Join-Path $AppDir 'global.lock'
-  if (-not (Test-Path -LiteralPath $lock -PathType Leaf)) { return $false }
-  foreach ($line in [IO.File]::ReadAllLines($lock)) {
+  foreach ($line in (Get-ScriptLines)) {
     if ($line -cmatch '^entry update [0-9a-f]{64} [0-9]{1,6}\z') { return $true }
   }
   return $false
@@ -952,6 +1056,195 @@ function Get-TreeHash([string]$Dir) {
     [void]$text.Append((Get-Sha256File $full) + ' ' + $file + "`n")
   }
   return Get-Sha256Text $text.ToString()
+}
+
+# --- A skill the app also gets elsewhere (G1-221) ---------------------------
+
+# A SKILL.md with its front matter's values as YAML reads them, so a value in
+# quotes and the same value without them read the same
+function Get-UnquotedFront([string]$Path) {
+  $lines = [IO.File]::ReadAllText($Path).Split("`n")
+  $front = $false
+  for ($i = 0; $i -lt $lines.Length; $i++) {
+    if ($i -eq 0) { $front = ($lines[0] -ceq '---'); continue }
+    if (-not $front) { break }
+    if ($lines[$i] -ceq '---') { break }
+    if ($lines[$i] -cmatch '^([A-Za-z0-9_-]+):[ \t]*(.*?)[ \t]*$') {
+      $key = $Matches[1]
+      $value = $Matches[2]
+      if ($value.Length -ge 2 -and $value.StartsWith('"') -and $value.EndsWith('"')) {
+        $value = $value.Substring(1, $value.Length - 2).Replace('\"', '"')
+      } elseif ($value.Length -ge 2 -and $value.StartsWith("'") -and $value.EndsWith("'")) {
+        $value = $value.Substring(1, $value.Length - 2).Replace("''", "'")
+      }
+      $lines[$i] = "${key}: $value"
+    }
+  }
+  return ($lines -join "`n")
+}
+
+# A skill folder's hash as Get-TreeHash works it out, but with its SKILL.md's
+# front matter unquoted, so two copies of one skill compare equal however
+# each quotes it. Context Locker's marker is left out, as there.
+function Get-SameSkillHash([string]$Dir) {
+  $text = New-Object System.Text.StringBuilder
+  foreach ($file in (Get-SkillFiles $Dir)) {
+    $full = Join-Path $Dir ($file -replace '/', [IO.Path]::DirectorySeparatorChar)
+    $hash = if ($file -ceq 'SKILL.md') { Get-Sha256Text (Get-UnquotedFront $full) } else { Get-Sha256File $full }
+    [void]$text.Append($hash + ' ' + $file + "`n")
+  }
+  return Get-Sha256Text $text.ToString()
+}
+
+# The plugins installed in Claude Code, from its list of them, read once a run
+$Script:ClaudePlugins = $null
+function Get-ClaudePlugins {
+  if ($null -eq $Script:ClaudePlugins) {
+    $Script:ClaudePlugins = New-Object System.Collections.Generic.List[hashtable]
+    $list = Join-Path (Join-Path (Get-RootDir 'claude') 'plugins') 'installed_plugins.json'
+    if (Test-Path -LiteralPath $list -PathType Leaf) {
+      try {
+        $json = [IO.File]::ReadAllText($list) | ConvertFrom-Json
+        foreach ($plugin in $json.plugins.PSObject.Properties) {
+          foreach ($install in @($plugin.Value)) {
+            if ($install.installPath) { $Script:ClaudePlugins.Add(@{ Name = $plugin.Name; Root = [string]$install.installPath }) }
+          }
+        }
+      } catch { }
+    }
+  }
+  return $Script:ClaudePlugins
+}
+
+# A skill folder another source keeps: a real folder with a SKILL.md that
+# Context Locker didn't write
+function Test-OtherSkill([string]$Dir) {
+  if (-not (Test-Path -LiteralPath (Join-Path $Dir 'SKILL.md') -PathType Leaf)) { return $false }
+  if (Test-Path -LiteralPath (Join-Path $Dir '.ctx-managed')) { return $false }
+  return ((Get-Item -LiteralPath $Dir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0
+}
+
+# Where else this app loads a skill of this name from on this computer, only
+# read, never changed (G1-221): the first copy found, with its kind: app, for
+# the skills the person uploaded to claude.ai, which the Claude app hands to
+# Claude Code; plugin:<name>, for a plugin's; or folder, for one of the
+# person's own. Target is where Context Locker writes the skill: a project's
+# skill also meets the person's own copy that applies everywhere. One that
+# applies everywhere never meets a project's own copy, as leaving it out for
+# one project would take it from every other. $null when there's none.
+function Find-SkillElsewhere([string]$Name, [string]$Target) {
+  $mine = $null
+  switch ($Harness) {
+    'claude-code' {
+      $apps = @()
+      if ($OnWindows) { if ($env:APPDATA) { $apps += (Join-Path $env:APPDATA 'Claude') } }
+      else {
+        $apps += (Join-Path (Join-Path (Join-Path $UserHome 'Library') 'Application Support') 'Claude')
+        $config = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $UserHome '.config' }
+        $apps += (Join-Path $config 'Claude')
+      }
+      foreach ($app in $apps) {
+        $root = Join-Path (Join-Path $app 'local-agent-mode-sessions') 'skills-plugin'
+        if (-not (Test-Path -LiteralPath $root -PathType Container)) { continue }
+        foreach ($one in @(Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction SilentlyContinue | Sort-Object Name)) {
+          foreach ($two in @(Get-ChildItem -LiteralPath $one.FullName -Directory -Force -ErrorAction SilentlyContinue | Sort-Object Name)) {
+            $dir = Join-Path (Join-Path $two.FullName 'skills') $Name
+            if (Test-OtherSkill $dir) { return @{ Kind = 'app'; Dir = $dir } }
+          }
+        }
+      }
+      foreach ($plugin in (Get-ClaudePlugins)) {
+        $dir = Join-Path (Join-Path $plugin.Root 'skills') $Name
+        if (Test-OtherSkill $dir) { return @{ Kind = "plugin:$($plugin.Name)"; Dir = $dir } }
+      }
+      $mine = Join-Path (Get-RootDir 'claude') 'skills'
+    }
+    'codex' {
+      $skills = Join-Path (Get-RootDir 'codex') 'skills'
+      foreach ($dir in @((Join-Path $skills $Name), (Join-Path (Join-Path $skills '.system') $Name))) {
+        if (Test-OtherSkill $dir) { return @{ Kind = 'folder'; Dir = $dir } }
+      }
+      $mine = Join-Path (Get-RootDir 'agents') 'skills'
+    }
+    'hermes' {
+      # Hermes keeps skills in folders by category, the ones it came with too
+      $skills = Join-Path (Get-RootDir 'hermes') 'skills'
+      if (Test-Path -LiteralPath $skills -PathType Container) {
+        foreach ($category in @(Get-ChildItem -LiteralPath $skills -Directory -Force -ErrorAction SilentlyContinue | Sort-Object Name)) {
+          $dir = Join-Path $category.FullName $Name
+          if (Test-OtherSkill $dir) { return @{ Kind = 'folder'; Dir = $dir } }
+        }
+      }
+      return $null
+    }
+    'openclaw' {
+      foreach ($dir in @((Join-Path (Join-Path (Get-RootDir 'openclaw') 'skills') $Name), (Join-Path (Join-Path (Join-Path $UserHome '.openclaw') 'skills') $Name))) {
+        if (Test-OtherSkill $dir) { return @{ Kind = 'folder'; Dir = $dir } }
+      }
+      return $null
+    }
+  }
+  if ($Target.StartsWith('{project}/')) {
+    $dir = Join-Path $mine $Name
+    if (Test-OtherSkill $dir) { return @{ Kind = 'folder'; Dir = $dir } }
+  }
+  return $null
+}
+
+# Where another copy of a skill comes from, how the person turns it off
+# there, and what leaving Context Locker's copy out means, if anything
+function Get-SkillSource([string]$Kind, [string]$Dir) {
+  if ($Kind -eq 'app') {
+    return @('the Claude app, from the skills uploaded to claude.ai', 'turn it off in claude.ai, where it was uploaded', " A Claude Code session outside the Claude app doesn't list it while it's left out.")
+  }
+  if ($Kind.StartsWith('plugin:')) {
+    return @("the plugin $($Kind.Substring(7))", "turn the plugin off in Claude Code with /plugin, if its other skills aren't needed", '')
+  }
+  return @((ConvertTo-HomePath $Dir), "move it out of $(ConvertTo-HomePath (Split-Path -Parent $Dir)), as Context Locker never changes it", '')
+}
+
+# Checks a skill Context Locker keeps at Target, here at Path, as the
+# playbook has it, S, and as it's here, L, against another copy this app gets
+# elsewhere, which it never touches. When they're the same, it's false, as
+# Context Locker's copy is left out so sessions list one: a copy here is taken
+# out, and the lock says why, so the next sync writes it again once the
+# copies differ or the other goes. When they differ, it says once that the
+# skill is listed twice, and how the person turns the other off.
+function Test-SkillTwin([string]$Target, [string]$Path, [string]$S, [string]$L, [string[]]$LockLines, $Actions, $Wrote) {
+  $name = $Target.Substring($Target.LastIndexOf('/') + 1)
+  $found = Find-SkillElsewhere $name $Target
+  if ($null -eq $found) { return $true }
+  $other = Get-SameSkillHash $found.Dir
+  $from, $off, $note = Get-SkillSource $found.Kind $found.Dir
+  $same = $false
+  if ($L -eq $S) { $same = ((Get-SameSkillHash $Path) -eq $other) }
+  elseif ($L -eq 'none') {
+    # Left out before, with neither copy changed since, or byte for byte the
+    # playbook's
+    $same = ($LockLines -ccontains "twin $S $Target $other") -or ((Get-TreeHash $found.Dir) -eq $S)
+  }
+  if ($same) {
+    if ($L -eq $S) {
+      Add-Planned "Take Context Locker's copy of the skill $name out of $Path, as $from has the same skill, so sessions list one."
+      $Actions.Add(@{ Action = 'twin'; Target = $Target; Kind = 'skill'; Hash = $S; Expect = $L; Other = $other; From = $from; Note = $note })
+    } else {
+      Add-Planned "Leave out Context Locker's copy of the skill $name, as $from has the same skill, so sessions list one."
+      $Wrote.Add("twin $S $Target $other")
+    }
+    return $false
+  }
+  # Listed twice: said once for each copy the other source has, and kept
+  # for the doctor
+  if ($L -eq $S) {
+    $told = $LockLines -ccontains "twice $Target $other 1"
+    if (-not $told -and -not $Quiet -and $Mode -eq 'sync') {
+      $Script:Said.Add("Context Locker: the skill $name is listed twice, as $from has a copy too, which differs from Context Locker's. Context Locker keeps its own copy up to date. Tell the person once, in plain words, that to list it once they can $off.")
+      $told = $true
+    }
+    $Wrote.Add("twice $Target $other $(if ($told) { '1' } else { '0' })")
+    Add-Planned "Keep Context Locker's copy of the skill ${name}: $from has a copy too, which differs."
+  }
+  return $true
 }
 
 function Test-ChangedSince([string]$Dir) {
@@ -1498,6 +1791,18 @@ function Get-ReplyField([byte[]]$Body, [string]$Name) {
   return ''
 }
 
+# What a command says when Context Locker answers 401, from its answer: a
+# connection revoked in Context Locker offers to come off the computer
+# (G1-260), and any other to connect again, which the app offers the person
+# rather than telling them to (G1-258)
+function Write-GoneReply([byte[]]$Body) {
+  if ((Get-ReplyField $Body 'error') -eq 'connection_revoked') {
+    [Console]::Error.WriteLine("Context Locker: this computer's connection for $AppName was revoked in Context Locker, so nothing syncs here any more. $(Get-RemoveOffer)")
+  } else {
+    [Console]::Error.WriteLine("Context Locker: this computer's connection for $AppName was revoked or has expired. $ConnectOffer")
+  }
+}
+
 # Sends an edit found in a synced file. Returns what the API said to do.
 function Send-Edit([string]$Target, [string]$Kind, [string]$Path, [string]$Recorded, [string]$Query) {
   if ($Kind -eq 'block') {
@@ -1825,6 +2130,7 @@ function Sync-Scope([string]$Query, [string]$State) {
       $all = Get-Lines $text
       if ($all.Length -eq 0 -or $all[0] -ne 'context-locker-sync 1') {
         Warn 'this sync script is out of date. Set it up again at context.locker/setup.'
+        if (-not $Query) { $Script:Broken = 'old' }
         $Script:Failed = $true
         return 1
       }
@@ -1838,11 +2144,20 @@ function Sync-Scope([string]$Query, [string]$State) {
     }
     0 {
       Warn "can't reach Context Locker, so $Harness keeps the files from the last sync."
+      if (-not $Query) { $Script:Broken = 'unreachable' }
       $Script:Failed = $true
       return 1
     }
     401 {
-      Warn "this computer's connection for $Harness was revoked or has expired. Set it up again at context.locker/setup."
+      # Revoked in Context Locker, it offers to come off the computer, never
+      # to set up again (G1-260)
+      if ((Get-ReplyField $reply.Body 'error') -eq 'connection_revoked') {
+        Warn "this computer's connection for $Harness was revoked in Context Locker, so nothing syncs here any more. To take Context Locker off this computer, run: $Run remove $Harness"
+        if (-not $Query) { $Script:Broken = 'revoked' }
+      } else {
+        Warn "this computer's connection for $Harness was revoked or has expired. Set it up again at context.locker/setup."
+        if (-not $Query) { $Script:Broken = 'gone' }
+      }
       $Script:Failed = $true
       return 1
     }
@@ -1852,10 +2167,14 @@ function Sync-Scope([string]$Query, [string]$State) {
     }
     default {
       Warn "Context Locker answered $($reply.Status), so nothing changed. The next sync tries again."
+      if (-not $Query) { $Script:Broken = [string]$reply.Status }
       $Script:Failed = $true
       return 1
     }
   }
+  # The newest script, as this answer names it, for the session start's line
+  # (G1-258)
+  if (-not $Query) { $Script:Answer = @($entries | Where-Object { $_ -cmatch '^(script|update) ' } | ForEach-Object { "entry $_" }) }
 
   if (-not $Query) {
     foreach ($line in $entries) { if ($line -match '^workspace ([0-9a-f-]{36})$') { $Script:WorkspaceId = $Matches[1] } }
@@ -2142,6 +2461,8 @@ function Sync-Scope([string]$Query, [string]$State) {
         continue
       }
     }
+    # A skill this app also gets elsewhere is listed once (G1-221)
+    if ($kind -eq 'skill' -and $S -ne '-' -and -not (Test-SkillTwin $t $path $S $L $lockLines $actions $wrote)) { continue }
     $isHeld = $p.Holds -contains $L
     $backups = Join-Path $ClHome 'backups'
 
@@ -2356,6 +2677,16 @@ function Sync-Scope([string]$Query, [string]$State) {
       'remove skill' {
         if (Backup-Item $path $t) { Remove-Item -LiteralPath $path -Recurse -Force; $Script:SkillsChanged = $true; Add-Change 'skill' $t $changed }
         else { $complete = $false }
+      }
+      'twin skill' {
+        # The same skill comes from elsewhere, so Context Locker's copy goes,
+        # while it's still as written, and the lock says why (G1-221)
+        if ((Get-TreeHash $path) -eq $a.Expect -and (Backup-Item $path $t)) {
+          Remove-Item -LiteralPath $path -Recurse -Force
+          $Script:SkillsChanged = $true
+          $wrote.Add("twin $($a.Hash) $t $($a.Other)")
+          if (-not $Quiet) { $Script:Said.Add("Context Locker: left Context Locker's copy of the skill $($t.Substring($t.LastIndexOf('/') + 1)) out, as $($a.From) has the same skill, so sessions list it once.$($a.Note)") }
+        } else { $wrote.Add("wrote skill $($a.Hash) $t") }
       }
       'untrack skill' {
         Remove-Item -LiteralPath (Join-Path $path '.ctx-managed') -Force -ErrorAction SilentlyContinue
@@ -3586,6 +3917,19 @@ function Write-LockDoctor([string[]]$LockLines, [string]$Where) {
   }
   if ($skills -gt 0) { Pass "$(Get-Plural $blocks 'block' 'blocks') and $(Get-Plural $skills 'skill' 'skills') in place$Where." }
   elseif ($blocks -gt 0) { Pass "$(Get-Plural $blocks 'block' 'blocks') in place$Where." }
+  # Skills this app also gets elsewhere, as the last sync found them (G1-221)
+  foreach ($line in $LockLines) {
+    $f = $line.Split(' ')
+    if ($f[0] -ceq 'twin' -and $f.Length -ge 4) { $t = $f[2] }
+    elseif ($f[0] -ceq 'twice' -and $f.Length -ge 3) { $t = $f[1] }
+    else { continue }
+    $name = $t.Substring($t.LastIndexOf('/') + 1)
+    $found = Find-SkillElsewhere $name $t
+    if ($null -eq $found) { continue }
+    $from, $off, $note = Get-SkillSource $found.Kind $found.Dir
+    if ($f[0] -ceq 'twin') { Pass "Context Locker's copy of the skill $name is left out here, as $from has the same skill, so sessions list it once.$note" }
+    else { Warning "The skill $name is listed twice, as $from has a copy too, which differs from Context Locker's. To list it once, $off." }
+  }
 }
 
 # How full each of the playbook's limits is, as Context Locker says: a PASS,
@@ -4008,7 +4352,8 @@ function Invoke-Doctor {
     if (Test-CanUpdate) {
       Warning "Version $($Script:NewestScript) of the sync script is out, and updating to it changes only the script. When it suits you, run: $Run update $Harness"
     } else {
-      Warning 'A newer version of the sync script is out. When it suits you, set Context Locker up again from context.locker/setup. This one keeps working until then.'
+      # Offered, as the session start does (G1-258)
+      Warning "A newer version of the sync script is out. When it suits the person, offer to set Context Locker up again for them: once they say yes, $SetupSteps. This one keeps working until then."
     }
   }
 
@@ -4382,7 +4727,7 @@ function Invoke-Map {
       Write-ChangedSince
       return 0
     }
-    401 { [Console]::Error.WriteLine("Context Locker: this computer's connection for $AppName was revoked or has expired. Set it up again at context.locker/setup.") }
+    401 { Write-GoneReply $reply.Body }
     404 { [Console]::Error.WriteLine("Context Locker: that project isn't in your playbook any more.") }
     0 { [Console]::Error.WriteLine("Context Locker: can't reach $Api, so there's no map to show.") }
     default { [Console]::Error.WriteLine("Context Locker answered $($reply.Status), so there is no map to show. Try again in a minute.") }
@@ -4400,8 +4745,22 @@ function Invoke-Fix {
   if ($FixAs -eq 'read') {
     $reply = Invoke-Api 'GET' "/v1/sync/fixes?request=$FixId&offset=$Offset" $null '' @{}
   } elseif ($FixAs) {
-    $body = if ($FixAs -eq 'done') { "done`n" } else { "$FixAs`n$Reason`n" }
-    $reply = Invoke-Api 'POST' "/v1/sync/fixes/$FixId" ($Utf8.GetBytes($body)) 'text/plain; charset=utf-8' @{}
+    $type = 'text/plain; charset=utf-8'
+    if ($RecapSet -or $Choices.Count -gt 0) {
+      # With a recap or a question back's choices, the mark goes as JSON
+      # (G1-270, G1-272), and a question gets a fresh request_id of its own
+      $mark = [ordered]@{ outcome = $FixAs; reason = $Reason }
+      if ($RecapSet) { $mark.recap = $Recap }
+      if ($Choices.Count -gt 0) {
+        $mark.choices = @($Choices)
+        $mark.request_id = [guid]::NewGuid().ToString()
+      }
+      $body = $mark | ConvertTo-Json -Compress
+      $type = 'application/json'
+    } else {
+      $body = if ($FixAs -eq 'done') { "done`n" } else { "$FixAs`n$Reason`n" }
+    }
+    $reply = Invoke-Api 'POST' "/v1/sync/fixes/$FixId" ($Utf8.GetBytes($body)) $type @{}
   } else {
     $query = ''
     if (-not $All) {
@@ -4422,7 +4781,7 @@ function Invoke-Fix {
       if (-not $FixAs) { Write-ChangedSince }
       return 0
     }
-    401 { [Console]::Error.WriteLine("Context Locker: this computer's connection for $AppName was revoked or has expired. Set it up again at context.locker/setup.") }
+    401 { Write-GoneReply $reply.Body }
     403 { [Console]::Error.WriteLine("Context Locker: $AppName may only read your playbook, so it can't mark Tidy-up items. The person can deal with them in Context Locker.") }
     0 { [Console]::Error.WriteLine("Context Locker: can't reach $Api, so there's no Tidy-up to show.") }
     default {
@@ -5233,7 +5592,7 @@ function Invoke-GatherSubmit {
   switch ($reply.Status) {
     200 { Write-Out $text; Save-ImportRead $plan; Clear-GatherSets; return 0 }
     0 { [Console]::Error.WriteLine("Context Locker: can't reach $Api, so the plan wasn't sent. Try again in a minute."); return 1 }
-    401 { [Console]::Error.WriteLine("Context Locker: this computer's connection for $AppName was revoked or has expired. Set it up again at context.locker/setup."); return 1 }
+    401 { Write-GoneReply $reply.Body; return 1 }
     403 { [Console]::Error.WriteLine("Context Locker: this computer's connection for $AppName can only read, so it can't bring in a plan."); return 1 }
     429 { [Console]::Error.WriteLine('Context Locker: too many plans just now. Try again in a few minutes.'); return 1 }
   }
@@ -5568,7 +5927,8 @@ function Invoke-Export {
   $archive = Join-Path $Tmp 'export.tar.gz'
   $status = Save-ApiFile '/v1/export' $archive 1800
   if ($status -eq 401) {
-    [Console]::Error.WriteLine("Context Locker: this computer's connection for $AppName was revoked or has expired. Set it up again at context.locker/setup.")
+    $answer = if (Test-Path -LiteralPath $archive -PathType Leaf) { [IO.File]::ReadAllBytes($archive) } else { [byte[]]@() }
+    Write-GoneReply $answer
     return 1
   }
   if ($status -eq 403) {
@@ -5755,7 +6115,7 @@ function Invoke-NotesMoveOut {
   # The project's notes, as the repo will keep them
   $reply = Invoke-Api 'GET' "/v1/sync/move-out?project=$($Script:ProjectId)" $null '' @{}
   if ($reply.Status -eq 401) {
-    [Console]::Error.WriteLine("Context Locker: this computer's connection for $AppName was revoked or has expired. Set it up again at context.locker/setup.")
+    Write-GoneReply $reply.Body
     return 1
   }
   if ($reply.Status -eq 403) {
@@ -5997,7 +6357,11 @@ function Invoke-Update {
   $reply = Invoke-Api 'GET' '/v1/sync/script' $null '' @{ 'Accept' = 'text/plain' }
   if ($reply.Status -eq 0) { Stop-Update "can't reach Context Locker, so the sync script stays as it is."; return 1 }
   if ($reply.Status -eq 401) {
-    Stop-Update "this computer's connection for $AppName was revoked or has expired, so the sync script stays as it is. Set it up again at context.locker/setup."
+    if ((Get-ReplyField $reply.Body 'error') -eq 'connection_revoked') {
+      Stop-Update "this computer's connection for $AppName was revoked in Context Locker, so the sync script stays as it is, and nothing syncs here any more. $(Get-RemoveOffer)"
+    } else {
+      Stop-Update "this computer's connection for $AppName was revoked or has expired, so the sync script stays as it is. $ConnectOffer"
+    }
     return 1
   }
   if ($reply.Status -ne 200) { Stop-Update "Context Locker answered $($reply.Status), so the sync script stays as it is."; return 1 }
@@ -6014,7 +6378,7 @@ function Invoke-Update {
     return 0
   }
   if (-not $want) {
-    Stop-Update "version $newest of the sync script needs more than the script, such as a new hook, so update can't take it. Set Context Locker up again from https://context.locker/setup."
+    Stop-Update "version $newest of the sync script needs more than the script, such as a new hook, so update can't take it. Offer to set Context Locker up again for the person: once they say yes, $SetupSteps."
     return 1
   }
 
@@ -6390,21 +6754,35 @@ try {
   Remove-Item -LiteralPath $Tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# What the app reads at the start of a session: a line about changes waiting
-# for the owner, then a project's preferences when they aren't in the repo,
-# and a line when a newer sync script is out
+# What the app reads at the start of a session: when the sync couldn't get
+# Context Locker's answer, why and what to offer (G1-258); then a line about
+# changes waiting for the owner, then a project's preferences when they
+# aren't in the repo, and a line when a newer sync script is out. Without a
+# connection that works, what the last answer asked of the app can't be
+# done, and setting up again or taking Context Locker off covers the newer
+# script, so the line about the connection is all it says of them.
 $contextParts = New-Object System.Collections.Generic.List[string]
+$unusable = @('revoked', 'gone', 'old') -contains $Script:Broken
+if ($Script:Broken) { $contextParts.Add("$(Get-BrokenLine $Script:Broken)`n") }
 $globalContext = Join-Path $AppDir 'global.context'
-if (Test-Path -LiteralPath $globalContext -PathType Leaf) { $contextParts.Add((Read-Text $globalContext)) }
+if (-not $unusable -and (Test-Path -LiteralPath $globalContext -PathType Leaf)) { $contextParts.Add((Read-Text $globalContext)) }
 if ($Script:ProjectId) {
   $candidate = Join-Path (Join-Path $AppDir 'projects') "$($Script:ProjectId).context"
   if (Test-Path -LiteralPath $candidate -PathType Leaf) { $contextParts.Add((Read-Text $candidate)) }
 }
-if (Test-NewerScript) {
+if (-not $unusable -and (Test-NewerScript)) {
+  # Without Context Locker's answer this time, the newest script is the one
+  # the last answer named, so the line says when that was, and a stale lock
+  # doesn't read as live (G1-258)
+  $asOf = ''
+  if ($Script:Broken) {
+    $day = Get-LastSyncDay
+    if ($day) { $asOf = "as of the last sync, on $day, " }
+  }
   if (Test-CanUpdate) {
-    $contextParts.Add("Context Locker: version $($Script:NewestScript) of its sync script is out. When it suits the user, offer to update it, and once they say yes, run ``$Run update $Harness``. That changes only the script, and the one installed keeps working until then.`n")
+    $contextParts.Add("Context Locker: $($asOf)version $($Script:NewestScript) of its sync script is out. When it suits the user, offer to update it, and once they say yes, run ``$Run update $Harness``. That changes only the script, and the one installed keeps working until then.`n")
   } else {
-    $contextParts.Add("$NewerLine`n")
+    $contextParts.Add("Context Locker: $asOf$NewerLine`n")
   }
 }
 

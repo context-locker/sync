@@ -220,12 +220,15 @@ function compileGlobal(
       budget: BUDGETS.openclawUser,
       overflowTo: OPENCLAW_OVERFLOW,
     });
+    // USER.md's room is for preferences, so the rule on speaking to the
+    // person is in OpenClaw's AGENTS.md (G1-257)
     const more = renderBlock({
       title: TEXT.globalTitle,
-      intro:
+      intro: `${
         user.overflow.length > 0
           ? TEXT.moreIntro
-          : "Context Locker keeps your preferences in USER.md.",
+          : "Context Locker keeps your preferences in USER.md."
+      }\n\n${TEXT.plainWords}`,
       preferences: user.overflow,
       budget: BUDGETS.openclawAgents,
       map,
@@ -251,7 +254,7 @@ function compileGlobal(
         : BUDGETS.hermesSoul;
   const rendered = renderBlock({
     title: TEXT.globalTitle,
-    intro: TEXT.globalIntro,
+    intro: `${TEXT.globalIntro}\n\n${TEXT.plainWords}`,
     preferences,
     empty: TEXT.noPreferences,
     budget,
