@@ -38,6 +38,21 @@ describe("the published setup files", () => {
     assert.ok(rules.includes(`- ${PLAIN_WORDS}\n`), rules);
   });
 
+  it("name the script they publish in the newest version (G1-281)", () => {
+    const skill = readFileSync(
+      `${SITE}setup/${versions.at(-1)}/SKILL.md`,
+      "utf8",
+    );
+    const named = [
+      ...skill.matchAll(/this release's sync script, version (\d+)/g),
+    ].map(([, version]) => Number(version));
+    assert.deepEqual(
+      named,
+      [SYNC_SCRIPT_VERSION],
+      "the step after setup names SYNC_SCRIPT_VERSION as this release's sync script",
+    );
+  });
+
   it("match the scripts here in the newest version", () => {
     const newest = `${SITE}setup/${versions.at(-1)}/`;
     for (const script of ["sync.sh", "sync.ps1"]) {
