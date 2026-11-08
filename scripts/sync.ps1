@@ -11,6 +11,7 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text> | -Working <id> [-Recap <text>]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 signin <app> [-Code <code>] [-Environment computer|cloud]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 plan|doctor|readback|daily-job <app>
+#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 prompt <app>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 update <app>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 remove <app> [-Yes]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 tickets <app> list|read|write|places [request.json] [-Project <id>] [-Json]
@@ -183,7 +184,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 39
+$ScriptVersion = 40
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -197,7 +198,7 @@ if ($Second.StartsWith('-')) {
 }
 $Mode = 'sync'
 $Harness = $First
-if (@('signin', 'plan', 'doctor', 'readback', 'map', 'gather', 'gather-submit', 'keep', 'export', 'notes-move-out', 'fix', 'daily-job', 'update', 'remove', 'tickets', 'requests', 'notes', 'suggest', 'remember') -contains $First) {
+if (@('signin', 'plan', 'doctor', 'readback', 'map', 'gather', 'gather-submit', 'keep', 'export', 'notes-move-out', 'fix', 'daily-job', 'update', 'remove', 'tickets', 'requests', 'notes', 'suggest', 'remember', 'prompt') -contains $First) {
   $Mode = $First
   $Harness = $Second
 } elseif (@('import', 'import-submit') -contains $First) {
@@ -318,10 +319,12 @@ $badApps = $AppsSet -and ($Mode -ne 'gather')
 if ($badOption -or $badTo -or $badFix -or $badCode -or $badEnvironment -or $badYes -or $badSync -or $badApps -or $badTickets -or (@('claude-code', 'codex', 'hermes', 'openclaw') -notcontains $Harness) -or $Wait -lt 0 -or ($Mode -eq 'gather-submit' -and -not $PlanFile) -or ($Mode -eq 'keep' -and -not $KeepPath)) {
   [Console]::Error.WriteLine('Decisions: sync.ps1 requests <app> list|read|answer [request.json] [-Json]')
   [Console]::Error.WriteLine('Tickets: sync.ps1 tickets <app> list|read|write|places [request.json] [-Project <id>] [-Json]. Use a UTF-8 JSON file with the corresponding MCP tool arguments. Only list may omit it.')
+  # How to ask the user, as every app's instructions say (G1-277)
+  [Console]::Error.WriteLine("Asks: Assume first: if a reasonable assumption settles an uncertainty, the result wouldn't change much and no preference says to ask, decide, do the work and record it with write_ticket's assumed. One decision per ask, one open ask per task: split compound uncertainties, asking first what unblocks most. Do the reading and attach the evidence; the user decides, never researches. Choices are outcomes, one recommended with why; for a yes or their own step, use kind approval or your_action. Finished work and news go on the task, never in an ask; nothing they must act on goes in a comment. Answer Something else with the work or a revised ask. After the same answer three times, suggest it as a preference.")
   [Console]::Error.WriteLine('Notes: sync.ps1 notes <app> search|read|write <request.json> [-Project <id>] [-Json], with search_notes, read_note or write_note arguments')
   [Console]::Error.WriteLine('Suggest: sync.ps1 suggest <app> <request.json> [-Json], with suggest arguments')
   [Console]::Error.WriteLine('Remember: sync.ps1 remember <app> <request.json> [-Json], with kind fact or preference, name, one line of text and a reason')
-  [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 import <app>`n       sync.ps1 import-submit <app> <plan.json>`n       sync.ps1 keep <app> <file or folder>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder>`n       sync.ps1 fix <app> [-All]`n       sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text> | -Working <id> [-Recap <text>]`n       sync.ps1 fix <app> -Waiting <id> -Reason <question> --choice <label> --choice <label> ...`n       sync.ps1 signin <app> [-Code <code>] [-Environment computer|cloud]`n       sync.ps1 plan|doctor|readback|daily-job <app>`n       sync.ps1 update <app>`n       sync.ps1 remove <app> [-Yes]`n<app> is claude-code, codex, hermes or openclaw.")
+  [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 import <app>`n       sync.ps1 import-submit <app> <plan.json>`n       sync.ps1 keep <app> <file or folder>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder>`n       sync.ps1 fix <app> [-All]`n       sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text> | -Working <id> [-Recap <text>]`n       sync.ps1 fix <app> -Waiting <id> -Reason <question> --choice <label> --choice <label> ...`n       sync.ps1 signin <app> [-Code <code>] [-Environment computer|cloud]`n       sync.ps1 plan|doctor|readback|daily-job <app>`n       sync.ps1 prompt <app>`n       sync.ps1 update <app>`n       sync.ps1 remove <app> [-Yes]`n<app> is claude-code, codex, hermes or openclaw.")
   exit 2
 }
 $AppName = @{ 'claude-code' = 'Claude Code'; 'codex' = 'Codex'; 'hermes' = 'Hermes'; 'openclaw' = 'OpenClaw' }[$Harness]
@@ -373,10 +376,12 @@ $Stamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ', $Invariant)
 
 function Warn([string]$Message) { $Script:Warnings.Add("Context Locker: $Message") }
 
-# A session start mustn't fail because of Context Locker; anything else reports it
+# A session start or a prompt mustn't fail because of Context Locker; anything
+# else reports it
 function Stop-Early([string]$Message) {
   [Console]::Error.WriteLine("Context Locker: $Message")
   if ($Mode -eq 'sync' -and -not $Daily) { exit 0 }
+  if ($Mode -eq 'prompt') { exit 0 }
   exit 1
 }
 
@@ -490,6 +495,58 @@ function Get-TokenProblem {
   }
   return ''
 }
+# The per-prompt hook's line (G1-271), said the way each app reads a hook:
+# Claude Code its JSON, Hermes JSON with context, and Codex what it prints.
+# It asks Context Locker at most once a minute, keeping when it last asked in
+# the app's folder, so most prompts end here, and every way out is quiet.
+function Write-PromptLine {
+  $asked = Join-Path $AppDir 'prompt-asked'
+  $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+  $last = 0L
+  if ((Test-Path -LiteralPath $asked -PathType Leaf) -and
+    [long]::TryParse(([IO.File]::ReadAllText($asked)).Trim(), [ref]$last) -and
+    $now -ge $last -and ($now - $last) -lt 60) { return }
+  if (Get-TokenProblem) { return }
+  if (-not (Test-Path -LiteralPath $AppDir -PathType Container)) { return }
+  try { [IO.File]::WriteAllText($asked, "$now`n") } catch { return }
+  # The app's own id for its session, from the JSON it hands its hook, which
+  # a follow-up on an ask goes to (G1-273)
+  $session = ''
+  if ([Console]::IsInputRedirected) {
+    $found = [regex]::Match([Console]::In.ReadToEnd(), '"session_id"\s*:\s*"([A-Za-z0-9._:-]{1,128})"')
+    if ($found.Success) { $session = $found.Groups[1].Value }
+  }
+  $query = if ($session) { "?session=$session" } else { '' }
+  $line = ''
+  try {
+    if ($PSVersionTable.PSVersion.Major -lt 6) { Add-Type -AssemblyName System.Net.Http }
+    $client = New-Object System.Net.Http.HttpClient
+    try {
+      $client.Timeout = [TimeSpan]::FromSeconds(5)
+      [void]$client.DefaultRequestHeaders.TryAddWithoutValidation('User-Agent', "context-locker-sync/$ScriptVersion ($Harness; powershell)")
+      [void]$client.DefaultRequestHeaders.TryAddWithoutValidation('Authorization', "Bearer $($Script:Token)")
+      $response = $client.GetAsync("$Api/v1/sync/prompt$query").GetAwaiter().GetResult()
+      if ([int]$response.StatusCode -eq 200) {
+        $line = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult().TrimEnd("`r", "`n")
+      }
+    } finally { $client.Dispose() }
+  } catch { return }
+  if (-not $line) { return }
+  $text = switch ($Harness) {
+    'claude-code' { (@{ hookSpecificOutput = [ordered]@{ hookEventName = 'UserPromptSubmit'; additionalContext = $line } } | ConvertTo-Json -Compress -Depth 4) + "`n" }
+    'hermes' { (@{ context = $line } | ConvertTo-Json -Compress) + "`n" }
+    default { "$line`n" }
+  }
+  $bytes = $Utf8.GetBytes($text)
+  $out = [Console]::OpenStandardOutput()
+  $out.Write($bytes, 0, $bytes.Length)
+  $out.Flush()
+}
+if ($Mode -eq 'prompt') {
+  Write-PromptLine
+  exit 0
+}
+
 if (@('sync', 'plan', 'map', 'gather', 'gather-submit', 'export', 'notes-move-out', 'fix', 'daily-job', 'update') -contains $Mode) {
   $problem = Get-TokenProblem
   if ($problem) {
@@ -3325,24 +3382,26 @@ function Invoke-Signin {
 $ScriptPattern = 'contextlocker[/\\]+sync\.(sh|ps1)'
 
 # Whether a settings file has a session-start hook that runs this script: a
-# SessionStart command in a JSON file, or in Codex's config.toml. Mentions
-# elsewhere, such as a permission rule that names the script, don't count.
+# SessionStart command in a JSON file, or in Codex's config.toml, or with an
+# event, that event's, such as the per-prompt hook's UserPromptSubmit
+# (G1-271). Mentions elsewhere, such as a permission rule that names the
+# script, don't count.
 function Test-RunsScript([string]$Text) { return ($Text -match $ScriptPattern) -or $Text.Contains($Installed) }
 
-function Test-HookIn([string]$Path) {
+function Test-HookIn([string]$Path, [string]$EventName = 'SessionStart') {
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
   $text = [IO.File]::ReadAllText($Path)
   if ($Path.EndsWith('.toml')) {
-    # [[hooks.SessionStart]] tables, up to the next table for another event
+    # [[hooks.<event>]] tables, up to the next table for another event
     $start = $false
     foreach ($line in ($text -split '\r?\n')) {
-      if ($line -match '^\s*\[\[?hooks\.(\w+)') { $start = ($Matches[1] -eq 'SessionStart') }
+      if ($line -match '^\s*\[\[?hooks\.(\w+)') { $start = ($Matches[1] -eq $EventName) }
       elseif ($start -and $line -match '^\s*command(_windows|Windows)?\s*=' -and (Test-RunsScript $line)) { return $true }
     }
     return $false
   }
   try { $settings = $text | ConvertFrom-Json } catch { return $false }
-  foreach ($group in @(Get-Property (Get-Property $settings 'hooks') 'SessionStart')) {
+  foreach ($group in @(Get-Property (Get-Property $settings 'hooks') $EventName)) {
     foreach ($hook in @(Get-Property $group 'hooks')) {
       $words = @((Get-Field $hook 'command'), (Get-Field $hook 'commandWindows')) + @(Get-Property $hook 'args' | ForEach-Object { [string]$_ })
       if (Test-RunsScript ($words -join ' ')) { return $true }
@@ -3353,17 +3412,22 @@ function Test-HookIn([string]$Path) {
 
 function ConvertTo-JsonText([string]$Text) { return '"' + (($Text -replace '\\', '\\') -replace '"', '\"') + '"' }
 
-function Write-HookJson([string]$App) {
+# A hook as a plan shows it, for the session start, or with -Prompt, the
+# per-prompt hook (G1-271)
+function Write-HookJson([string]$App, [switch]$Prompt) {
+  $words = if ($Prompt) { @('prompt', $App) } else { @($App) }
+  $hookEvent = if ($Prompt) { 'UserPromptSubmit' } else { 'SessionStart' }
+  $timeout = if ($Prompt) { 10 } else { 60 }
   if ($OnWindows -and $App -eq 'claude-code') {
     # Claude Code runs a command and its arguments directly, with no shell
-    $argList = (@($RunArgs + $App) | ForEach-Object { ConvertTo-JsonText $_ }) -join ', '
-    $hook = "{ `"type`": `"command`", `"command`": `"powershell.exe`", `"args`": [$argList], `"timeout`": 60 }"
+    $argList = (@($RunArgs + $words) | ForEach-Object { ConvertTo-JsonText $_ }) -join ', '
+    $hook = "{ `"type`": `"command`", `"command`": `"powershell.exe`", `"args`": [$argList], `"timeout`": $timeout }"
   } else {
-    $command = ConvertTo-JsonText "$Run $App"
+    $command = ConvertTo-JsonText "$Run $($words -join ' ')"
     $windows = if ($OnWindows) { ", `"commandWindows`": $command" } else { '' }
-    $hook = "{ `"type`": `"command`", `"command`": $command$windows, `"timeout`": 60 }"
+    $hook = "{ `"type`": `"command`", `"command`": $command$windows, `"timeout`": $timeout }"
   }
-  Say "    {`n      `"hooks`": {`n        `"SessionStart`": [`n          {`n            `"hooks`": [`n              $hook`n            ]`n          }`n        ]`n      }`n    }"
+  Say "    {`n      `"hooks`": {`n        `"$hookEvent`": [`n          {`n            `"hooks`": [`n              $hook`n            ]`n          }`n        ]`n      }`n    }"
 }
 
 # --- When each app syncs ------------------------------------------------------
@@ -3379,6 +3443,11 @@ function Write-HookJson([string]$App) {
 #   hermes       config.yaml, under hooks                on_session_start, post_compaction
 #   openclaw     ~/.openclaw/hooks/context-locker-sync   gateway:startup, command:new,
 #                                                        command:reset, session:compact:before
+#
+# A second hook tells a session that's running of a new ask (G1-271): prompt
+# on each prompt, on Claude Code's and Codex's UserPromptSubmit and Hermes's
+# pre_llm_call, which runs before each turn. OpenClaw has no hook that hands
+# the model a line, only a plugin's, so it hears at its next session.
 function Get-HookEvents([string]$App) {
   switch ($App) {
     'hermes' { return @('on_session_start', 'post_compaction') }
@@ -3401,7 +3470,7 @@ function ConvertTo-YamlText([string]$Text) {
 
 # Whether Hermes's config.yaml runs the sync for each of its events: a command
 # that runs this script, listed under the event in the hooks section
-function Test-HermesHooksIn([string]$Path) {
+function Test-HermesHooksIn([string]$Path, [string[]]$Events = (Get-HookEvents 'hermes')) {
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
   $inHooks = $false
   $section = ''
@@ -3411,7 +3480,7 @@ function Test-HermesHooksIn([string]$Path) {
     if ($inHooks -and $line -cmatch '^\s+([a-z_]+):\s*$') { $section = $Matches[1]; continue }
     if ($inHooks -and $section -and $line -match 'command:' -and (Test-RunsScript $line)) { $found[$section] = $true }
   }
-  foreach ($e in (Get-HookEvents 'hermes')) { if (-not $found.ContainsKey($e)) { return $false } }
+  foreach ($e in $Events) { if (-not $found.ContainsKey($e)) { return $false } }
   return $true
 }
 
@@ -3419,6 +3488,11 @@ function Write-HermesHooksYaml {
   $command = ConvertTo-YamlText "$HookRun hermes -Hook"
   Say '    hooks:'
   foreach ($e in (Get-HookEvents 'hermes')) { Say "      ${e}:`n        - command: $command" }
+}
+
+# Hermes's per-prompt hook, before each turn (G1-271)
+function Write-HermesPromptYaml {
+  Say "    hooks:`n      pre_llm_call:`n        - command: $(ConvertTo-YamlText "$HookRun prompt hermes")"
 }
 
 # OpenClaw's hook: a folder in its managed hooks folder, normally
@@ -3464,6 +3538,11 @@ function Write-HookPlan {
         Say "Session start: add this hook to $settings, keeping everything already in the file. Claude Code may ask you to approve the edit:`n"
         Write-HookJson $Harness
       }
+      if (Test-HookIn $settings 'UserPromptSubmit') { Say "Each prompt: the hook is already in $settings." }
+      else {
+        Say "`nEach prompt: add this hook to $settings as well, so a session that's running hears of a new ask:`n"
+        Write-HookJson $Harness -Prompt
+      }
     }
     'codex' {
       $dir = Get-RootDir 'codex'
@@ -3471,6 +3550,11 @@ function Write-HookPlan {
       else {
         Say "Session start: add this hook to $(Join-Path $dir 'hooks.json'), after any hooks already there. Codex skips a new hook until you trust it in /hooks:`n"
         Write-HookJson $Harness
+      }
+      if ((Test-HookIn (Join-Path $dir 'hooks.json') 'UserPromptSubmit') -or (Test-HookIn (Join-Path $dir 'config.toml') 'UserPromptSubmit')) { Say "Each prompt: the hook is already set up in $dir." }
+      else {
+        Say "`nEach prompt: add this hook to $(Join-Path $dir 'hooks.json') as well, so a session that's running hears of a new ask. Codex skips it until you trust it in /hooks:`n"
+        Write-HookJson $Harness -Prompt
       }
     }
     'hermes' {
@@ -3480,6 +3564,11 @@ function Write-HookPlan {
         Say "Hooks: add these to the hooks section of $config, keeping everything already in the file, so Hermes syncs when a session starts and after compaction:`n"
         Write-HermesHooksYaml
         Say "`nHermes asks you to approve each one the first time it sees it, in a hermes chat. Its gateway never asks, so approve them in a chat first."
+      }
+      if (Test-HermesHooksIn $config @('pre_llm_call')) { Say "Each turn: $config already tells a session that's running of a new ask." }
+      else {
+        Say "`nEach turn: add this to the hooks section of $config as well, so a session that's running hears of a new ask. Approve it in a hermes chat too:`n"
+        Write-HermesPromptYaml
       }
     }
     'openclaw' {
@@ -4441,6 +4530,8 @@ function Invoke-Doctor {
       $settings = Join-Path (Get-RootDir 'claude') 'settings.json'
       if (Test-HookIn $settings) { Pass "The session-start hook is in $settings." }
       else { Fail "The session-start hook isn't in $settings. Run: $Run plan $Harness, and add the hook it shows." }
+      if (Test-HookIn $settings 'UserPromptSubmit') { Pass "The per-prompt hook is in $settings." }
+      else { Warning "The per-prompt hook isn't in $settings, so a session that's running hears of a new ask only when the next one starts. Run: $Run plan $Harness, and add the hook it shows." }
     }
     'codex' {
       $dir = Get-RootDir 'codex'
@@ -4448,6 +4539,11 @@ function Invoke-Doctor {
         Pass "The session-start hook is set up in $dir. Codex runs it once you've trusted it in /hooks."
       } else {
         Fail "The session-start hook isn't in $(Join-Path $dir 'hooks.json'). Run: $Run plan $Harness, and add the hook it shows."
+      }
+      if ((Test-HookIn (Join-Path $dir 'hooks.json') 'UserPromptSubmit') -or (Test-HookIn (Join-Path $dir 'config.toml') 'UserPromptSubmit')) {
+        Pass "The per-prompt hook is set up in $dir. Codex runs it once you've trusted it in /hooks."
+      } else {
+        Warning "The per-prompt hook isn't in $(Join-Path $dir 'hooks.json'), so a session that's running hears of a new ask only when the next one starts. Run: $Run plan $Harness, and add the hook it shows."
       }
     }
     'hermes' {
@@ -4464,6 +4560,8 @@ function Invoke-Doctor {
       } else {
         Fail "Hermes's hooks don't run the sync. Run: $Run plan $Harness, and add the hooks it shows to $config."
       }
+      if (Test-HermesHooksIn $config @('pre_llm_call')) { Pass "Hermes tells a session that's running of a new ask, from $config." }
+      else { Warning "Hermes's per-prompt hook isn't in $config, so a session that's running hears of a new ask only when the next one starts. Run: $Run plan $Harness, and add the hook it shows." }
     }
     'openclaw' {
       if (Test-OpenClawHookIn) {
@@ -6435,10 +6533,10 @@ function Invoke-Update {
 
 # --- Taking Context Locker off this computer (G1-260) ------------------------
 
-# Takes the session-start hooks that run this script out of a JSON settings
-# file, as setup put them in, with node, keeping everything else in it and its
-# indent. Fails, changing nothing, when node isn't here or the file isn't as
-# setup leaves it.
+# Takes the session-start and per-prompt hooks (G1-271) that run this script
+# out of a JSON settings file, as setup put them in, with node, keeping
+# everything else in it and its indent. Fails, changing nothing, when node
+# isn't here or the file isn't as setup leaves it.
 function Remove-JsonHook([string]$Path) {
   $node = Get-Command node -ErrorAction SilentlyContinue
   if (-not $node) { return $false }
@@ -6455,12 +6553,15 @@ const runs = (hook) =>
     .filter((word) => typeof word === "string")
     .some((word) => /contextlocker[\\/]+sync[.](sh|ps1)/.test(word) || word.includes(installed));
 const hooks = settings && settings.hooks;
-if (!hooks || !Array.isArray(hooks.SessionStart)) process.exit(1);
-const kept = hooks.SessionStart
-  .map((group) => group && Array.isArray(group.hooks) ? { ...group, hooks: group.hooks.filter((hook) => !runs(hook)) } : group)
-  .filter((group) => !(group && Array.isArray(group.hooks) && group.hooks.length === 0));
-if (kept.length > 0) hooks.SessionStart = kept;
-else delete hooks.SessionStart;
+const events = ["SessionStart", "UserPromptSubmit"].filter((event) => hooks && Array.isArray(hooks[event]));
+if (events.length === 0) process.exit(1);
+for (const event of events) {
+  const kept = hooks[event]
+    .map((group) => group && Array.isArray(group.hooks) ? { ...group, hooks: group.hooks.filter((hook) => !runs(hook)) } : group)
+    .filter((group) => !(group && Array.isArray(group.hooks) && group.hooks.length === 0));
+  if (kept.length > 0) hooks[event] = kept;
+  else delete hooks[event];
+}
 if (Object.keys(hooks).length === 0) delete settings.hooks;
 const indent = (/^([ \t]+)"/m.exec(raw) || [])[1] || 2;
 fs.writeFileSync(file + ".ctx-tmp", JSON.stringify(settings, null, indent) + "\n", { mode: 0o600 });
@@ -6550,17 +6651,24 @@ function Invoke-RemoveHook($Lists) {
   if ($Harness -eq 'claude-code' -or $Harness -eq 'codex') {
     $file = if ($Harness -eq 'claude-code') { Join-Path (Get-RootDir 'claude') 'settings.json' } else { Join-Path (Get-RootDir 'codex') 'hooks.json' }
     $toml = Join-Path (Get-RootDir 'codex') 'config.toml'
-    if (Test-HookIn $file) {
-      $Lists.Taken.Add("the session-start hook in $file")
+    $session = Test-HookIn $file
+    $prompt = Test-HookIn $file 'UserPromptSubmit'
+    if ($session -or $prompt) {
+      if ($session) { $Lists.Taken.Add("the session-start hook in $file") }
+      if ($prompt) { $Lists.Taken.Add("the per-prompt hook in $file") }
       if ($Yes -and (-not (Backup-Item $file "hook-$(Split-Path -Leaf $file)") -or -not (Remove-JsonHook $file))) {
-        $Lists.Manual.Add("Take the session-start hook that runs sync.ps1 out of $file.")
+        if ($session -and $prompt) { $Lists.Manual.Add("Take the hooks that run sync.ps1 out of $file.") }
+        elseif ($session) { $Lists.Manual.Add("Take the session-start hook that runs sync.ps1 out of $file.") }
+        else { $Lists.Manual.Add("Take the per-prompt hook that runs sync.ps1 out of $file.") }
       }
-    } elseif ($Harness -eq 'codex' -and (Test-HookIn $toml)) {
-      $Lists.Manual.Add("Take the [[hooks.SessionStart]] entry that runs sync.ps1 out of $toml.")
+    } elseif ($Harness -eq 'codex') {
+      foreach ($hookEvent in @('SessionStart', 'UserPromptSubmit')) {
+        if (Test-HookIn $toml $hookEvent) { $Lists.Manual.Add("Take the [[hooks.$hookEvent]] entry that runs sync.ps1 out of $toml.") }
+      }
     }
   } elseif ($Harness -eq 'hermes') {
     $config = Join-Path (Get-RootDir 'hermes') 'config.yaml'
-    if (Test-HermesHooksIn $config) { $Lists.Manual.Add("Take the hooks that run sync.ps1 out of the hooks in $config.") }
+    if ((Test-HermesHooksIn $config) -or (Test-HermesHooksIn $config @('pre_llm_call'))) { $Lists.Manual.Add("Take the hooks that run sync.ps1 out of the hooks in $config.") }
   } elseif ($Harness -eq 'openclaw' -and (Test-OpenClawHookIn)) {
     $Lists.Taken.Add("OpenClaw's hook at $OpenClawHook")
     if ($Yes) {

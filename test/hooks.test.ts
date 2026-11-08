@@ -6,12 +6,15 @@ import { describe, it } from "node:test";
 
 import {
   HOOK_EVENTS,
+  PROMPT_HOOK_EVENTS,
   hermesHookCommand,
   hermesHookYaml,
+  hermesPromptCommand,
   hookRun,
   installedScript,
   openclawHandler,
   openclawHookMd,
+  promptHook,
   sessionStartHook,
   shellQuote,
   type HookTarget,
@@ -71,6 +74,60 @@ describe("hooks", () => {
         `    execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\\\Users\\\\Ada\\\\.contextlocker\\\\sync.ps1", "openclaw", "-Hook"], { timeout: 60000, windowsHide: true }, () => resolve());\n`,
       ),
       openclawHandler(windows),
+    );
+  });
+
+  it("runs the per-prompt hook as the script's prompt mode, on each app's per-turn event (G1-271)", () => {
+    assert.deepEqual(PROMPT_HOOK_EVENTS, {
+      "claude-code": "UserPromptSubmit",
+      codex: "UserPromptSubmit",
+      hermes: "pre_llm_call",
+    });
+    assert.deepEqual(promptHook("claude-code", sh), {
+      type: "command",
+      command: "sh ~/.contextlocker/sync.sh prompt claude-code",
+      timeout: 10,
+    });
+    assert.deepEqual(promptHook("codex", sh), {
+      type: "command",
+      command: "sh ~/.contextlocker/sync.sh prompt codex",
+      timeout: 10,
+    });
+    assert.equal(
+      hermesPromptCommand(sh),
+      "sh /Users/ada/.contextlocker/sync.sh prompt hermes",
+    );
+    assert.equal(
+      hermesHookYaml(sh, { prompt: true }),
+      '"sh /Users/ada/.contextlocker/sync.sh prompt hermes"',
+    );
+
+    // On Windows, as sync.ps1 prints it there
+    const script = "C:\\Users\\Ada\\.contextlocker\\sync.ps1";
+    assert.deepEqual(promptHook("claude-code", windows), {
+      type: "command",
+      command: "powershell.exe",
+      args: [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        script,
+        "prompt",
+        "claude-code",
+      ],
+      timeout: 10,
+    });
+    const codex = `powershell -NoProfile -ExecutionPolicy Bypass -File "${script}" prompt codex`;
+    assert.deepEqual(promptHook("codex", windows), {
+      type: "command",
+      command: codex,
+      commandWindows: codex,
+      timeout: 10,
+    });
+    assert.equal(
+      hermesHookYaml(windows, { prompt: true }),
+      `'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${script}" prompt hermes'`,
     );
   });
 

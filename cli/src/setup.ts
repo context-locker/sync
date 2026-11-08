@@ -3,7 +3,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { IMPORT_SKILL_NAME, hookRun } from "@internal/compilers";
+import { IMPORT_NOW, IMPORT_SKILL_NAME, hookRun } from "@internal/compilers";
 import type { Environment } from "@internal/shared";
 import { appName, selectApp, namesOf, type App } from "./apps.js";
 import { canOpenBrowser, openBrowser } from "./browser.js";
@@ -65,7 +65,8 @@ export function importNext(bringIn: boolean): string {
   if (!bringIn) {
     return `To bring in what your AI app already knows on this computer, ask it to follow Context Locker's Import skill, ${IMPORT_SKILL_NAME}. The import waits in your inbox, and nothing changes until you pick from it.`;
   }
-  return `Next, the person asked for what you already know on this computer, your own files, to come into Context Locker. If they're with you, follow Context Locker's Import skill, ${IMPORT_SKILL_NAME}, now. The import waits in their inbox, and nothing in their playbook changes until they pick from it.`;
+  // As the session start's ask to import says it (G1-277)
+  return `Next, the person asked for what you already know on this computer, your own files, to come into Context Locker. ${IMPORT_NOW}`;
 }
 
 export async function setup(options: SetupOptions): Promise<number> {

@@ -12,6 +12,16 @@ import type { CompiledHarness, SkillFile, SkillInput } from "./types.js";
 /** The skill's name, kept for Context Locker's own skills */
 export const IMPORT_SKILL_NAME = "context-locker-import";
 
+/**
+ * What an AI app reads wherever it reads an ask to import, at the start of
+ * every session while it's open, in sync.sh fix (G1-268) and in setup's last
+ * line when the person ticked Bring in (G1-277): it's the app's to do in this
+ * session, once the step in hand is done, whether or not the person is
+ * there, as the Import skill asks them nothing in chat and the import
+ * changes nothing until they pick from it (G1-89)
+ */
+export const IMPORT_NOW = `It's yours to do in this session: follow Context Locker's Import skill, ${IMPORT_SKILL_NAME}, at the start of the session before other work, or as soon as the step in hand is done, and tell the user once, in a line, that it's on its way. The skill asks them nothing in chat, and the import waits in their inbox and changes nothing until they pick from it.`;
+
 /** Its name before G1-206, which apps that cached it may still ask for */
 export const LEGACY_IMPORT_SKILL_NAME = "context-locker-gather";
 

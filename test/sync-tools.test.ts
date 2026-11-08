@@ -29,6 +29,7 @@ import { gzipSync } from "node:zlib";
 import { after, before, describe, it } from "node:test";
 
 import {
+  ASK_PROTOCOL,
   SYNC_SCRIPT_VERSION,
   TAR_END,
   blobArchive,
@@ -476,7 +477,10 @@ describe("the sync scripts' tools", () => {
       : "sh ~/.contextlocker/sync.sh";
   const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-  /** The hook Codex runs at session start, as setup adds it */
+  /**
+   * The hooks Codex runs at session start and on each prompt (G1-271), as
+   * setup adds them
+   */
   function addHook(home: string, shell: string) {
     writeFileSync(
       join(home, ".codex", "hooks.json"),
@@ -487,6 +491,17 @@ describe("the sync scripts' tools", () => {
               {
                 hooks: [
                   { type: "command", command: `${runLine(shell)} codex` },
+                ],
+              },
+            ],
+            UserPromptSubmit: [
+              {
+                hooks: [
+                  {
+                    type: "command",
+                    command: `${runLine(shell)} prompt codex`,
+                    timeout: 10,
+                  },
                 ],
               },
             ],
@@ -755,7 +770,7 @@ describe("the sync scripts' tools", () => {
         assert.equal(read(file), payload, "the request file is unchanged");
       });
 
-      it("refuses missing requests, unknown commands and oversized imports before sending", async () => {
+      it("refuses missing requests, unknown commands and oversized imports before sending, with how to ask in its help (G1-277)", async () => {
         const machine = computer(shell);
         for (const args of [
           ["write"],
@@ -765,6 +780,11 @@ describe("the sync scripts' tools", () => {
         ]) {
           const result = await run(shell, machine, { mode: "tickets", args });
           assert.equal(result.status, 2, `${args}: ${result.stderr}`);
+          if (args[0] === "approve")
+            assert.ok(
+              result.stderr.includes(`\nAsks: ${ASK_PROTOCOL}\n`),
+              result.stderr,
+            );
         }
         const file = join(machine.home, "too-large.json");
         writeFileSync(file, "x".repeat(4194305));
@@ -1622,8 +1642,10 @@ describe("the sync scripts' tools", () => {
           /^WARN {2}A newer version of the sync script is out\./m,
         );
         assert.match(late.stdout, /^FAIL {2}The session-start hook isn't in /m);
+        // Without the per-prompt hook too, which only warns (G1-271)
+        assert.match(late.stdout, /^WARN {2}The per-prompt hook isn't in /m);
         assert.ok(
-          late.stdout.endsWith("\n1 problem to fix, and 4 warnings.\n"),
+          late.stdout.endsWith("\n1 problem to fix, and 5 warnings.\n"),
           late.stdout,
         );
       });

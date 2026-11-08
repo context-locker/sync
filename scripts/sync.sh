@@ -13,6 +13,7 @@
 #   sh sync.sh fix <app> --waiting <id> --reason <question> --choice <label> --choice <label> ...
 #   sh sync.sh signin <app> [--code <code>] [--environment computer|cloud]
 #   sh sync.sh plan|doctor|readback|daily-job <app>
+#   sh sync.sh prompt <app>
 #   sh sync.sh update <app>
 #   sh sync.sh remove <app> [--yes]
 #   sh sync.sh tickets <app> list|read|write|places [request.json] [--project <id>] [--json]
@@ -61,6 +62,11 @@
 #                syncs the projects linked on this computer too, keeps to
 #                auto sync off, and tells Context Locker the run finished, or
 #                why it failed, for the connection's page.
+#
+# prompt is for an app's per-prompt hook (G1-271): one line while a session
+# runs, when someone left the app an ask or an answer, or asked it to import,
+# that it hasn't been given yet, and nothing otherwise. It asks Context
+# Locker at most once a minute, and never stops a prompt.
 #
 # map prints the project's map: its docs home, its Start here entries, the
 # notes and pointers that matter in the current folder (every one with --all)
@@ -156,12 +162,12 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=39
+SCRIPT_VERSION=40
 FIX_OFFSET=0
 FIX_OFFSET_SET=0
 MODE=sync
 case ${1:-} in
-  signin | plan | doctor | readback | map | gather | gather-submit | keep | export | notes-move-out | fix | daily-job | update | remove | tickets | requests | notes | suggest | remember)
+  signin | plan | doctor | readback | map | gather | gather-submit | keep | export | notes-move-out | fix | daily-job | update | remove | tickets | requests | notes | suggest | remember | prompt)
     MODE=$1
     shift
     ;;
@@ -312,8 +318,10 @@ done
 usage() {
   printf 'Decisions: sh sync.sh requests <app> list|read|answer [request.json] [--json]\n' >&2
   printf 'Tickets: sh sync.sh tickets <app> list|read|write|places [request.json] [--project <id>] [--json]\nUse a UTF-8 JSON file with the corresponding MCP tool arguments. Only list may omit it.\n' >&2
+  # How to ask the user, as every app's instructions say (G1-277)
+  printf '%s\n' "Asks: Assume first: if a reasonable assumption settles an uncertainty, the result wouldn't change much and no preference says to ask, decide, do the work and record it with write_ticket's assumed. One decision per ask, one open ask per task: split compound uncertainties, asking first what unblocks most. Do the reading and attach the evidence; the user decides, never researches. Choices are outcomes, one recommended with why; for a yes or their own step, use kind approval or your_action. Finished work and news go on the task, never in an ask; nothing they must act on goes in a comment. Answer Something else with the work or a revised ask. After the same answer three times, suggest it as a preference." >&2
   printf 'Notes: sh sync.sh notes <app> search|read|write <request.json> [--project <id>] [--json], with search_notes, read_note or write_note arguments\nSuggest: sh sync.sh suggest <app> <request.json> [--json], with suggest arguments\nRemember: sh sync.sh remember <app> <request.json> [--json], with kind fact or preference, name, one line of text and a reason\n' >&2
-  printf 'Usage: sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh import <app>\n       sh sync.sh import-submit <app> <plan.json>\n       sh sync.sh keep <app> <file or folder>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder>\n       sh sync.sh fix <app> [--all]\n       sh sync.sh fix <app> --done <id> | --skip <id> --reason <text> | --working <id> [--recap <text>]\n       sh sync.sh fix <app> --waiting <id> --reason <question> --choice <label> --choice <label> ...\n       sh sync.sh signin <app> [--code <code>] [--environment computer|cloud]\n       sh sync.sh plan|doctor|readback|daily-job <app>\n       sh sync.sh update <app>\n       sh sync.sh remove <app> [--yes]\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
+  printf 'Usage: sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh import <app>\n       sh sync.sh import-submit <app> <plan.json>\n       sh sync.sh keep <app> <file or folder>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder>\n       sh sync.sh fix <app> [--all]\n       sh sync.sh fix <app> --done <id> | --skip <id> --reason <text> | --working <id> [--recap <text>]\n       sh sync.sh fix <app> --waiting <id> --reason <question> --choice <label> --choice <label> ...\n       sh sync.sh signin <app> [--code <code>] [--environment computer|cloud]\n       sh sync.sh plan|doctor|readback|daily-job <app>\n       sh sync.sh prompt <app>\n       sh sync.sh update <app>\n       sh sync.sh remove <app> [--yes]\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
   exit 2
 }
 case $FIX_OFFSET in '' | *[!0-9]*) usage ;; esac
@@ -434,10 +442,12 @@ have() { command -v "$1" >/dev/null 2>&1; }
 # Warnings go to the end of the run: stderr in a session, stdout for a daily job
 warn() { printf 'Context Locker: %s\n' "$*" >>"$TMP/warnings"; }
 
-# A session start mustn't fail because of Context Locker; anything else reports it
+# A session start or a prompt mustn't fail because of Context Locker; anything
+# else reports it
 finish_early() {
   printf 'Context Locker: %s\n' "$1" >&2
   [ "$MODE" = sync ] && [ "$DAILY" = 0 ] && exit 0
+  [ "$MODE" = prompt ] && exit 0
   exit 1
 }
 
@@ -581,6 +591,47 @@ token_problem() {
   esac
   return 1
 }
+# The per-prompt hook's line (G1-271), said the way each app reads a hook:
+# Claude Code its JSON, Hermes JSON with context, and Codex what it prints.
+# It asks Context Locker at most once a minute, keeping when it last asked in
+# the app's folder, so most prompts end here, and every way out is quiet.
+prompt_line() {
+  pl_asked=$APP_DIR/prompt-asked
+  pl_now=$(date +%s 2>/dev/null)
+  case $pl_now in '' | *[!0-9]*) return 0 ;; esac
+  pl_last=$(head -n 1 "$pl_asked" 2>/dev/null)
+  case $pl_last in
+    '' | *[!0-9]*) ;;
+    *) [ "$pl_now" -lt "$pl_last" ] || [ $((pl_now - pl_last)) -ge 60 ] || return 0 ;;
+  esac
+  token_problem >/dev/null && return 0
+  { [ -d "$APP_DIR" ] && printf '%s\n' "$pl_now" >"$pl_asked"; } 2>/dev/null || return 0
+  # The app's own id for its session, from the JSON it hands its hook, which
+  # a follow-up on an ask goes to (G1-273)
+  pl_session=
+  [ -t 0 ] || pl_session=$(tr ',{' '\n\n' |
+    sed -n 's/^[[:space:]]*"session_id"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9._:-]\{1,128\}\)".*/\1/p' | head -n 1)
+  pl_reply=$(printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" |
+    curl -K - -sS --connect-timeout 3 --max-time 5 -w '\n%{http_code}' \
+      -A "context-locker-sync/$SCRIPT_VERSION ($HARNESS; sh)" \
+      "$API/v1/sync/prompt${pl_session:+?session=$pl_session}" 2>/dev/null) || return 0
+  [ "$(printf '%s\n' "$pl_reply" | tail -n 1)" = 200 ] || return 0
+  pl_line=$(printf '%s\n' "$pl_reply" | sed '$d')
+  [ -n "$pl_line" ] || return 0
+  case $HARNESS in
+    claude-code)
+      printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}\n' \
+        "$(json_text "$pl_line")"
+      ;;
+    hermes) printf '{"context":"%s"}\n' "$(json_text "$pl_line")" ;;
+    *) printf '%s\n' "$pl_line" ;;
+  esac
+}
+if [ "$MODE" = prompt ]; then
+  prompt_line
+  exit 0
+fi
+
 case $MODE in
   sync | plan | map | gather | gather-submit | export | notes-move-out | fix | daily-job | update)
     if problem=$(token_problem); then
@@ -3359,22 +3410,25 @@ signin() {
 
 # Whether a settings file has a session-start hook that runs this script: a
 # command in the SessionStart part of a JSON settings file, or of Codex's
-# config.toml. Mentions elsewhere, such as a permission rule that names the
-# script, don't count. Another event's key ("PreToolUse": [, or
-# [[hooks.PreToolUse]]) ends the SessionStart part.
+# config.toml, or with a second word, that event's part, such as the
+# per-prompt hook's UserPromptSubmit (G1-271). Mentions elsewhere, such as a
+# permission rule that names the script, don't count. Another event's key
+# ("PreToolUse": [, or [[hooks.PreToolUse]]) ends the part.
 hook_in() {
   [ -f "$1" ] || return 1
-  awk -v installed="$INSTALLED" '
-    /"SessionStart"|hooks[.]SessionStart/ { start = 1 }
-    !/SessionStart/ && (/"[A-Z][A-Za-z]*"[[:space:]]*:[[:space:]]*\[/ || /^[[:space:]]*\[\[?hooks[.][A-Z]/) { start = 0 }
+  awk -v installed="$INSTALLED" -v event="${2:-SessionStart}" '
+    index($0, "\"" event "\"") || index($0, "hooks." event) { start = 1 }
+    !index($0, event) && (/"[A-Z][A-Za-z]*"[[:space:]]*:[[:space:]]*\[/ || /^[[:space:]]*\[\[?hooks[.][A-Z]/) { start = 0 }
     start && (/"(command|commandWindows)"[[:space:]]*:/ || /^[[:space:]]*command(_windows|Windows)?[[:space:]]*=/) &&
       ($0 ~ /contextlocker\/+sync[.](sh|ps1)/ || index($0, installed)) { found = 1; exit }
     END { exit !found }' "$1"
 }
 
+# A hook as a plan shows it, for the session start, or with an event and a
+# timeout, the per-prompt hook (G1-271)
 hook_json() {
   cmd=$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')
-  printf '    {\n      "hooks": {\n        "SessionStart": [\n          {\n            "hooks": [\n              { "type": "command", "command": "%s", "timeout": 60 }\n            ]\n          }\n        ]\n      }\n    }\n' "$cmd"
+  printf '    {\n      "hooks": {\n        "%s": [\n          {\n            "hooks": [\n              { "type": "command", "command": "%s", "timeout": %s }\n            ]\n          }\n        ]\n      }\n    }\n' "${2:-SessionStart}" "$cmd" "${3:-60}"
 }
 
 # --- When each app syncs ------------------------------------------------------
@@ -3390,6 +3444,11 @@ hook_json() {
 #   hermes       config.yaml, under hooks                on_session_start, post_compaction
 #   openclaw     ~/.openclaw/hooks/context-locker-sync   gateway:startup, command:new,
 #                                                        command:reset, session:compact:before
+#
+# A second hook tells a session that's running of a new ask (G1-271): prompt
+# on each prompt, on Claude Code's and Codex's UserPromptSubmit and Hermes's
+# pre_llm_call, which runs before each turn. OpenClaw has no hook that hands
+# the model a line, only a plugin's, so it hears at its next session.
 hook_events() {
   case $1 in
     claude-code | codex) printf 'startup resume clear compact' ;;
@@ -3406,7 +3465,7 @@ HOOK_RUN="sh $(shell_quote "$INSTALLED")"
 # that runs this script, listed under the event in the hooks section
 hermes_hooks_in() {
   [ -f "$1" ] || return 1
-  awk -v installed="$INSTALLED" -v events="$(hook_events hermes)" '
+  awk -v installed="$INSTALLED" -v events="${2:-$(hook_events hermes)}" '
     { sub(/\r$/, "") }
     /^[^[:space:]#]/ { inhooks = ($0 ~ /^hooks:[[:space:]]*$/); event = ""; next }
     inhooks && /^[[:space:]]+[a-z_]+:[[:space:]]*$/ { event = $0; gsub(/[[:space:]:]/, "", event); next }
@@ -3423,6 +3482,12 @@ hermes_hooks_yaml() {
   for hy_event in $(hook_events hermes); do
     printf '      %s:\n        - command: "%s"\n' "$hy_event" "$hy_cmd"
   done
+}
+
+# Hermes's per-prompt hook, before each turn (G1-271)
+hermes_prompt_yaml() {
+  hy_cmd=$(printf '%s' "$HOOK_RUN prompt hermes" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  printf '    hooks:\n      pre_llm_call:\n        - command: "%s"\n' "$hy_cmd"
 }
 
 # OpenClaw's hook: a folder in its managed hooks folder, normally
@@ -3471,6 +3536,12 @@ hook_plan() {
         printf 'Session start: add this hook to %s, keeping everything already in the file. Claude Code may ask you to approve the edit:\n\n' "$settings"
         hook_json "$RUN claude-code"
       fi
+      if hook_in "$settings" UserPromptSubmit; then
+        printf 'Each prompt: the hook is already in %s.\n' "$settings"
+      else
+        printf '\nEach prompt: add this hook to %s as well, so a session that'"'"'s running hears of a new ask:\n\n' "$settings"
+        hook_json "$RUN prompt claude-code" UserPromptSubmit 10
+      fi
       ;;
     codex)
       dir=${CODEX_HOME:-$HOME/.codex}
@@ -3479,6 +3550,12 @@ hook_plan() {
       else
         printf 'Session start: add this hook to %s/hooks.json, after any hooks already there. Codex skips a new hook until you trust it in /hooks:\n\n' "$dir"
         hook_json "$RUN codex"
+      fi
+      if hook_in "$dir/hooks.json" UserPromptSubmit || hook_in "$dir/config.toml" UserPromptSubmit; then
+        printf 'Each prompt: the hook is already set up in %s.\n' "$dir"
+      else
+        printf '\nEach prompt: add this hook to %s/hooks.json as well, so a session that'"'"'s running hears of a new ask. Codex skips it until you trust it in /hooks:\n\n' "$dir"
+        hook_json "$RUN prompt codex" UserPromptSubmit 10
       fi
       ;;
     hermes)
@@ -3489,6 +3566,12 @@ hook_plan() {
         printf 'Hooks: add these to the hooks section of %s, keeping everything already in the file, so Hermes syncs when a session starts and after compaction:\n\n' "$config"
         hermes_hooks_yaml
         printf '\nHermes asks you to approve each one the first time it sees it, in a hermes chat. Its gateway never asks, so approve them in a chat first.\n'
+      fi
+      if hermes_hooks_in "$config" pre_llm_call; then
+        printf 'Each turn: %s already tells a session that'"'"'s running of a new ask.\n' "$config"
+      else
+        printf '\nEach turn: add this to the hooks section of %s as well, so a session that'"'"'s running hears of a new ask. Approve it in a hermes chat too:\n\n' "$config"
+        hermes_prompt_yaml
       fi
       ;;
     openclaw)
@@ -4463,6 +4546,11 @@ doctor() {
       else
         check_fail "The session-start hook isn't in $settings. Run: $RUN plan $HARNESS, and add the hook it shows."
       fi
+      if hook_in "$settings" UserPromptSubmit; then
+        check_pass "The per-prompt hook is in $settings."
+      else
+        check_warn "The per-prompt hook isn't in $settings, so a session that's running hears of a new ask only when the next one starts. Run: $RUN plan $HARNESS, and add the hook it shows."
+      fi
       ;;
     codex)
       dir=${CODEX_HOME:-$HOME/.codex}
@@ -4470,6 +4558,11 @@ doctor() {
         check_pass "The session-start hook is set up in $dir. Codex runs it once you've trusted it in /hooks."
       else
         check_fail "The session-start hook isn't in $dir/hooks.json. Run: $RUN plan $HARNESS, and add the hook it shows."
+      fi
+      if hook_in "$dir/hooks.json" UserPromptSubmit || hook_in "$dir/config.toml" UserPromptSubmit; then
+        check_pass "The per-prompt hook is set up in $dir. Codex runs it once you've trusted it in /hooks."
+      else
+        check_warn "The per-prompt hook isn't in $dir/hooks.json, so a session that's running hears of a new ask only when the next one starts. Run: $RUN plan $HARNESS, and add the hook it shows."
       fi
       ;;
     hermes)
@@ -4485,6 +4578,11 @@ doctor() {
         fi
       else
         check_fail "Hermes's hooks don't run the sync. Run: $RUN plan $HARNESS, and add the hooks it shows to $config."
+      fi
+      if hermes_hooks_in "$config" pre_llm_call; then
+        check_pass "Hermes tells a session that's running of a new ask, from $config."
+      else
+        check_warn "Hermes's per-prompt hook isn't in $config, so a session that's running hears of a new ask only when the next one starts. Run: $RUN plan $HARNESS, and add the hook it shows."
       fi
       ;;
     openclaw)
@@ -6472,9 +6570,9 @@ update_mode() {
 
 # --- Taking Context Locker off this computer (G1-260) ------------------------
 
-# Takes the session-start hooks that run this script out of a JSON settings
-# file, as setup put them in, with node, keeping everything else in it and its
-# indent. Fails, changing nothing, when node isn't here or the file isn't as
+# Takes the session-start and per-prompt hooks (G1-271) that run this script
+# out of a JSON settings file, as setup put them in, with node, keeping
+# everything else in it and its indent. Fails, changing nothing, when node isn't here or the file isn't as
 # setup leaves it.
 take_out_json_hook() {
   have node || return 1
@@ -6490,12 +6588,15 @@ const runs = (hook) =>
     .filter((word) => typeof word === "string")
     .some((word) => /contextlocker[\\/]+sync[.](sh|ps1)/.test(word) || word.includes(installed));
 const hooks = settings && settings.hooks;
-if (!hooks || !Array.isArray(hooks.SessionStart)) process.exit(1);
-const kept = hooks.SessionStart
-  .map((group) => group && Array.isArray(group.hooks) ? { ...group, hooks: group.hooks.filter((hook) => !runs(hook)) } : group)
-  .filter((group) => !(group && Array.isArray(group.hooks) && group.hooks.length === 0));
-if (kept.length > 0) hooks.SessionStart = kept;
-else delete hooks.SessionStart;
+const events = ["SessionStart", "UserPromptSubmit"].filter((event) => hooks && Array.isArray(hooks[event]));
+if (events.length === 0) process.exit(1);
+for (const event of events) {
+  const kept = hooks[event]
+    .map((group) => group && Array.isArray(group.hooks) ? { ...group, hooks: group.hooks.filter((hook) => !runs(hook)) } : group)
+    .filter((group) => !(group && Array.isArray(group.hooks) && group.hooks.length === 0));
+  if (kept.length > 0) hooks[event] = kept;
+  else delete hooks[event];
+}
 if (Object.keys(hooks).length === 0) delete settings.hooks;
 const indent = (/^([ \t]+)"/m.exec(raw) || [])[1] || 2;
 fs.writeFileSync(file + ".ctx-tmp", JSON.stringify(settings, null, indent) + "\n", { mode: 0o600 });
@@ -6582,17 +6683,30 @@ rm_hook() {
       else
         rh_file=$(root_dir codex)/hooks.json
       fi
-      if hook_in "$rh_file"; then
-        printf 'the session-start hook in %s\n' "$rh_file" >>"$TMP/remove-taken"
-        if [ "$YES" = 1 ] && { ! backup "$rh_file" "hook-$(basename "$rh_file")" || ! take_out_json_hook "$rh_file"; }; then
-          printf 'Take the session-start hook that runs sync.sh out of %s.\n' "$rh_file" >>"$TMP/remove-manual"
+      if hook_in "$rh_file" || hook_in "$rh_file" UserPromptSubmit; then
+        rh_what='session-start hook'
+        if hook_in "$rh_file" UserPromptSubmit; then
+          hook_in "$rh_file" || rh_what='per-prompt hook'
+          hook_in "$rh_file" && rh_what='hooks'
         fi
-      elif [ "$HARNESS" = codex ] && hook_in "$(root_dir codex)/config.toml"; then
-        printf 'Take the [[hooks.SessionStart]] entry that runs sync.sh out of %s.\n' "$(root_dir codex)/config.toml" >>"$TMP/remove-manual"
+        hook_in "$rh_file" && printf 'the session-start hook in %s\n' "$rh_file" >>"$TMP/remove-taken"
+        hook_in "$rh_file" UserPromptSubmit && printf 'the per-prompt hook in %s\n' "$rh_file" >>"$TMP/remove-taken"
+        if [ "$YES" = 1 ] && { ! backup "$rh_file" "hook-$(basename "$rh_file")" || ! take_out_json_hook "$rh_file"; }; then
+          if [ "$rh_what" = hooks ]; then
+            printf 'Take the hooks that run sync.sh out of %s.\n' "$rh_file" >>"$TMP/remove-manual"
+          else
+            printf 'Take the %s that runs sync.sh out of %s.\n' "$rh_what" "$rh_file" >>"$TMP/remove-manual"
+          fi
+        fi
+      elif [ "$HARNESS" = codex ]; then
+        for rh_event in SessionStart UserPromptSubmit; do
+          hook_in "$(root_dir codex)/config.toml" "$rh_event" &&
+            printf 'Take the [[hooks.%s]] entry that runs sync.sh out of %s.\n' "$rh_event" "$(root_dir codex)/config.toml" >>"$TMP/remove-manual"
+        done
       fi
       ;;
     hermes)
-      hermes_hooks_in "$(root_dir hermes)/config.yaml" &&
+      { hermes_hooks_in "$(root_dir hermes)/config.yaml" || hermes_hooks_in "$(root_dir hermes)/config.yaml" pre_llm_call; } &&
         printf 'Take the hooks that run sync.sh out of the hooks in %s.\n' "$(root_dir hermes)/config.yaml" >>"$TMP/remove-manual"
       ;;
     openclaw)

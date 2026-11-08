@@ -43,6 +43,16 @@ const PERSONAL_DETAILS =
 export const PLAIN_WORDS =
   "When you tell the person what you did or found, say what is so and what they need to decide, in the present tense and in plain English, with the main points only. Leave ticket, change, version, requirement and section numbers out unless they ask or need one to act: keep them in the ticket or note, and give one link to the detail. Name things by what they are, such as the PRD, not by id.";
 
+/**
+ * How an app asks the user (G1-277): the ask protocol, in at most 120
+ * words, so an app that never read the plan asks the same way. Said in every
+ * app's global block, the MCP server's instructions, beside the board rules
+ * in get_context and playbook_map, the setup steps and the sync script's
+ * tickets help.
+ */
+export const ASK_PROTOCOL =
+  "Assume first: if a reasonable assumption settles an uncertainty, the result wouldn't change much and no preference says to ask, decide, do the work and record it with write_ticket's assumed. One decision per ask, one open ask per task: split compound uncertainties, asking first what unblocks most. Do the reading and attach the evidence; the user decides, never researches. Choices are outcomes, one recommended with why; for a yes or their own step, use kind approval or your_action. Finished work and news go on the task, never in an ask; nothing they must act on goes in a comment. Answer Something else with the work or a revised ask. After the same answer three times, suggest it as a preference.";
+
 /** What a playbook holds, said where apps change it (G1-172) */
 const LOCAL_DETAILS =
   "Context Locker holds only what's true for every AI app and computer: keep a detail of this computer or this app, such as a local path, how this machine is set up or how this app's own tools behave, in this app's own memory.";
@@ -54,6 +64,8 @@ export const TEXT = {
     "Your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
   /** How to speak to the person, after the global block's intro (G1-257) */
   plainWords: PLAIN_WORDS,
+  /** How to ask the user, after the plain words (G1-277) */
+  askProtocol: ASK_PROTOCOL,
   /** The intro of OpenClaw's second file, for preferences that didn't fit in USER.md. */
   moreIntro:
     "More of your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
@@ -269,8 +281,10 @@ export function workPlacesRule(places: WorkPlace[], budget = 3000): string {
       ? "- A place needs a human check in Context Locker before use."
       : line;
   });
+  // The inbox holds decisions only, so news goes on the task (G1-284), and
+  // finished work is its completion note, sent with the move to Done (G1-293)
   const online =
-    "Read Context Locker's board online with list_tickets over MCP, or the sync script's tickets <app> list command. Change it through write_ticket or tickets <app> write <request.json>. Take only ready tasks, claim one before work, and never edit a board in synced files.";
+    "Read Context Locker's board online with list_tickets over MCP, or the sync script's tickets <app> list command. Change it through write_ticket or tickets <app> write <request.json>. Take only ready tasks, claim one before work, and never edit a board in synced files. Record news on the task as a comment, and finished work as its completion note with the move to Done, never as an ask: the user's inbox holds decisions only.";
   const full = [
     rule,
     ...lines,

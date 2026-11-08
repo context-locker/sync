@@ -39,6 +39,12 @@ const CLAUDE_HOOK = {
   command: "sh ~/.contextlocker/sync.sh claude-code",
   timeout: 60,
 };
+// The per-prompt hook, which tells a session that's running of a new ask (G1-271)
+const CLAUDE_PROMPT_HOOK = {
+  type: "command",
+  command: "sh ~/.contextlocker/sync.sh prompt claude-code",
+  timeout: 10,
+};
 
 describe("adding Claude Code's and Codex's hooks", () => {
   it("makes the settings file when there's none", async () => {
@@ -47,16 +53,45 @@ describe("adding Claude Code's and Codex's hooks", () => {
     assert.equal(added.state, "added");
     assert.equal(
       added.said,
-      "Added the session-start hook to ~/.claude/settings.json.",
+      "Added the session-start and per-prompt hooks to ~/.claude/settings.json.",
     );
     assert.deepEqual(JSON.parse(read(join(home, ".claude", "settings.json"))), {
-      hooks: { SessionStart: [{ hooks: [CLAUDE_HOOK] }] },
+      hooks: {
+        SessionStart: [{ hooks: [CLAUDE_HOOK] }],
+        UserPromptSubmit: [{ hooks: [CLAUDE_PROMPT_HOOK] }],
+      },
     });
     // Nothing of the person's to back up
     assert.equal(existsSync(join(home, ".contextlocker", "backups")), false);
 
     const again = await addHook("claude-code", place, "20261025T120100Z");
     assert.equal(again.state, "present");
+    assert.equal(
+      again.said,
+      "The session-start and per-prompt hooks are already in ~/.claude/settings.json.",
+    );
+  });
+
+  it("adds only the per-prompt hook where the session-start hook is there (G1-271)", async () => {
+    const { home, place } = computer();
+    mkdirSync(join(home, ".claude"));
+    const file = join(home, ".claude", "settings.json");
+    writeFileSync(
+      file,
+      JSON.stringify({ hooks: { SessionStart: [{ hooks: [CLAUDE_HOOK] }] } }),
+    );
+    const added = await addHook("claude-code", place, "t");
+    assert.equal(added.state, "added");
+    assert.equal(
+      added.said,
+      "Added the per-prompt hook to ~/.claude/settings.json.",
+    );
+    assert.deepEqual(JSON.parse(read(file)), {
+      hooks: {
+        SessionStart: [{ hooks: [CLAUDE_HOOK] }],
+        UserPromptSubmit: [{ hooks: [CLAUDE_PROMPT_HOOK] }],
+      },
+    });
   });
 
   it("keeps everything else, with a copy in the backups first", async () => {
@@ -84,6 +119,9 @@ describe("adding Claude Code's and Codex's hooks", () => {
     assert.deepEqual(now.hooks.SessionStart, [
       ...mine.hooks.SessionStart,
       { hooks: [CLAUDE_HOOK] },
+    ]);
+    assert.deepEqual(now.hooks.UserPromptSubmit, [
+      { hooks: [CLAUDE_PROMPT_HOOK] },
     ]);
     assert.match(read(file), /^\t"permissions"/m);
     assert.deepEqual(
@@ -160,14 +198,35 @@ describe("adding Claude Code's and Codex's hooks", () => {
             ],
           },
         ],
+        UserPromptSubmit: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command: "sh ~/.contextlocker/sync.sh prompt codex",
+                timeout: 10,
+              },
+            ],
+          },
+        ],
       },
     });
 
+    // Hooks kept in config.toml stay as they are: the per-prompt hook there
+    // is the person's to add, and once it's there, both are
     const other = computer();
     mkdirSync(join(other.home, ".codex"));
+    const toml = join(other.home, ".codex", "config.toml");
     writeFileSync(
-      join(other.home, ".codex", "config.toml"),
+      toml,
       'model = "x"\n\n[[hooks.SessionStart]]\ncommand = "sh ~/.contextlocker/sync.sh codex"\n',
+    );
+    const left = await addHook("codex", other.place, "t");
+    assert.equal(left.state, "manual");
+    assert.match(left.said, /config\.toml, which setup leaves as it is/);
+    writeFileSync(
+      toml,
+      `${read(toml)}\n[[hooks.UserPromptSubmit]]\ncommand = "sh ~/.contextlocker/sync.sh prompt codex"\n`,
     );
     assert.equal((await addHook("codex", other.place, "t")).state, "present");
     assert.equal(existsSync(join(other.home, ".codex", "hooks.json")), false);
@@ -188,6 +247,14 @@ describe("adding Claude Code's and Codex's hooks", () => {
         installed,
       ),
       false,
+    );
+    assert.equal(
+      tomlHookIn(
+        '[[hooks.UserPromptSubmit]]\ncommand = "sh ~/.contextlocker/sync.sh prompt codex"\n',
+        installed,
+        "UserPromptSubmit",
+      ),
+      true,
     );
   });
 });
@@ -283,10 +350,13 @@ describe("adding Hermes's hooks", () => {
     const added = await addHook("hermes", place, "20261025T120000Z");
     assert.equal(added.state, "added");
     assert.match(added.said, /approve them in a chat first/);
+    // With the per-prompt hook, before each turn (G1-271)
+    const prompt = `sh ${join(home, ".contextlocker", "sync.sh")} prompt hermes`;
     assert.deepEqual(parseYaml(read(config)), {
       hooks: {
         on_session_start: [{ command: ours }],
         post_compaction: [{ command: ours }],
+        pre_llm_call: [{ command: prompt }],
       },
     });
     assert.equal((await addHook("hermes", place, "t")).state, "present");

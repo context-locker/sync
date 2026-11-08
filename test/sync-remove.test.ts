@@ -282,7 +282,8 @@ describe("signin in a Claude cloud session, the doctor and remove (G1-260)", () 
           existsSync(rules),
           `the sync wrote its block: ${synced.stderr}`,
         );
-        // The hook setup adds, beside one of the person's own
+        // The hooks setup adds, beside one of the person's own, the
+        // per-prompt one too (G1-271)
         const settings = join(machine.home, ".claude", "settings.json");
         writeFileSync(
           settings,
@@ -302,6 +303,17 @@ describe("signin in a Claude cloud session, the doctor and remove (G1-260)", () 
                   },
                   { hooks: [{ type: "command", command: "echo mine" }] },
                 ],
+                UserPromptSubmit: [
+                  {
+                    hooks: [
+                      {
+                        type: "command",
+                        command: `sh ~/.contextlocker/${scriptName(shell)} prompt claude-code`,
+                        timeout: 10,
+                      },
+                    ],
+                  },
+                ],
               },
             },
             null,
@@ -315,6 +327,7 @@ describe("signin in a Claude cloud session, the doctor and remove (G1-260)", () 
         assert.match(listed.stdout, /takes out:/);
         assert.match(listed.stdout, /context-locker\.md/);
         assert.match(listed.stdout, /session-start hook in .*settings\.json/);
+        assert.match(listed.stdout, /per-prompt hook in .*settings\.json/);
         assert.match(listed.stdout, /The connection stays in Context Locker/);
         assert.ok(existsSync(rules));
         assert.ok(existsSync(machine.installed));
@@ -340,6 +353,7 @@ describe("signin in a Claude cloud session, the doctor and remove (G1-260)", () 
         assert.deepEqual(left.hooks.SessionStart, [
           { hooks: [{ type: "command", command: "echo mine" }] },
         ]);
+        assert.equal(left.hooks.UserPromptSubmit, undefined);
         // The backups stay, with a copy of what was taken out
         assert.ok(readdirSync(join(machine.clHome, "backups")).length > 0);
         // No request went to Context Locker: the connection stays as it was

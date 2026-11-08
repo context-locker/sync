@@ -9,6 +9,7 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  ASK_PROTOCOL,
   PLAIN_WORDS,
   SYNC_SCRIPT_RELEASE,
   SYNC_SCRIPT_VERSION,
@@ -36,6 +37,15 @@ describe("the published setup files", () => {
     );
     const rules = skill.split("## Ground rules")[1]?.split("\n## ")[0] ?? "";
     assert.ok(rules.includes(`- ${PLAIN_WORDS}\n`), rules);
+  });
+
+  it("say how to ask the person under Tickets, in the newest version (G1-277)", () => {
+    const skill = readFileSync(
+      `${SITE}setup/${versions.at(-1)}/SKILL.md`,
+      "utf8",
+    );
+    const tickets = skill.split("\n## Tickets\n")[1]?.split("\n## ")[0] ?? "";
+    assert.ok(tickets.includes(` ${ASK_PROTOCOL}\n`), tickets);
   });
 
   it("name the script they publish in the newest version (G1-281)", () => {
