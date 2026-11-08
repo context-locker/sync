@@ -188,6 +188,38 @@ describe("the sync manifest", () => {
     assert.deepEqual(parsed.entries, on.entries);
   });
 
+  it("says when the per-prompt hook's line is off, and only then (G1-298)", () => {
+    const on = buildManifest({ workspaceId: WORKSPACE_ID, outputs, holds: [] });
+    assert.deepEqual(
+      buildManifest({
+        workspaceId: WORKSPACE_ID,
+        outputs,
+        holds: [],
+        promptLine: true,
+      }),
+      on,
+    );
+    assert.equal(parseManifest(on.text).promptLine, true);
+
+    const off = buildManifest({
+      workspaceId: WORKSPACE_ID,
+      outputs,
+      holds: [],
+      autoSync: false,
+      promptLine: false,
+    });
+    assert.deepEqual(off.text.split("\n").slice(0, 4), [
+      MANIFEST_HEADER,
+      `workspace ${WORKSPACE_ID}`,
+      "auto-sync off",
+      "prompt-line off",
+    ]);
+    const parsed = parseManifest(off.text);
+    assert.equal(parsed.promptLine, false);
+    assert.equal(parsed.autoSync, false);
+    assert.deepEqual(parsed.entries, on.entries);
+  });
+
   it("refuses targets that could reach outside their root", () => {
     for (const target of [
       "{codex}/../AGENTS.md",

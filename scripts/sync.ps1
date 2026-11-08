@@ -184,7 +184,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 40
+$ScriptVersion = 41
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -499,7 +499,13 @@ function Get-TokenProblem {
 # Claude Code its JSON, Hermes JSON with context, and Codex what it prints.
 # It asks Context Locker at most once a minute, keeping when it last asked in
 # the app's folder, so most prompts end here, and every way out is quiet.
+# Switched off for the connection on its page in Connections (G1-298), it
+# asks nothing: the app's folder keeps prompt-off from the last sync's
+# manifest, or from Context Locker turning the hook away, until a sync says
+# the line is on again.
 function Write-PromptLine {
+  $off = Join-Path $AppDir 'prompt-off'
+  if (Test-Path -LiteralPath $off) { return }
   $asked = Join-Path $AppDir 'prompt-asked'
   $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
   $last = 0L
@@ -528,6 +534,9 @@ function Write-PromptLine {
       $response = $client.GetAsync("$Api/v1/sync/prompt$query").GetAwaiter().GetResult()
       if ([int]$response.StatusCode -eq 200) {
         $line = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult().TrimEnd("`r", "`n")
+      } elseif ([int]$response.StatusCode -eq 403 -and
+        $response.Content.ReadAsStringAsync().GetAwaiter().GetResult().Contains('"prompt_line_off"')) {
+        try { [IO.File]::WriteAllText($off, '') } catch { }
       }
     } finally { $client.Dispose() }
   } catch { return }
@@ -2162,6 +2171,21 @@ function Confirm-ProjectRemovals {
   }
 }
 
+# Keeps whether the per-prompt hook asks while a session runs, the
+# connection's own setting (G1-298), as the global manifest says, in the
+# app's folder, where the hook looks first. Each sync says it again, so a
+# setting turned back on reaches the hook once a sync has run.
+function Set-PromptSetting([string[]]$Entries) {
+  $off = Join-Path $AppDir 'prompt-off'
+  try {
+    if ($Entries -ccontains 'prompt-line off') {
+      if (-not (Test-Path -LiteralPath $off)) { [IO.File]::WriteAllText($off, '') }
+    } elseif (Test-Path -LiteralPath $off) {
+      Remove-Item -LiteralPath $off -Force
+    }
+  } catch { }
+}
+
 function Sync-Scope([string]$Query, [string]$State) {
   $Script:AgentsMdBytes = $null
   if ($Script:Scope -eq 'project' -and $Harness -in @('codex', 'hermes')) {
@@ -2236,6 +2260,9 @@ function Sync-Scope([string]$Query, [string]$State) {
   if (-not $Query) {
     foreach ($line in $entries) { if ($line -match '^workspace ([0-9a-f-]{36})$') { $Script:WorkspaceId = $Matches[1] } }
   }
+
+  # Whether the per-prompt hook asks while a session runs (G1-298)
+  if (-not $Query -and $Mode -eq 'sync') { Set-PromptSetting $entries }
 
   if ($Mode -eq 'sync') { Get-Removals }
   if (-not $Query) { $Script:AutoSyncOff = ($entries -ccontains 'auto-sync off') }
@@ -4483,6 +4510,9 @@ function Invoke-Doctor {
     if (-not $syncedAt -and $line.StartsWith('synced ')) { $syncedAt = $line.Substring(7) }
     if ($line -match '^etag ([0-9a-f]{64})$') { $etag = $Matches[1] }
   }
+  # Whether the person switched off the per-prompt hook's line for this
+  # connection (G1-298), as Context Locker says now, or the last sync kept it
+  $promptOff = Test-Path -LiteralPath (Join-Path $AppDir 'prompt-off')
   if (-not $syncedAt) {
     Fail "Nothing has synced yet. Run: $Run $Harness"
   } else {
@@ -4490,7 +4520,10 @@ function Invoke-Doctor {
     if (-not $etag) { Warning "The last sync didn't finish ($synced). The next one tries again." }
     elseif ($connected) {
       $reply = Invoke-Api 'GET' '/v1/sync' $null '' @{ 'If-None-Match' = "`"$etag`"" }
-      if ($reply.Status -eq 304) { Pass "The files match your playbook. Last synced $synced." }
+      if ($reply.Status -eq 304) {
+        Pass "The files match your playbook. Last synced $synced."
+        $promptOff = ($lockLines -ccontains 'entry prompt-line off')
+      }
       elseif ($reply.Status -eq 200) {
         $all = Get-Lines ($Utf8.GetString($reply.Body))
         $entries = @($all | Select-Object -Skip 1)
@@ -4500,6 +4533,7 @@ function Invoke-Doctor {
         } else {
           Warning "Your playbook has changed since the last sync ($synced). The next sync brings the files up to date."
         }
+        $promptOff = ($entries -ccontains 'prompt-line off')
       }
       else { Warning "Couldn't compare the files with your playbook: Context Locker answered $($reply.Status)." }
     }
@@ -4525,12 +4559,14 @@ function Invoke-Doctor {
   Write-LinkedDoctor
   Write-UnmanagedDoctor
 
+  $promptOffLine = "Hearing of new asks while a session runs is off for this connection, on its page in Connections, so the per-prompt hook asks nothing and a new ask shows when the next session starts."
   switch ($Harness) {
     'claude-code' {
       $settings = Join-Path (Get-RootDir 'claude') 'settings.json'
       if (Test-HookIn $settings) { Pass "The session-start hook is in $settings." }
       else { Fail "The session-start hook isn't in $settings. Run: $Run plan $Harness, and add the hook it shows." }
-      if (Test-HookIn $settings 'UserPromptSubmit') { Pass "The per-prompt hook is in $settings." }
+      if ($promptOff) { Pass $promptOffLine }
+      elseif (Test-HookIn $settings 'UserPromptSubmit') { Pass "The per-prompt hook is in $settings." }
       else { Warning "The per-prompt hook isn't in $settings, so a session that's running hears of a new ask only when the next one starts. Run: $Run plan $Harness, and add the hook it shows." }
     }
     'codex' {
@@ -4540,7 +4576,8 @@ function Invoke-Doctor {
       } else {
         Fail "The session-start hook isn't in $(Join-Path $dir 'hooks.json'). Run: $Run plan $Harness, and add the hook it shows."
       }
-      if ((Test-HookIn (Join-Path $dir 'hooks.json') 'UserPromptSubmit') -or (Test-HookIn (Join-Path $dir 'config.toml') 'UserPromptSubmit')) {
+      if ($promptOff) { Pass $promptOffLine }
+      elseif ((Test-HookIn (Join-Path $dir 'hooks.json') 'UserPromptSubmit') -or (Test-HookIn (Join-Path $dir 'config.toml') 'UserPromptSubmit')) {
         Pass "The per-prompt hook is set up in $dir. Codex runs it once you've trusted it in /hooks."
       } else {
         Warning "The per-prompt hook isn't in $(Join-Path $dir 'hooks.json'), so a session that's running hears of a new ask only when the next one starts. Run: $Run plan $Harness, and add the hook it shows."
@@ -4560,7 +4597,8 @@ function Invoke-Doctor {
       } else {
         Fail "Hermes's hooks don't run the sync. Run: $Run plan $Harness, and add the hooks it shows to $config."
       }
-      if (Test-HermesHooksIn $config @('pre_llm_call')) { Pass "Hermes tells a session that's running of a new ask, from $config." }
+      if ($promptOff) { Pass $promptOffLine }
+      elseif (Test-HermesHooksIn $config @('pre_llm_call')) { Pass "Hermes tells a session that's running of a new ask, from $config." }
       else { Warning "Hermes's per-prompt hook isn't in $config, so a session that's running hears of a new ask only when the next one starts. Run: $Run plan $Harness, and add the hook it shows." }
     }
     'openclaw' {

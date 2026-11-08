@@ -257,6 +257,55 @@ describe("the per-prompt hook (G1-271)", () => {
           `api=${baseUrl}\nsite=${baseUrl}\n`,
         );
       });
+
+      it("asks nothing while the person has it off for this connection (G1-298)", async () => {
+        const machine = computer(shell, "claude-code");
+        writeFileSync(join(machine.clHome, "claude-code", "prompt-off"), "");
+        minuteAgo(machine);
+        const quiet = await prompt(shell, machine);
+        assert.deepEqual(
+          { status: quiet.status, stdout: quiet.stdout },
+          { status: 0, stdout: "" },
+        );
+        assert.deepEqual(fake.requests, []);
+      });
+
+      it("keeps it off once Context Locker turns the hook away, and asks nothing more (G1-298)", async () => {
+        const machine = computer(shell, "codex");
+        fake.status = 403;
+        fake.body =
+          '{"error":"prompt_line_off","message":"Hearing of new asks during a session is off for this connection."}';
+        const refused = await prompt(shell, machine);
+        assert.deepEqual(
+          { status: refused.status, stdout: refused.stdout },
+          { status: 0, stdout: "" },
+        );
+        assert.ok(existsSync(join(machine.clHome, "codex", "prompt-off")));
+        // A minute on, with something to say, it still asks nothing
+        minuteAgo(machine);
+        fake.status = 200;
+        fake.body = `${LINE}\n`;
+        const after = await prompt(shell, machine);
+        assert.equal(after.stdout, "");
+        assert.equal(fake.requests.length, 1);
+      });
+
+      it("takes any other refusal as nothing to say, and asks again a minute on", async () => {
+        const machine = computer(shell, "claude-code");
+        fake.status = 403;
+        fake.body = '{"error":"scope_missing"}';
+        const refused = await prompt(shell, machine);
+        assert.equal(refused.stdout, "");
+        assert.equal(
+          existsSync(join(machine.clHome, "claude-code", "prompt-off")),
+          false,
+        );
+        minuteAgo(machine);
+        fake.status = 200;
+        fake.body = `${LINE}\n`;
+        assert.notEqual((await prompt(shell, machine)).stdout, "");
+        assert.equal(fake.requests.length, 2);
+      });
     });
   }
 });
