@@ -42,7 +42,7 @@ export const MANIFEST_HEADER = "context-locker-sync 1";
  * The newest version of the sync scripts, as their SCRIPT_VERSION says. The
  * global manifest names it, so an older script can say a newer one is out.
  */
-export const SYNC_SCRIPT_VERSION = 40;
+export const SYNC_SCRIPT_VERSION = 41;
 
 /** The shell a sync script runs in: sh on macOS and Linux, PowerShell on Windows */
 export type ScriptShell = "sh" | "powershell";
@@ -64,11 +64,11 @@ export interface ScriptRelease {
 
 export const SYNC_SCRIPT_RELEASE: ScriptRelease = Object.freeze({
   version: SYNC_SCRIPT_VERSION,
-  setup: 51,
+  setup: 53,
   sha256: Object.freeze({
-    sh: "2eeeb70847d0265d1e4e780b029e48cc68eb63c5b404d98b25448d6b4d13df81",
+    sh: "f203ad19773a0453ace2d0b1f72a1d4ee48439264548217d38e0aa40a7cf2cf7",
     powershell:
-      "6654a0aa15486a92df90d2f423af2939d9085e51416af069636ca432cd206fb2",
+      "97a1c2715228393201eb9e8175649cc190bc7e61c03e3d2e2527f4e735a56feb",
   }),
   updatesFrom: 40,
 });
@@ -167,6 +167,11 @@ export function buildManifest(input: {
   links?: readonly RepoLink[];
   /** Whether a check that finds changes brings them in at once, which is the default */
   autoSync?: boolean;
+  /**
+   * Whether the per-prompt hook asks while a session runs, which is the
+   * default, for the global manifest (G1-298)
+   */
+  promptLine?: boolean;
   /** For a project the app's connection can't use, which gets nothing */
   access?: "none";
 }): Manifest {
@@ -330,6 +335,7 @@ export function buildManifest(input: {
     );
   }
   if (input.autoSync === false) lines.push("auto-sync off");
+  if (input.promptLine === false) lines.push("prompt-line off");
   if (input.access === "none") lines.push("access none");
   for (const entry of entries) {
     switch (entry.kind) {
@@ -374,6 +380,8 @@ export function buildManifest(input: {
 export function parseManifest(text: string): {
   workspaceId: string | null;
   autoSync: boolean;
+  /** Whether the per-prompt hook asks while a session runs, as prompt-line off says it doesn't */
+  promptLine: boolean;
   /** Whether the app's connection can use the project, as access none says it can't */
   access: boolean;
   entries: ManifestEntry[];
@@ -384,6 +392,7 @@ export function parseManifest(text: string): {
   }
   let workspaceId: string | null = null;
   let autoSync = true;
+  let promptLine = true;
   let access = true;
   const entries: ManifestEntry[] = [];
   for (const line of lines) {
@@ -391,6 +400,7 @@ export function parseManifest(text: string): {
     const [kind, hash, target, id, version] = fields;
     if (kind === "workspace" && hash) workspaceId = hash;
     else if (line === "auto-sync off") autoSync = false;
+    else if (line === "prompt-line off") promptLine = false;
     else if (line === "access none") access = false;
     else if (kind === "block" && hash && target) {
       entries.push({ kind, hash, target });
@@ -432,5 +442,5 @@ export function parseManifest(text: string): {
       entries.push({ kind, hash, target });
     }
   }
-  return { workspaceId, autoSync, access, entries };
+  return { workspaceId, autoSync, promptLine, access, entries };
 }

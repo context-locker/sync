@@ -66,7 +66,9 @@
 # prompt is for an app's per-prompt hook (G1-271): one line while a session
 # runs, when someone left the app an ask or an answer, or asked it to import,
 # that it hasn't been given yet, and nothing otherwise. It asks Context
-# Locker at most once a minute, and never stops a prompt.
+# Locker at most once a minute, and never stops a prompt. The person can
+# switch it off for the connection on its page in Connections (G1-298):
+# then it asks nothing until a sync says it's on again.
 #
 # map prints the project's map: its docs home, its Start here entries, the
 # notes and pointers that matter in the current folder (every one with --all)
@@ -162,7 +164,7 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=40
+SCRIPT_VERSION=41
 FIX_OFFSET=0
 FIX_OFFSET_SET=0
 MODE=sync
@@ -595,7 +597,12 @@ token_problem() {
 # Claude Code its JSON, Hermes JSON with context, and Codex what it prints.
 # It asks Context Locker at most once a minute, keeping when it last asked in
 # the app's folder, so most prompts end here, and every way out is quiet.
+# Switched off for the connection on its page in Connections (G1-298), it
+# asks nothing: the app's folder keeps prompt-off from the last sync's
+# manifest, or from Context Locker turning the hook away, until a sync says
+# the line is on again.
 prompt_line() {
+  [ -e "$APP_DIR/prompt-off" ] && return 0
   pl_asked=$APP_DIR/prompt-asked
   pl_now=$(date +%s 2>/dev/null)
   case $pl_now in '' | *[!0-9]*) return 0 ;; esac
@@ -615,8 +622,15 @@ prompt_line() {
     curl -K - -sS --connect-timeout 3 --max-time 5 -w '\n%{http_code}' \
       -A "context-locker-sync/$SCRIPT_VERSION ($HARNESS; sh)" \
       "$API/v1/sync/prompt${pl_session:+?session=$pl_session}" 2>/dev/null) || return 0
-  [ "$(printf '%s\n' "$pl_reply" | tail -n 1)" = 200 ] || return 0
+  pl_code=$(printf '%s\n' "$pl_reply" | tail -n 1)
   pl_line=$(printf '%s\n' "$pl_reply" | sed '$d')
+  if [ "$pl_code" = 403 ]; then
+    case $pl_line in
+      *'"prompt_line_off"'*) { [ -d "$APP_DIR" ] && : >"$APP_DIR/prompt-off"; } 2>/dev/null ;;
+    esac
+    return 0
+  fi
+  [ "$pl_code" = 200 ] || return 0
   [ -n "$pl_line" ] || return 0
   case $HARNESS in
     claude-code)
@@ -2142,6 +2156,19 @@ ack_project_removals() {
   done <"$TMP/project-removals"
 }
 
+# Keeps whether the per-prompt hook asks while a session runs, the
+# connection's own setting (G1-298), as the global manifest says, in the
+# app's folder, where the hook looks first. Each sync says it again, so a
+# setting turned back on reaches the hook once a sync has run.
+prompt_setting() {
+  if grep -qx 'prompt-line off' "$TMP/entries" 2>/dev/null; then
+    { [ -e "$APP_DIR/prompt-off" ] || : >"$APP_DIR/prompt-off"; } 2>/dev/null
+  else
+    rm -f "$APP_DIR/prompt-off" 2>/dev/null
+  fi
+  return 0
+}
+
 sync_scope() {
   query=$1 state=$2
   AGENTS_MD_BYTES=
@@ -2215,6 +2242,9 @@ sync_scope() {
   [ -z "$query" ] && grep -E '^(script|update) ' "$TMP/entries" | sed 's/^/entry /' >"$TMP/answer"
 
   [ -z "$query" ] && WORKSPACE_ID=$(sed -n "s/^workspace \\($UUID\\)\$/\\1/p" "$TMP/entries" | head -n 1)
+
+  # Whether the per-prompt hook asks while a session runs (G1-298)
+  [ -z "$query" ] && [ "$MODE" = sync ] && prompt_setting
 
   [ "$MODE" != sync ] || load_removals
   if [ "$MODE" = sync ] && [ "$NOW" = 0 ] && grep -qx 'auto-sync off' "$TMP/entries" && { [ -s "$TMP/removals" ] || [ -s "$TMP/project-removals" ]; }; then
@@ -4501,6 +4531,11 @@ doctor() {
   # How full the playbook's limits are, from Context Locker
   [ "$connected" = 1 ] && caps_doctor
 
+  # Whether the person switched off the per-prompt hook's line for this
+  # connection (G1-298), as Context Locker says now, or the last sync kept it
+  prompt_off=0
+  [ -e "$APP_DIR/prompt-off" ] && prompt_off=1
+
   lock=$APP_DIR/global.lock
   if ! grep -q '^synced ' "$lock" 2>/dev/null; then
     check_fail "Nothing has synced yet. Run: $RUN $HARNESS"
@@ -4513,7 +4548,10 @@ doctor() {
     elif [ "$connected" = 1 ]; then
       code=$(status_of "$(http GET /v1/sync "$TMP/manifest" '' '' "$etag" '' '')")
       case $code in
-        304) check_pass "The files match your playbook. Last synced $synced." ;;
+        304)
+          check_pass "The files match your playbook. Last synced $synced."
+          if grep -qx 'entry prompt-line off' "$lock"; then prompt_off=1; else prompt_off=0; fi
+          ;;
         200)
           if grep -qx 'auto-sync off' "$TMP/manifest" && files_change "$TMP/manifest" "$lock" >/dev/null; then
             auto_off=1
@@ -4521,6 +4559,7 @@ doctor() {
           else
             check_warn "Your playbook has changed since the last sync ($synced). The next sync brings the files up to date."
           fi
+          if grep -qx 'prompt-line off' "$TMP/manifest"; then prompt_off=1; else prompt_off=0; fi
           ;;
         *) check_warn "Couldn't compare the files with your playbook: Context Locker answered $code." ;;
       esac
@@ -4538,6 +4577,7 @@ doctor() {
   linked_doctor
   unmanaged_doctor
 
+  prompt_off_line="Hearing of new asks while a session runs is off for this connection, on its page in Connections, so the per-prompt hook asks nothing and a new ask shows when the next session starts."
   case $HARNESS in
     claude-code)
       settings=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
@@ -4546,7 +4586,9 @@ doctor() {
       else
         check_fail "The session-start hook isn't in $settings. Run: $RUN plan $HARNESS, and add the hook it shows."
       fi
-      if hook_in "$settings" UserPromptSubmit; then
+      if [ "$prompt_off" = 1 ]; then
+        check_pass "$prompt_off_line"
+      elif hook_in "$settings" UserPromptSubmit; then
         check_pass "The per-prompt hook is in $settings."
       else
         check_warn "The per-prompt hook isn't in $settings, so a session that's running hears of a new ask only when the next one starts. Run: $RUN plan $HARNESS, and add the hook it shows."
@@ -4559,7 +4601,9 @@ doctor() {
       else
         check_fail "The session-start hook isn't in $dir/hooks.json. Run: $RUN plan $HARNESS, and add the hook it shows."
       fi
-      if hook_in "$dir/hooks.json" UserPromptSubmit || hook_in "$dir/config.toml" UserPromptSubmit; then
+      if [ "$prompt_off" = 1 ]; then
+        check_pass "$prompt_off_line"
+      elif hook_in "$dir/hooks.json" UserPromptSubmit || hook_in "$dir/config.toml" UserPromptSubmit; then
         check_pass "The per-prompt hook is set up in $dir. Codex runs it once you've trusted it in /hooks."
       else
         check_warn "The per-prompt hook isn't in $dir/hooks.json, so a session that's running hears of a new ask only when the next one starts. Run: $RUN plan $HARNESS, and add the hook it shows."
@@ -4579,7 +4623,9 @@ doctor() {
       else
         check_fail "Hermes's hooks don't run the sync. Run: $RUN plan $HARNESS, and add the hooks it shows to $config."
       fi
-      if hermes_hooks_in "$config" pre_llm_call; then
+      if [ "$prompt_off" = 1 ]; then
+        check_pass "$prompt_off_line"
+      elif hermes_hooks_in "$config" pre_llm_call; then
         check_pass "Hermes tells a session that's running of a new ask, from $config."
       else
         check_warn "Hermes's per-prompt hook isn't in $config, so a session that's running hears of a new ask only when the next one starts. Run: $RUN plan $HARNESS, and add the hook it shows."
