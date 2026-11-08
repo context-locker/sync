@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  ASK_PROTOCOL,
   BUDGETS,
   COMPILED_HARNESSES,
   START_HERE_MOST,
@@ -364,6 +365,7 @@ describe("compiled output", () => {
       TEXT.globalTitle,
       TEXT.globalIntro,
       TEXT.plainWords,
+      TEXT.askProtocol,
       TEXT.noPreferences,
       TEXT.projectTitle("Docs site"),
       TEXT.projectIntro,
@@ -404,6 +406,24 @@ describe("compiled output", () => {
           }
         }
       }
+    }
+  });
+
+  it("says the ask protocol, in at most 120 words, after the plain words in every app's global block (G1-277)", () => {
+    assert.ok(ASK_PROTOCOL.split(/\s+/).length <= 120, ASK_PROTOCOL);
+    for (const harness of COMPILED_HARNESSES) {
+      const blocks = compile(global(harness)).outputs.filter(
+        (output) => output.kind === "block",
+      );
+      // OpenClaw's USER.md keeps its room for preferences, so it's in AGENTS.md
+      const said = blocks.filter((output) =>
+        output.text.includes(`${TEXT.plainWords}\n\n${ASK_PROTOCOL}\n`),
+      );
+      assert.equal(said.length, 1, harness);
+      // Only once, as a project's block leaves it to the global one
+      for (const output of compile(inProject(harness, "repo")).outputs)
+        if (output.kind === "block")
+          assert.ok(!output.text.includes(ASK_PROTOCOL), harness);
     }
   });
 

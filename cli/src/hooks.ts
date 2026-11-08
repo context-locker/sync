@@ -10,11 +10,13 @@ import { dirname, join } from "node:path";
 import {
   HOOK_EVENTS,
   OPENCLAW_HOOK_NAME,
+  PROMPT_HOOK_EVENTS,
   SYNC_SCRIPT_PATTERN,
   hermesHookYaml,
   installedScript,
   openclawHandler,
   openclawHookMd,
+  promptHook,
   sessionStartHook,
   type SessionStartHook,
 } from "@internal/compilers";
@@ -49,9 +51,16 @@ function runsScript(text: string, installed: string): boolean {
   return SYNC_SCRIPT_PATTERN.test(text) || text.includes(installed);
 }
 
-/** Whether a SessionStart hook in a JSON settings file runs the script */
-export function jsonHookIn(settings: Json, installed: string): boolean {
-  const groups = isObject(settings.hooks) ? settings.hooks.SessionStart : null;
+/**
+ * Whether a SessionStart hook in a JSON settings file runs the script, or
+ * with an event, that event's, such as the per-prompt hook's (G1-271)
+ */
+export function jsonHookIn(
+  settings: Json,
+  installed: string,
+  event = "SessionStart",
+): boolean {
+  const groups = isObject(settings.hooks) ? settings.hooks[event] : null;
   if (!Array.isArray(groups)) return false;
   return groups.some(
     (group) =>
@@ -67,12 +76,16 @@ export function jsonHookIn(settings: Json, installed: string): boolean {
   );
 }
 
-/** Whether Codex's config.toml has a SessionStart hook that runs the script */
-export function tomlHookIn(text: string, installed: string): boolean {
+/** Whether Codex's config.toml has a SessionStart hook, or with an event, that event's, that runs the script */
+export function tomlHookIn(
+  text: string,
+  installed: string,
+  event = "SessionStart",
+): boolean {
   let start = false;
   for (const line of text.split(/\r?\n/)) {
     const table = /^\s*\[\[?hooks\.(\w+)/.exec(line);
-    if (table) start = table[1] === "SessionStart";
+    if (table) start = table[1] === event;
     else if (
       start &&
       /^\s*command(_windows|Windows)?\s*=/.test(line) &&
@@ -91,16 +104,17 @@ function indentOf(text: string): string | number {
 }
 
 /**
- * Adds a session-start hook to a JSON settings file, after any already
- * there, keeping everything else in it
+ * Adds hooks to a JSON settings file, each after any already there for its
+ * event, keeping everything else in it: the session-start hook and the
+ * per-prompt hook (G1-271), each only where it's missing. Says which it added.
  */
 function addJsonHook(
   place: Place,
   app: App,
   file: string,
-  hook: SessionStartHook,
+  wanted: readonly { event: string; hook: SessionStartHook }[],
   when: string,
-): "added" | "present" | { problem: string } {
+): string[] | { problem: string } {
   const installed = installedScript(hookTargetOf(place));
   let raw: string | null;
   try {
@@ -120,18 +134,23 @@ function addJsonHook(
       return { problem: `${shown(place, file)} isn't valid JSON` };
     }
   }
-  if (jsonHookIn(settings, installed)) return "present";
+  const missing = wanted.filter(
+    ({ event }) => !jsonHookIn(settings, installed, event),
+  );
+  if (missing.length === 0) return [];
   const hooks = settings.hooks ?? {};
   if (!isObject(hooks)) {
     return { problem: `the hooks in ${shown(place, file)} aren't an object` };
   }
-  const groups = hooks.SessionStart ?? [];
-  if (!Array.isArray(groups)) {
-    return {
-      problem: `SessionStart in ${shown(place, file)} isn't a list`,
-    };
+  for (const { event, hook } of missing) {
+    const groups = hooks[event] ?? [];
+    if (!Array.isArray(groups)) {
+      return {
+        problem: `${event} in ${shown(place, file)} isn't a list`,
+      };
+    }
+    hooks[event] = [...groups, { hooks: [hook] }];
   }
-  hooks.SessionStart = [...groups, { hooks: [hook] }];
   settings.hooks = hooks;
   if (raw !== null) backUp(place, app, file, when);
   mkdirSync(dirname(file), { recursive: true });
@@ -140,7 +159,21 @@ function addJsonHook(
     `${JSON.stringify(settings, null, indentOf(raw ?? ""))}\n`,
     0o600,
   );
-  return "added";
+  return missing.map(({ event }) => event);
+}
+
+/**
+ * What setup says it added to a JSON settings file, or found there: the
+ * session-start hook, the per-prompt hook (G1-271), or both
+ */
+function jsonHookWords(added: readonly string[]): string {
+  const prompt = added.includes("UserPromptSubmit");
+  const session = added.includes("SessionStart");
+  return session && prompt
+    ? "the session-start and per-prompt hooks"
+    : prompt
+      ? "the per-prompt hook"
+      : "the session-start hook";
 }
 
 /** Each of Hermes's events that its config.yaml runs the script on, as the doctor reads it */
@@ -269,15 +302,25 @@ function addHermesHooks(
   } catch {
     return { problem: `setup couldn't read ${shown(place, file)}` };
   }
-  const missing = HOOK_EVENTS.hermes.filter(
-    (event) => !hermesEventsIn(raw ?? "", installed).has(event),
-  );
-  if (missing.length === 0) return "present";
-  // Only the events still missing get a hook
-  const updated = withHermesHooks(raw ?? "", hermesHookYaml(target), missing);
+  const prompt = PROMPT_HOOK_EVENTS.hermes as string;
+  const there = hermesEventsIn(raw ?? "", installed);
+  const missing = HOOK_EVENTS.hermes.filter((event) => !there.has(event));
+  if (missing.length === 0 && there.has(prompt)) return "present";
+  // Only the events still missing get a hook, and the per-prompt hook runs
+  // the script's prompt mode before each turn (G1-271)
+  const withSession =
+    missing.length === 0
+      ? (raw ?? "")
+      : withHermesHooks(raw ?? "", hermesHookYaml(target), missing);
+  const updated =
+    withSession === null || there.has(prompt)
+      ? withSession
+      : withHermesHooks(withSession, hermesHookYaml(target, { prompt: true }), [
+          prompt,
+        ]);
   if (
     updated === null ||
-    HOOK_EVENTS.hermes.some(
+    [...HOOK_EVENTS.hermes, prompt].some(
       (event) => !hermesEventsIn(updated, installed).has(event),
     )
   ) {
@@ -376,30 +419,39 @@ export async function addHook(
         place,
         app,
         file,
-        sessionStartHook(app, target),
+        [
+          { event: "SessionStart", hook: sessionStartHook(app, target) },
+          { event: "UserPromptSubmit", hook: promptHook(app, target) },
+        ],
         when,
       );
-      if (done === "present") {
+      if (!Array.isArray(done)) return manual(app, done.problem);
+      if (done.length === 0) {
         return {
           state: "present",
-          said: `The session-start hook is already in ${shown(place, file)}.`,
+          said: `The session-start and per-prompt hooks are already in ${shown(place, file)}.`,
         };
       }
-      if (done === "added") {
-        return {
-          state: "added",
-          said: `Added the session-start hook to ${shown(place, file)}.`,
-        };
-      }
-      return manual(app, done.problem);
+      return {
+        state: "added",
+        said: `Added ${jsonHookWords(done)} to ${shown(place, file)}.`,
+      };
     }
     case "codex": {
       const dir = appFolder(app, place);
       const toml = readTextSafely(join(dir, "config.toml"));
       if (toml !== null && tomlHookIn(toml, installedScript(target))) {
+        // Hooks set up in config.toml stay as they are, so the per-prompt
+        // hook (G1-271) is the person's to add there
+        if (!tomlHookIn(toml, installedScript(target), "UserPromptSubmit")) {
+          return manual(
+            app,
+            `Codex's hooks are in ${shown(place, join(dir, "config.toml"))}, which setup leaves as it is`,
+          );
+        }
         return {
           state: "present",
-          said: `The session-start hook is already set up in ${shown(place, dir)}.`,
+          said: `The session-start and per-prompt hooks are already set up in ${shown(place, dir)}.`,
         };
       }
       const file = join(dir, "hooks.json");
@@ -407,22 +459,23 @@ export async function addHook(
         place,
         app,
         file,
-        sessionStartHook(app, target),
+        [
+          { event: "SessionStart", hook: sessionStartHook(app, target) },
+          { event: "UserPromptSubmit", hook: promptHook(app, target) },
+        ],
         when,
       );
-      if (done === "present") {
+      if (!Array.isArray(done)) return manual(app, done.problem);
+      if (done.length === 0) {
         return {
           state: "present",
-          said: `The session-start hook is already in ${shown(place, file)}.`,
+          said: `The session-start and per-prompt hooks are already in ${shown(place, file)}.`,
         };
       }
-      if (done === "added") {
-        return {
-          state: "added",
-          said: `Added the session-start hook to ${shown(place, file)}. Codex skips a new hook until it's trusted: open /hooks in Codex and trust it.`,
-        };
-      }
-      return manual(app, done.problem);
+      return {
+        state: "added",
+        said: `Added ${jsonHookWords(done)} to ${shown(place, file)}. Codex skips a new hook until it's trusted: open /hooks in Codex and trust it.`,
+      };
     }
     case "hermes": {
       const file = join(appFolder(app, place), "config.yaml");
@@ -430,7 +483,7 @@ export async function addHook(
       if (done === "present") {
         return {
           state: "present",
-          said: `${shown(place, file)} already runs the sync when a session starts and after compaction.`,
+          said: `${shown(place, file)} already runs the sync when a session starts and after compaction, and tells a session that's running of a new ask.`,
         };
       }
       if (done === "added") {

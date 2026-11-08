@@ -10,6 +10,11 @@
 //   hermes       config.yaml, under hooks                on_session_start, post_compaction
 //   openclaw     ~/.openclaw/hooks/context-locker-sync   gateway:startup, command:new,
 //                                                        command:reset, session:compact:before
+//
+// A second hook tells a session that's running of a new ask (G1-271): the
+// script's prompt mode, on Claude Code's and Codex's UserPromptSubmit and
+// Hermes's pre_llm_call, which runs before each turn. OpenClaw has no hook
+// that hands the model a line, only a plugin's, so it has none.
 import { posix, win32 } from "node:path";
 
 import type { CompiledHarness } from "./types.js";
@@ -41,6 +46,19 @@ export const HOOK_EVENTS: Readonly<Record<CompiledHarness, readonly string[]>> =
       "session:compact:before",
     ],
   });
+
+/**
+ * The event each app's per-prompt hook runs on (G1-271), where it has one,
+ * and how long the app waits for it, in seconds
+ */
+export const PROMPT_HOOK_EVENTS: Readonly<
+  Partial<Record<CompiledHarness, string>>
+> = Object.freeze({
+  "claude-code": "UserPromptSubmit",
+  codex: "UserPromptSubmit",
+  hermes: "pre_llm_call",
+});
+export const PROMPT_HOOK_TIMEOUT = 10;
 
 /** Text that runs a sync script, as the doctor looks for it in a hook */
 export const SYNC_SCRIPT_PATTERN = /contextlocker[/\\]+sync\.(sh|ps1)/;
@@ -115,7 +133,7 @@ function hookOption(target: HookTarget): string {
   return target.shell === "sh" ? "--hook" : "-Hook";
 }
 
-/** One command in Claude Code's or Codex's SessionStart hooks */
+/** One command in Claude Code's or Codex's SessionStart or UserPromptSubmit hooks */
 export interface SessionStartHook {
   type: "command";
   command: string;
@@ -145,23 +163,65 @@ export function sessionStartHook(
     : { type: "command", command, timeout: 60 };
 }
 
+/**
+ * The per-prompt hook for Claude Code or Codex (G1-271): the script's prompt
+ * mode, which prints a line only when someone left the app something new
+ */
+export function promptHook(
+  harness: "claude-code" | "codex",
+  target: HookTarget,
+): SessionStartHook {
+  if (target.shell === "windows" && harness === "claude-code") {
+    const [program, ...args] = hookArgs(target) as [string, ...string[]];
+    return {
+      type: "command",
+      command: program,
+      args: [...args, "prompt", harness],
+      timeout: PROMPT_HOOK_TIMEOUT,
+    };
+  }
+  const command = `${hookRun(target)} prompt ${harness}`;
+  return target.shell === "windows"
+    ? {
+        type: "command",
+        command,
+        commandWindows: command,
+        timeout: PROMPT_HOOK_TIMEOUT,
+      }
+    : { type: "command", command, timeout: PROMPT_HOOK_TIMEOUT };
+}
+
+/** How Hermes's hooks run the script, with no shell */
+function hermesRun(target: HookTarget): string {
+  return target.shell === "sh"
+    ? `sh ${shellQuote(installedScript(target))}`
+    : target.shell === "pwsh"
+      ? `pwsh -NoProfile -File ${shellQuote(installedScript(target))}`
+      : `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${installedScript(target)}"`;
+}
+
 /** What Hermes's hooks run, for each of its events */
 export function hermesHookCommand(target: HookTarget): string {
-  const run =
-    target.shell === "sh"
-      ? `sh ${shellQuote(installedScript(target))}`
-      : target.shell === "pwsh"
-        ? `pwsh -NoProfile -File ${shellQuote(installedScript(target))}`
-        : `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${installedScript(target)}"`;
-  return `${run} hermes ${hookOption(target)}`;
+  return `${hermesRun(target)} hermes ${hookOption(target)}`;
+}
+
+/** What Hermes's per-prompt hook runs, before each turn (G1-271) */
+export function hermesPromptCommand(target: HookTarget): string {
+  return `${hermesRun(target)} prompt hermes`;
 }
 
 /**
  * Hermes's command as config.yaml holds it: in double quotes from sync.sh,
- * and from sync.ps1 in single quotes, which keep backslashes, unless it has one
+ * and from sync.ps1 in single quotes, which keep backslashes, unless it has
+ * one. The per-prompt hook's with prompt (G1-271).
  */
-export function hermesHookYaml(target: HookTarget): string {
-  const command = hermesHookCommand(target);
+export function hermesHookYaml(
+  target: HookTarget,
+  options: { prompt?: boolean } = {},
+): string {
+  const command = options.prompt
+    ? hermesPromptCommand(target)
+    : hermesHookCommand(target);
   if (target.shell === "sh" || command.includes("'")) {
     return doubleQuoted(command);
   }
