@@ -27,6 +27,7 @@ import {
   blobArchive,
   buildManifest,
 } from "../src/index.js";
+import { SCRIPT_PATH } from "./script-path.js";
 
 const SCRIPTS = fileURLToPath(new URL("../scripts/", import.meta.url));
 const WORKSPACE = "6f1d2c4e-8a3b-4c5d-9e7f-0a1b2c3d4e5f";
@@ -181,7 +182,7 @@ describe("a skill the app also gets elsewhere (G1-221)", () => {
       const child = spawn(shell, args, {
         cwd,
         env: {
-          PATH: process.env.PATH ?? "",
+          PATH: SCRIPT_PATH,
           HOME: machine.home,
           POWERSHELL_TELEMETRY_OPTOUT: "1",
         },

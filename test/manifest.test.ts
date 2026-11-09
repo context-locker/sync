@@ -220,6 +220,93 @@ describe("the sync manifest", () => {
     assert.deepEqual(parsed.entries, on.entries);
   });
 
+  it("says whether the app's own memory files sync, for which connection, and which to take away (G1-299)", () => {
+    const connection = "7c3a8f2e-1b4d-4e6f-8a9b-0c1d2e3f4a5b";
+    const kept = "1f2e3d4c-5b6a-4978-8695-a4b3c2d1e0f9";
+    const gone = [
+      { target: "{claude}/projects/x/memory/old.md", id: kept },
+      {
+        target: "{claude}/projects/x/memory/b.md",
+        id: "2a3b4c5d-6e7f-4809-9a1b-2c3d4e5f6a7b",
+      },
+      {
+        target: "{claude}/projects/x/memory/b.md",
+        id: "0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d",
+      },
+    ];
+    const manifest = buildManifest({
+      workspaceId: WORKSPACE_ID,
+      outputs: [
+        {
+          kind: "memory",
+          target: "{claude}/projects/x/memory/MEMORY.md",
+          text: "# Memory\n",
+          item: { id: kept, version: 3 },
+        },
+      ],
+      holds: [],
+      memoryFiles: { state: "on", connection },
+      memoryGone: gone,
+    });
+    assert.deepEqual(manifest.text.split("\n"), [
+      MANIFEST_HEADER,
+      `workspace ${WORKSPACE_ID}`,
+      `memory-files on ${connection}`,
+      `memory ${sha256("# Memory\n")} {claude}/projects/x/memory/MEMORY.md ${kept} 3`,
+      "memory-gone {claude}/projects/x/memory/b.md 0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d",
+      "memory-gone {claude}/projects/x/memory/b.md 2a3b4c5d-6e7f-4809-9a1b-2c3d4e5f6a7b",
+      `memory-gone {claude}/projects/x/memory/old.md ${kept}`,
+      "",
+    ]);
+    const parsed = parseManifest(manifest.text);
+    assert.deepEqual(parsed.memoryFiles, { state: "on", connection });
+    assert.deepEqual(
+      parsed.entries.filter((entry) => entry.kind === "memory-gone"),
+      [
+        {
+          kind: "memory-gone",
+          target: "{claude}/projects/x/memory/b.md",
+          id: "0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d",
+        },
+        {
+          kind: "memory-gone",
+          target: "{claude}/projects/x/memory/b.md",
+          id: "2a3b4c5d-6e7f-4809-9a1b-2c3d4e5f6a7b",
+        },
+        {
+          kind: "memory-gone",
+          target: "{claude}/projects/x/memory/old.md",
+          id: kept,
+        },
+      ],
+    );
+    // Only the line with the connection is read
+    assert.equal(
+      parseManifest(`${MANIFEST_HEADER}\nmemory-files on\n`).memoryFiles,
+      null,
+    );
+    assert.throws(
+      () =>
+        buildManifest({
+          workspaceId: WORKSPACE_ID,
+          outputs: [],
+          holds: [],
+          memoryFiles: { state: "on", connection: "nobody" },
+        }),
+      /connection's id/,
+    );
+    assert.throws(
+      () =>
+        buildManifest({
+          workspaceId: WORKSPACE_ID,
+          outputs: [],
+          holds: [],
+          memoryGone: [{ target: "{claude}/../x.md", id: kept }],
+        }),
+      /usable target/,
+    );
+  });
+
   it("refuses targets that could reach outside their root", () => {
     for (const target of [
       "{codex}/../AGENTS.md",

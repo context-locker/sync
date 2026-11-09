@@ -33,6 +33,8 @@ import {
   type RepoLink,
 } from "../src/index.js";
 import { preferences, projectPreferences } from "./fixtures.js";
+import { computerName, computerPattern } from "./computer-name.js";
+import { SCRIPT_PATH } from "./script-path.js";
 
 const SCRIPT = fileURLToPath(new URL("../scripts/sync.sh", import.meta.url));
 const PS_SCRIPT = fileURLToPath(
@@ -307,7 +309,7 @@ describe("a project in the sync", () => {
       const child = spawn(shell, args, {
         cwd: options.cwd ?? machine.home,
         env: {
-          PATH: process.env.PATH ?? "",
+          PATH: SCRIPT_PATH,
           HOME: machine.home,
           POWERSHELL_TELEMETRY_OPTOUT: "1",
           GIT_CONFIG_NOSYSTEM: "1",
@@ -720,7 +722,12 @@ describe("a project in the sync", () => {
             mode: "map",
           });
           assert.equal(none.status, 1);
-          assert.match(none.stderr, /isn't in a project this computer knows/);
+          assert.ok(
+            none.stderr.includes(
+              `isn't in a project known on ${computerName(shell)}.`,
+            ),
+            none.stderr,
+          );
           assert.equal(linked(machine.home), before);
         });
 
@@ -789,7 +796,9 @@ describe("a project in the sync", () => {
           assert.match(failed.stdout, /Context Locker answered 500/);
           assert.match(
             failed.stdout,
-            /1 folder linked on this computer isn't there any more, so its project wasn't synced\./,
+            new RegExp(
+              `1 folder linked on ${computerPattern(shell)} isn't there any more, so its project wasn't synced\\.`,
+            ),
           );
           // The gone folder stays linked, in case it comes back
           assert.match(linked(machine.home), /gone$/m);
@@ -952,17 +961,18 @@ describe("a project in the sync", () => {
           );
         });
 
-        it("says when OpenClaw's USER.md is longer than it reads (G1-212)", async () => {
+        it("says when OpenClaw's AGENTS.md is longer than it reads (G1-212, G1-299)", async () => {
           const machine = computer(["openclaw"]);
           fake.globalBlocks = true;
           const workspace = join(machine.home, ".openclaw", "workspace");
           mkdirSync(workspace, { recursive: true });
-          const user = join(workspace, "USER.md");
-          writeFileSync(user, filler(5_000));
+          // Its whole block is in AGENTS.md now, which OpenClaw reads up to 20,000 characters of
+          const agents = join(workspace, "AGENTS.md");
+          writeFileSync(agents, filler(21_000));
 
           const synced = await run(shell, machine, { harness: "openclaw" });
           assert.equal(synced.status, 0, synced.stderr);
-          const said = `OpenClaw reads up to 4,000 characters of ${user}, which has ${grouped([...readFileSync(user, "utf8")].length)}, so it can miss part of Context Locker's block. Shortening the text outside the block lets OpenClaw read all of it.`;
+          const said = `OpenClaw reads up to 20,000 characters of ${agents}, which has ${grouped([...readFileSync(agents, "utf8")].length)}, so it can miss part of Context Locker's block. Shortening the text outside the block lets OpenClaw read all of it.`;
           assert.ok(
             lines(synced.stderr).includes(`Context Locker: ${said}`),
             synced.stderr,

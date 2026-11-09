@@ -37,6 +37,7 @@ import {
   type Blob,
   type NoteInput,
 } from "../src/index.js";
+import { SCRIPT_PATH } from "./script-path.js";
 
 const SCRIPT = fileURLToPath(new URL("../scripts/sync.sh", import.meta.url));
 const PS_SCRIPT = fileURLToPath(
@@ -376,7 +377,7 @@ describe("a project's notes folder", () => {
       const child = spawn(shell, args, {
         cwd: options.cwd ?? join(machine.home, "repo"),
         env: {
-          PATH: process.env.PATH ?? "",
+          PATH: SCRIPT_PATH,
           HOME: machine.home,
           POWERSHELL_TELEMETRY_OPTOUT: "1",
           GIT_CONFIG_NOSYSTEM: "1",

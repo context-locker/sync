@@ -53,9 +53,9 @@ function dump(compiled: Compiled): string {
       );
     } else if (output.kind === "file") {
       parts.push(`== file ${output.target}\n`);
-    } else if (output.kind === "note") {
+    } else if (output.kind === "note" || output.kind === "memory") {
       parts.push(
-        `== note ${output.target}\nitem: ${output.item.id}@${output.item.version}\n`,
+        `== ${output.kind} ${output.target}\nitem: ${output.item.id}@${output.item.version}\n`,
       );
     } else {
       parts.push(
@@ -237,7 +237,7 @@ describe("the compilers' fixed expected files", () => {
       }),
     ));
 
-  it("openclaw: preferences past USER.md's budget move to AGENTS.md", () =>
+  it("openclaw: its whole block is in its workspace's AGENTS.md, leaving USER.md to the person (G1-299)", () =>
     golden(
       "openclaw-overflow",
       compile({
@@ -460,16 +460,28 @@ describe("compiled output", () => {
         }
       }
     }
-    const user = compile({
+    // OpenClaw's whole block is in its workspace's AGENTS.md, and none in
+    // USER.md, which is the person's (G1-299)
+    const openclaw = compile({
       harness: "openclaw",
       project: null,
       preferences: big,
       skills: [],
-    }).outputs.find(
-      (output) =>
-        output.kind === "block" && output.target === "{openclaw}/USER.md",
+    }).outputs;
+    assert.ok(
+      !openclaw.some(
+        (output) =>
+          output.kind === "block" && output.target === "{openclaw}/USER.md",
+      ),
     );
-    assert.ok(user?.kind === "block" && Buffer.byteLength(user.text) <= 2_400);
+    const agents = openclaw.find(
+      (output) =>
+        output.kind === "block" && output.target === "{openclaw}/AGENTS.md",
+    );
+    assert.ok(
+      agents?.kind === "block" &&
+        Buffer.byteLength(agents.text) <= BUDGETS.openclawAgents,
+    );
   });
 
   it("compiles a repo's AGENTS.md the same for every app that reads it", () => {
@@ -817,5 +829,84 @@ describe("a playbook that allows personal details (G1-246)", () => {
       }
     }
     assert.ok(checked >= COMPILED_HARNESSES.length);
+  });
+});
+
+describe("a connection's own memory in its global block (G1-299)", () => {
+  const memory: CompileInput["preferences"] = [
+    {
+      id: "b1111111-1111-4111-8111-111111111111",
+      name: "terminal-theme",
+      version: 2,
+      text: "Use the dark terminal theme.",
+    },
+    {
+      id: "b2222222-2222-4222-8222-222222222222",
+      name: "shell",
+      version: 1,
+      text: "Use zsh.\nSource the profile first.",
+    },
+  ];
+  const globalBlock = (compiled: Compiled) => {
+    const output = compiled.outputs.find((each) => each.kind === "block");
+    if (!output || output.kind !== "block") return assert.fail("No block");
+    return output;
+  };
+
+  for (const harness of ["claude-code", "codex", "hermes"] as const) {
+    it(`${harness}: its own preferences under their heading, after the person's`, () => {
+      const compiled = compile({
+        harness,
+        project: null,
+        preferences,
+        skills: [],
+        memory,
+      });
+      golden(`${harness}-global-memory`, compiled);
+      const block = globalBlock(compiled);
+      const heading = block.text.indexOf(TEXT.memoryHeading);
+      assert.ok(heading > 0);
+      assert.ok(heading > block.text.indexOf(`- ${preferences[0]!.name}:`));
+      assert.match(
+        block.text,
+        /### This connection's memory\n\n- terminal-theme: Use the dark terminal theme\.\n- shell: Use zsh\.\n {2}Source the profile first\./,
+      );
+      // Its lines are in what the block holds, so an edit reads back
+      for (const { id, version } of memory)
+        assert.ok(
+          block.items.some(
+            (item) => item.id === id && item.version === version,
+          ),
+        );
+    });
+  }
+
+  it("leaves a block as it was when the connection keeps no memory", () => {
+    for (const harness of COMPILED_HARNESSES)
+      assert.deepEqual(
+        compile({
+          harness,
+          project: null,
+          preferences,
+          skills: [],
+          memory: [],
+        }),
+        compile({ harness, project: null, preferences, skills: [] }),
+      );
+  });
+
+  it("fits the person's preferences first, and counts its own that don't fit", () => {
+    const compiled = compile({
+      harness: "hermes",
+      project: null,
+      preferences: manyPreferences(60, 290),
+      skills: [],
+      memory,
+    });
+    const block = globalBlock(compiled);
+    assert.ok(Buffer.byteLength(block.text, "utf8") <= BUDGETS.hermesSoul);
+    // The person's fill the room, so its own are counted, not shown
+    assert.doesNotMatch(block.text, /This connection's memory/);
+    assert.ok(!block.items.some(({ id }) => id === memory[0]!.id));
   });
 });

@@ -29,6 +29,8 @@ import { fileURLToPath } from "node:url";
 import { after, before, describe, it } from "node:test";
 
 import { BLOCK_END, BLOCK_START } from "../src/index.js";
+import { computerName, computerPattern } from "./computer-name.js";
+import { SCRIPT_PATH } from "./script-path.js";
 
 const SCRIPT = fileURLToPath(new URL("../scripts/sync.sh", import.meta.url));
 const PS_SCRIPT = fileURLToPath(
@@ -332,7 +334,7 @@ describe("import, and import-submit", () => {
       const child = spawn(shell, command, {
         cwd,
         env: {
-          PATH: process.env.PATH ?? "",
+          PATH: SCRIPT_PATH,
           HOME: home,
           POWERSHELL_TELEMETRY_OPTOUT: "1",
           ...env,
@@ -554,7 +556,9 @@ describe("import, and import-submit", () => {
         );
         assert.match(
           readFileSync(join(set, "playbook.md"), "utf8"),
-          /Nothing has synced to Claude Code on this computer yet\./,
+          new RegExp(
+            `Nothing has synced to Claude Code on ${computerPattern(shell)} yet\\.`,
+          ),
         );
 
         // What it says: where, how much from each app, what it left out
@@ -562,7 +566,7 @@ describe("import, and import-submit", () => {
         assert.match(
           result.stdout,
           new RegExp(
-            `^Context Locker copied 13 sources from Claude Code's own files into ${shown.replace(/[.]/g, "\\.")}, which only this account can read\\. No file changed, and nothing left this computer\\.\\n`,
+            `^Context Locker copied 13 sources from Claude Code's own files into ${shown.replace(/[.]/g, "\\.")}, which only this account can read\\. No file changed, and nothing left ${computerPattern(shell)}\\.\\n`,
           ),
         );
         assert.match(
@@ -1033,9 +1037,11 @@ describe("import, and import-submit", () => {
         rmSync(join(home, ".contextlocker", "claude-code", "token"));
         const result = await run(shell, home, ["gather", "claude-code"], repo);
         assert.equal(result.status, 1);
-        assert.match(
+        assert.ok(
+          result.stderr.includes(
+            `Claude Code isn't connected on ${computerName(shell)}.`,
+          ),
           result.stderr,
-          /Claude Code isn't connected on this computer\./,
         );
         assert.ok(!existsSync(join(home, ".contextlocker", "gather")));
       });
@@ -1075,7 +1081,7 @@ describe("import, and import-submit", () => {
         assert.equal(result.status, 0, result.stderr);
         assert.equal(
           result.stdout,
-          "Brought in 2 items with Gather.\nTell the user.\nContext Locker deleted Import's working copies from this computer, in ~/.contextlocker/gather, now that the plan is in.\n",
+          `Brought in 2 items with Gather.\nTell the user.\nContext Locker deleted Import's working copies from ${computerName(shell)}, in ~/.contextlocker/gather, now that the plan is in.\n`,
         );
         assert.deepEqual(readdirSync(root), ["my-notes"]);
         assert.equal(seen.length, 1);
@@ -1394,7 +1400,7 @@ exec "${awk}" "$@"
             put(join(codex, "memories", `example-${index}.md`), example.text);
           }
           const result = await run("dash", home, ["import", "codex"], repo, {
-            PATH: `${bin}:${process.env.PATH ?? ""}`,
+            PATH: `${bin}:${SCRIPT_PATH}`,
           });
           assert.equal(result.status, 0, result.stderr);
           assert.equal(result.stderr, "");

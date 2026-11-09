@@ -23,6 +23,17 @@
 //                                                    is the rest of the line, and may hold spaces
 //   context <sha256>                                 printed at session start
 //   hold <sha256> <target>                           a local edit waiting for approval: keep it
+//   memory-files <state> <connection id>             in the global manifest: whether the app's own
+//                                                    memory files sync with its connection's
+//                                                    memory, none, asked, on or off, and the
+//                                                    connection the script keys its records on
+//                                                    (G1-299)
+//   memory <sha256> <target> <item id> <version>     while they're on: one of the app's own memory
+//                                                    files, as the connection's memory keeps it
+//   memory-gone <target> <item id>                   while they're on: a memory file whose note was
+//                                                    archived or deleted in the last 30 days, with
+//                                                    no live note at its path, which the script
+//                                                    takes away while it's as the sync wrote it
 //
 // Scripts skip lines they don't know, so later versions can add kinds: a
 // script from before notes leaves the notes folder alone, and one from before
@@ -42,7 +53,7 @@ export const MANIFEST_HEADER = "context-locker-sync 1";
  * The newest version of the sync scripts, as their SCRIPT_VERSION says. The
  * global manifest names it, so an older script can say a newer one is out.
  */
-export const SYNC_SCRIPT_VERSION = 41;
+export const SYNC_SCRIPT_VERSION = 43;
 
 /** The shell a sync script runs in: sh on macOS and Linux, PowerShell on Windows */
 export type ScriptShell = "sh" | "powershell";
@@ -64,11 +75,11 @@ export interface ScriptRelease {
 
 export const SYNC_SCRIPT_RELEASE: ScriptRelease = Object.freeze({
   version: SYNC_SCRIPT_VERSION,
-  setup: 53,
+  setup: 55,
   sha256: Object.freeze({
-    sh: "f203ad19773a0453ace2d0b1f72a1d4ee48439264548217d38e0aa40a7cf2cf7",
+    sh: "3423891094b8964e0116cc036f8f68f30bee1ab3d143ee986dd26c1714621720",
     powershell:
-      "97a1c2715228393201eb9e8175649cc190bc7e61c03e3d2e2527f4e735a56feb",
+      "7e40b9d101b29b28ad58b86c20360d381f3a6638591da8ae4d67bdd626f08d87",
   }),
   updatesFrom: 40,
 });
@@ -78,6 +89,8 @@ export type ManifestEntry =
   | { kind: "skill"; hash: string; target: string; item: ItemRef }
   | { kind: "file"; hash: string; target: string }
   | { kind: "note"; hash: string; target: string; item: ItemRef }
+  | { kind: "memory"; hash: string; target: string; item: ItemRef }
+  | { kind: "memory-gone"; target: string; id: string }
   | { kind: "link"; id: string; path: string }
   | { kind: "context"; hash: string }
   | { kind: "hold"; hash: string; target: string }
@@ -172,6 +185,18 @@ export function buildManifest(input: {
    * default, for the global manifest (G1-298)
    */
   promptLine?: boolean;
+  /**
+   * Whether the app's own memory files sync with its connection's memory,
+   * for the global manifest (G1-299): none until its sync finds some, asked
+   * while the request waits, then on or off as the person answered, with the
+   * connection's id, which the script keys what it wrote on
+   */
+  memoryFiles?: { state: MemoryFiles; connection: string };
+  /**
+   * The app's own memory files whose notes were archived or deleted lately,
+   * with no live note at their paths, for the script to take away (G1-299)
+   */
+  memoryGone?: readonly { target: string; id: string }[];
   /** For a project the app's connection can't use, which gets nothing */
   access?: "none";
 }): Manifest {
@@ -183,6 +208,9 @@ export function buildManifest(input: {
     (!Number.isSafeInteger(input.script) || input.script < 1)
   ) {
     throw new Error("A script version is a whole number");
+  }
+  if (input.memoryFiles && !UUID.test(input.memoryFiles.connection)) {
+    throw new Error("The connection's id must be a UUID");
   }
   if (
     input.update &&
@@ -201,6 +229,7 @@ export function buildManifest(input: {
   const skills: ManifestEntry[] = [];
   const files: ManifestEntry[] = [];
   const notes: ManifestEntry[] = [];
+  const memories: ManifestEntry[] = [];
   const contexts: ManifestEntry[] = [];
 
   for (const output of input.outputs) {
@@ -245,6 +274,19 @@ export function buildManifest(input: {
         target: checkTarget(output.target),
         item: output.item,
       });
+    } else if (output.kind === "memory") {
+      // An app's own memory file, byte for byte, as the script hashes it
+      const hash = sha256(output.text);
+      blobs.set(hash, {
+        kind: "file",
+        bytes: Buffer.from(output.text, "utf8"),
+      });
+      memories.push({
+        kind: "memory",
+        hash,
+        target: checkTarget(output.target),
+        item: output.item,
+      });
     } else if (output.kind === "file" || output.kind === "note") {
       // A whole file, byte for byte, as the script hashes the file it finds
       const hash = sha256(output.text);
@@ -279,6 +321,17 @@ export function buildManifest(input: {
     })
     .sort(byTarget);
 
+  const gone = [...(input.memoryGone ?? [])]
+    .map((one) => {
+      if (!UUID.test(one.id)) throw new Error("A note's id must be a UUID");
+      return {
+        kind: "memory-gone" as const,
+        target: checkTarget(one.target),
+        id: one.id,
+      };
+    })
+    .sort((a, b) => byTarget(a, b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
   const links = [...(input.links ?? [])]
     .map((link) => {
       if (!UUID.test(link.id)) throw new Error("A link's id must be a UUID");
@@ -309,6 +362,8 @@ export function buildManifest(input: {
     ...(skills as Array<ManifestEntry & { target: string }>).sort(byTarget),
     ...(files as Array<ManifestEntry & { target: string }>).sort(byTarget),
     ...(notes as Array<ManifestEntry & { target: string }>).sort(byTarget),
+    ...(memories as Array<ManifestEntry & { target: string }>).sort(byTarget),
+    ...gone,
     ...links,
     ...contexts,
     ...holds,
@@ -336,6 +391,10 @@ export function buildManifest(input: {
   }
   if (input.autoSync === false) lines.push("auto-sync off");
   if (input.promptLine === false) lines.push("prompt-line off");
+  if (input.memoryFiles)
+    lines.push(
+      `memory-files ${input.memoryFiles.state} ${input.memoryFiles.connection}`,
+    );
   if (input.access === "none") lines.push("access none");
   for (const entry of entries) {
     switch (entry.kind) {
@@ -356,10 +415,18 @@ export function buildManifest(input: {
       case "file":
         lines.push(`file ${entry.hash} ${entry.target}`);
         break;
+      case "memory":
+        lines.push(
+          `memory ${entry.hash} ${entry.target} ${entry.item.id} ${entry.item.version}`,
+        );
+        break;
       case "note":
         lines.push(
           `note ${entry.hash} ${entry.target} ${entry.item.id} ${entry.item.version}`,
         );
+        break;
+      case "memory-gone":
+        lines.push(`memory-gone ${entry.target} ${entry.id}`);
         break;
       case "link":
         lines.push(`link ${entry.id} ${entry.path}`);
@@ -376,12 +443,21 @@ export function buildManifest(input: {
   return { text, etag: sha256(text), entries, blobs };
 }
 
+/** Whether an app's own memory files sync with its connection's memory (G1-299) */
+export const MEMORY_FILES = ["none", "asked", "on", "off"] as const;
+export type MemoryFiles = (typeof MEMORY_FILES)[number];
+
 /** Reads a manifest back, skipping kinds it doesn't know, as the scripts do. */
 export function parseManifest(text: string): {
   workspaceId: string | null;
   autoSync: boolean;
   /** Whether the per-prompt hook asks while a session runs, as prompt-line off says it doesn't */
   promptLine: boolean;
+  /**
+   * Whether the app's own memory files sync, and the connection they sync
+   * for, as memory-files says, if it does
+   */
+  memoryFiles: { state: MemoryFiles; connection: string } | null;
   /** Whether the app's connection can use the project, as access none says it can't */
   access: boolean;
   entries: ManifestEntry[];
@@ -393,6 +469,7 @@ export function parseManifest(text: string): {
   let workspaceId: string | null = null;
   let autoSync = true;
   let promptLine = true;
+  let memoryFiles: { state: MemoryFiles; connection: string } | null = null;
   let access = true;
   const entries: ManifestEntry[] = [];
   for (const line of lines) {
@@ -401,11 +478,18 @@ export function parseManifest(text: string): {
     if (kind === "workspace" && hash) workspaceId = hash;
     else if (line === "auto-sync off") autoSync = false;
     else if (line === "prompt-line off") promptLine = false;
+    else if (
+      kind === "memory-files" &&
+      (MEMORY_FILES as readonly string[]).includes(hash ?? "") &&
+      UUID.test(target ?? "") &&
+      fields.length === 3
+    )
+      memoryFiles = { state: hash as MemoryFiles, connection: target! };
     else if (line === "access none") access = false;
     else if (kind === "block" && hash && target) {
       entries.push({ kind, hash, target });
     } else if (
-      (kind === "skill" || kind === "note") &&
+      (kind === "skill" || kind === "note" || kind === "memory") &&
       hash &&
       target &&
       id &&
@@ -417,6 +501,14 @@ export function parseManifest(text: string): {
         target,
         item: { id, version: Number(version) },
       });
+    } else if (
+      kind === "memory-gone" &&
+      hash &&
+      target &&
+      UUID.test(target) &&
+      fields.length === 3
+    ) {
+      entries.push({ kind, target: hash, id: target });
     } else if (kind === "file" && hash && target) {
       entries.push({ kind, hash, target });
     } else if (kind === "link" && hash && target) {
@@ -442,5 +534,5 @@ export function parseManifest(text: string): {
       entries.push({ kind, hash, target });
     }
   }
-  return { workspaceId, autoSync, promptLine, access, entries };
+  return { workspaceId, autoSync, promptLine, memoryFiles, access, entries };
 }

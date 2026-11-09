@@ -18,6 +18,7 @@
 import { posix, win32 } from "node:path";
 
 import type { CompiledHarness } from "./types.js";
+import { DEVICE_APPS, byApp } from "./device-apps.js";
 
 /**
  * Which script a hook runs, and how: sync.sh in sh on macOS and Linux,
@@ -33,31 +34,24 @@ export interface HookTarget {
   usualHome: boolean;
 }
 
-/** The events each app's hook runs on */
+/** The events each app's hook runs on, from its entry in DEVICE_APPS */
 export const HOOK_EVENTS: Readonly<Record<CompiledHarness, readonly string[]>> =
-  Object.freeze({
-    "claude-code": ["startup", "resume", "clear", "compact"],
-    codex: ["startup", "resume", "clear", "compact"],
-    hermes: ["on_session_start", "post_compaction"],
-    openclaw: [
-      "gateway:startup",
-      "command:new",
-      "command:reset",
-      "session:compact:before",
-    ],
-  });
+  byApp((app) => app.hooks);
 
 /**
  * The event each app's per-prompt hook runs on (G1-271), where it has one,
- * and how long the app waits for it, in seconds
+ * from its entry in DEVICE_APPS, and how long the app waits for it, in
+ * seconds
  */
 export const PROMPT_HOOK_EVENTS: Readonly<
   Partial<Record<CompiledHarness, string>>
-> = Object.freeze({
-  "claude-code": "UserPromptSubmit",
-  codex: "UserPromptSubmit",
-  hermes: "pre_llm_call",
-});
+> = Object.freeze(
+  Object.fromEntries(
+    Object.entries(DEVICE_APPS).flatMap(([id, app]) =>
+      app.promptHook ? [[id, app.promptHook]] : [],
+    ),
+  ),
+);
 export const PROMPT_HOOK_TIMEOUT = 10;
 
 /** Text that runs a sync script, as the doctor looks for it in a hook */

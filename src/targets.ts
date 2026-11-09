@@ -1,4 +1,4 @@
-import { OPENCLAW_AGENTS_MD, TARGETS } from "./compile.js";
+import { OPENCLAW_USER_MD, TARGETS } from "./compile.js";
 import { NOTES_FOLDER, NOTES_README, parseNoteTarget } from "./notes.js";
 import type { CompiledHarness } from "./types.js";
 
@@ -14,7 +14,8 @@ export function allowedTargets(harness: CompiledHarness): {
 } {
   const targets = TARGETS[harness];
   const blocks = [targets.global];
-  if (harness === "openclaw") blocks.push(OPENCLAW_AGENTS_MD);
+  // Its block's old file, so an edit made there before it moved reads back
+  if (harness === "openclaw") blocks.push(OPENCLAW_USER_MD);
   if (targets.projectBlock) blocks.push(targets.projectBlock);
   const skillRoots = [targets.skills];
   if (targets.projectSkills) skillRoots.push(targets.projectSkills);
