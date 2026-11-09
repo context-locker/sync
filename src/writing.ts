@@ -46,6 +46,17 @@ export interface AiText {
    * it, so the duplicate check counts a sentence in them once
    */
   source?: string;
+  /**
+   * Text this one carries from a source gathered on its own, such as the
+   * standing rules (G1-309): checked there, so nothing in it counts here
+   * again, though its length does
+   */
+  includes?: string;
+}
+
+/** A text's own words, without what it carries from a source checked on its own */
+function ownText(text: AiText): string {
+  return text.includes ? text.text.split(text.includes).join("\n") : text.text;
 }
 
 export type FindingRule =
@@ -184,7 +195,8 @@ export function checkAiText(text: AiText): Finding[] {
       count: text.text.length,
     });
   }
-  const words = prose(text.text);
+  const own = ownText(text);
+  const words = prose(own);
   add(
     "history",
     countMatches(words, HISTORY, (match) => match.toLowerCase()),
@@ -210,9 +222,7 @@ export function checkAiText(text: AiText): Finding[] {
     );
   add(
     "dash",
-    countMatches(text.text, DASH, (match) =>
-      match === "—" ? "em dash" : "en dash",
-    ),
+    countMatches(own, DASH, (match) => (match === "—" ? "em dash" : "en dash")),
   );
   add(
     "spelling",
@@ -266,7 +276,7 @@ export function duplicateSentences(texts: AiText[]): Finding[] {
   >();
   for (const text of texts) {
     const inThis = new Map<string, number>();
-    for (const sentence of sentencesOf(text.text)) {
+    for (const sentence of sentencesOf(ownText(text))) {
       inThis.set(sentence, (inThis.get(sentence) ?? 0) + 1);
     }
     for (const [sentence, count] of inThis) {

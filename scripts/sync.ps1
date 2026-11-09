@@ -193,7 +193,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 43
+$ScriptVersion = 44
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -358,6 +358,7 @@ $Script:ProjectRoot = ''
 $Script:Layer = ''
 $Script:Scope = 'global'
 $Script:AgentsMdBytes = $null
+$Script:GlobalBytes = $null
 $Script:FoundBy = ''
 $Script:LinksChecked = $null
 $Script:MissingLinks = New-Object System.Collections.Generic.List[string]
@@ -1053,6 +1054,53 @@ function Get-SharedAgentsRoom {
   $hermes = [Math]::Max($limit - $beforeCount - $afterCount,
     [Math]::Max([Math]::Floor($limit * 7 / 10) - $beforeCount, [Math]::Floor($limit * 2 / 10) - $afterCount))
   $room = [Math]::Max(0, [Math]::Min(12000, [Math]::Min($codex, $hermes)))
+  return [int]([Math]::Floor($room / 1000) * 1000)
+}
+
+# The room Hermes's SOUL.md or OpenClaw's AGENTS.md leaves for Context
+# Locker's block after the file's own text (G1-309), in thousands of bytes:
+# what the app keeps of a file, less the text before and after the block, and
+# for Hermes a block wholly inside the start or end it keeps of a longer
+# file, as the POSIX script measures it. The API takes this or its own cap,
+# whichever is smaller.
+function Get-GlobalRoom {
+  if ($Harness -eq 'hermes') {
+    $path = Join-Path (Get-RootDir 'hermes') 'SOUL.md'
+    $limit = Get-HermesFileLimit
+  } elseif ($Harness -eq 'openclaw') {
+    $path = Join-Path (Get-RootDir 'openclaw') 'AGENTS.md'
+    $limit = 0
+  } else { return $null }
+  if ($limit -le 0) { $limit = 20000 }
+  $before = 0
+  $after = 0
+  if (Test-Path -LiteralPath $path -PathType Leaf) {
+    $text = Read-Text $path
+    $pos = Get-BlockPosition (Get-Lines $text)
+    if ($pos -eq 'broken') { return 0 }
+    if ($pos -eq 'none') {
+      # A new block goes after the file's text, with Write-Block's gap
+      if ($text.Trim()) {
+        $before = (Get-CharCount $text) + $(if ($text.EndsWith("`n")) { 1 } else { 2 })
+      }
+    } else {
+      $s, $e = $pos.Split(' ') | ForEach-Object { [int]$_ }
+      $parts = @([regex]::Matches($text, '[^\n]*\n|[^\n]+\z') | ForEach-Object { $_.Value })
+      $head = ''
+      $tail = ''
+      for ($i = 0; $i -lt $parts.Length; $i++) {
+        if ($i -lt $s - 1) { $head += $parts[$i] }
+        elseif ($i -ge $e) { $tail += $parts[$i] }
+      }
+      $before = Get-CharCount $head
+      $after = Get-CharCount $tail
+    }
+  }
+  $room = $limit - $before - $after
+  if ($Harness -eq 'hermes') {
+    $room = [Math]::Max($room, [Math]::Max([Math]::Floor($limit * 7 / 10) - $before, [Math]::Floor($limit * 2 / 10) - $after))
+  }
+  $room = [Math]::Max(0, $room)
   return [int]([Math]::Floor($room / 1000) * 1000)
 }
 
@@ -2643,8 +2691,12 @@ function Invoke-Api([string]$Method, [string]$Path, [byte[]]$Body, [string]$Type
   $request = New-Object System.Net.Http.HttpRequestMessage((New-Object System.Net.Http.HttpMethod($Method)), "$Api$Path")
   if ($Script:Token) { [void]$request.Headers.TryAddWithoutValidation('Authorization', "Bearer $($Script:Token)") }
   if ($Headers) { foreach ($key in $Headers.Keys) { [void]$request.Headers.TryAddWithoutValidation($key, $Headers[$key]) } }
-  if ($Path -like '/v1/sync*?project=*' -and $null -ne $Script:AgentsMdBytes) {
-    [void]$request.Headers.TryAddWithoutValidation('Context-Locker-Agents-Md-Bytes', [string]$Script:AgentsMdBytes)
+  if ($Path -like '/v1/sync*?project=*') {
+    if ($null -ne $Script:AgentsMdBytes) {
+      [void]$request.Headers.TryAddWithoutValidation('Context-Locker-Agents-Md-Bytes', [string]$Script:AgentsMdBytes)
+    }
+  } elseif ($Path -like '/v1/sync*' -and $null -ne $Script:GlobalBytes) {
+    [void]$request.Headers.TryAddWithoutValidation('Context-Locker-Global-Bytes', [string]$Script:GlobalBytes)
   }
   if ($null -ne $Body) {
     $content = New-Object System.Net.Http.ByteArrayContent(, $Body)
@@ -3030,8 +3082,12 @@ function Set-PromptSetting([string[]]$Entries) {
 
 function Sync-Scope([string]$Query, [string]$State) {
   $Script:AgentsMdBytes = $null
+  $Script:GlobalBytes = $null
   if ($Script:Scope -eq 'project' -and $Harness -in @('codex', 'hermes')) {
     $Script:AgentsMdBytes = Get-SharedAgentsRoom
+  }
+  if ($Script:Scope -eq 'global' -and $Harness -in @('hermes', 'openclaw')) {
+    $Script:GlobalBytes = Get-GlobalRoom
   }
   $lockfile = "$State.lock"
   $lockLines = @()

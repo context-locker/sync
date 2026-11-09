@@ -171,11 +171,11 @@ describe("setup's last line on importing", () => {
   it("says how to import the app's own files, unless the person ticked Bring in, as the session start says it (G1-89, G1-206, G1-277)", () => {
     assert.match(
       importNext(false),
-      /^To bring in what your AI app already knows on this computer, ask it to follow Context Locker's Import skill, context-locker-import\./,
+      /^To bring in what your AI app already knows from its own files, ask it to follow Context Locker's Import skill, context-locker-import\./,
     );
     assert.equal(
       importNext(true),
-      "Next, the person asked for what you already know on this computer, your own files, to come into Context Locker. It's yours to do in this session: follow Context Locker's Import skill, context-locker-import, at the start of the session before other work, or as soon as the step in hand is done, and tell the user once, in a line, that it's on its way. The skill asks them nothing in chat, and the import waits in their inbox and changes nothing until they pick from it.",
+      "Next, the person asked for what you already know, from your own files, to come into Context Locker. It's yours to do in this session: follow Context Locker's Import skill, context-locker-import, at the start of the session before other work, or as soon as the step in hand is done, and tell the user once, in a line, that it's on its way. The skill asks them nothing in chat, and the import waits in their inbox and changes nothing until they pick from it.",
     );
   });
 });

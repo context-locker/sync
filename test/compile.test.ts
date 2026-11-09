@@ -10,6 +10,7 @@ import {
   COMPILED_HARNESSES,
   START_HERE_MOST,
   TEXT,
+  standingRules,
   compile,
   injectionMatches,
   linkDestination,
@@ -364,14 +365,15 @@ describe("compiled output", () => {
     const fixed = [
       TEXT.globalTitle,
       TEXT.globalIntro,
-      TEXT.plainWords,
-      TEXT.askProtocol,
+      TEXT.rulesHeading,
+      standingRules("sync"),
+      standingRules("mcp"),
+      standingRules("brief"),
+      ASK_PROTOCOL,
       TEXT.noPreferences,
       TEXT.projectTitle("Docs site"),
       TEXT.projectIntro,
       TEXT.personalIntro("Docs site"),
-      TEXT.endOfTask,
-      TEXT.endOfTaskIn("USER.md or this file"),
       TEXT.overflow(1, null),
       TEXT.overflow(3, "AGENTS.md, under Context Locker"),
       TEXT.leftOut(1),
@@ -409,21 +411,25 @@ describe("compiled output", () => {
     }
   });
 
-  it("says the ask protocol, in at most 120 words, after the plain words in every app's global block (G1-277)", () => {
+  it("gives the standing rules once, after the intro of every app's global block (G1-309)", () => {
     assert.ok(ASK_PROTOCOL.split(/\s+/).length <= 120, ASK_PROTOCOL);
+    const rules = `${TEXT.globalIntro}\n\n${TEXT.rulesHeading}\n\n${standingRules("sync")}\n\n`;
     for (const harness of COMPILED_HARNESSES) {
       const blocks = compile(global(harness)).outputs.filter(
         (output) => output.kind === "block",
       );
-      // OpenClaw's USER.md keeps its room for preferences, so it's in AGENTS.md
-      const said = blocks.filter((output) =>
-        output.text.includes(`${TEXT.plainWords}\n\n${ASK_PROTOCOL}\n`),
-      );
+      const said = blocks.filter((output) => output.text.includes(rules));
       assert.equal(said.length, 1, harness);
-      // Only once, as a project's block leaves it to the global one
+      // The preferences follow under their heading, and nothing closes the
+      // block but its marker
+      assert.ok(
+        said[0]!.text.includes(`${rules}${TEXT.preferencesHeading}\n`),
+        harness,
+      );
+      // Only once, as a project's block leaves them to the global one
       for (const output of compile(inProject(harness, "repo")).outputs)
         if (output.kind === "block")
-          assert.ok(!output.text.includes(ASK_PROTOCOL), harness);
+          assert.ok(!output.text.includes(TEXT.rulesHeading), harness);
     }
   });
 
@@ -783,20 +789,33 @@ describe("a project's map in its block", () => {
   });
 });
 
-describe("the end of a task", () => {
-  it("asks apps to keep what they learn, and what stays in the app, in every footer (G1-245)", () => {
-    for (const footer of [TEXT.endOfTask, TEXT.endOfTaskIn("USER.md")]) {
-      assert.match(
-        footer,
-        /Keep what you learn that another app or a later session would need/,
-      );
-      assert.match(footer, /change the line that holds it before adding one/);
-      assert.match(
-        footer,
-        /leave out secrets, task status and personal details unless the playbook allows them\./,
-      );
-      // Its own example of a local detail, which stays in the app
-      assert.match(footer, /such as a local path/);
+describe("the standing rules in a block (G1-309)", () => {
+  it("ask apps to keep what they learn, what stays out and where it goes (G1-245)", () => {
+    const rules = standingRules("sync");
+    assert.match(
+      rules,
+      /Keep what another AI app or session needs where every app can read it/,
+    );
+    assert.match(
+      rules,
+      /Leave out secrets, ticket status and personal details unless the playbook allows them\./,
+    );
+    // Its own example of a local detail, which stays in this connection's memory
+    assert.match(rules, /such as a local path, in this connection's memory/);
+    assert.match(rules, /"project": "memory"/);
+  });
+
+  it("take the place of the old footer, which no block ends with now", () => {
+    for (const harness of COMPILED_HARNESSES) {
+      for (const input of [global(harness), inProject(harness, "repo")]) {
+        for (const output of compile(input).outputs) {
+          if (output.kind !== "block") continue;
+          assert.ok(
+            !output.text.includes("When you finish a task, ask yourself:"),
+            harness,
+          );
+        }
+      }
     }
   });
 });

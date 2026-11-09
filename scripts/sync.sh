@@ -173,7 +173,7 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=43
+SCRIPT_VERSION=44
 FIX_OFFSET=0
 FIX_OFFSET_SET=0
 MODE=sync
@@ -1082,6 +1082,49 @@ shared_agents_room() {
   [ "$sar_hermes" -ge "$sar_room" ] || sar_room=$sar_hermes
   [ "$sar_room" -ge 0 ] || sar_room=0
   printf '%s' "$((sar_room / 1000 * 1000))"
+}
+
+# The room Hermes's SOUL.md or OpenClaw's AGENTS.md leaves for Context
+# Locker's block after the file's own text (G1-309), in thousands of bytes:
+# what the app keeps of a file, less the text before and after the block, and
+# for Hermes a block wholly inside the start or end it keeps of a longer
+# file. The API takes this or its own cap, whichever is smaller. A UTF-8 byte
+# count also bounds the apps' character counts, without splitting characters.
+global_room() {
+  case $HARNESS in
+    hermes) gr_file=$(root_dir hermes)/SOUL.md gr_limit=$(hermes_file_limit) ;;
+    openclaw) gr_file=$(root_dir openclaw)/AGENTS.md gr_limit= ;;
+    *) return 0 ;;
+  esac
+  [ -n "$gr_limit" ] || gr_limit=20000
+  gr_before=0 gr_after=0
+  if [ -f "$gr_file" ]; then
+    gr_pos=$(block_position "$gr_file")
+    case $gr_pos in
+      broken) printf 0; return ;;
+      none)
+        # A new block goes after the file's text, with write_block's gap
+        if grep -q '[^[:space:]]' "$gr_file"; then
+          gr_before=$(($(chars_of <"$gr_file") + 2))
+          ends_with_newline "$gr_file" && gr_before=$((gr_before - 1))
+        fi
+        ;;
+      *)
+        gr_s=${gr_pos% *} gr_e=${gr_pos#* }
+        [ "$gr_s" -le 1 ] || gr_before=$(head -n $((gr_s - 1)) "$gr_file" | chars_of)
+        gr_after=$(tail -n +$((gr_e + 1)) "$gr_file" | chars_of)
+        ;;
+    esac
+  fi
+  gr_room=$((gr_limit - gr_before - gr_after))
+  if [ "$HARNESS" = hermes ]; then
+    gr_head=$((gr_limit * 7 / 10 - gr_before))
+    gr_tail=$((gr_limit * 2 / 10 - gr_after))
+    [ "$gr_head" -le "$gr_room" ] || gr_room=$gr_head
+    [ "$gr_tail" -le "$gr_room" ] || gr_room=$gr_tail
+  fi
+  [ "$gr_room" -ge 0 ] || gr_room=0
+  printf '%s' "$((gr_room / 1000 * 1000))"
 }
 
 # What an app misses of Context Locker's block in the file at $2, for target
@@ -2619,9 +2662,14 @@ http() {
   [ -n "$base" ] && set -- "$@" -H "Context-Locker-Base: $base"
   [ -n "$accept" ] && set -- "$@" -H "Accept: $accept"
   [ -n "$upload" ] && set -- "$@" -H "Context-Locker-Upload: $upload"
-  case $path in /v1/sync*\?project=*)
-    [ -z "${AGENTS_MD_BYTES:-}" ] || set -- "$@" -H "Context-Locker-Agents-Md-Bytes: $AGENTS_MD_BYTES"
-    ;; esac
+  case $path in
+    /v1/sync*\?project=*)
+      [ -z "${AGENTS_MD_BYTES:-}" ] || set -- "$@" -H "Context-Locker-Agents-Md-Bytes: $AGENTS_MD_BYTES"
+      ;;
+    /v1/sync*)
+      [ -z "${GLOBAL_BYTES:-}" ] || set -- "$@" -H "Context-Locker-Global-Bytes: $GLOBAL_BYTES"
+      ;;
+  esac
   [ -n "$body" ] && set -- "$@" --data-binary "@$body"
   { [ -z "$TOKEN" ] || printf 'header = "Authorization: Bearer %s"\n' "$TOKEN"; } |
     curl "$@" "$API$path" 2>>"$TMP/curl-errors" || printf '000'
@@ -2988,9 +3036,10 @@ prompt_setting() {
 
 sync_scope() {
   query=$1 state=$2
-  AGENTS_MD_BYTES=
+  AGENTS_MD_BYTES= GLOBAL_BYTES=
   case "$HARNESS $SCOPE" in
     'codex project' | 'hermes project') AGENTS_MD_BYTES=$(shared_agents_room) ;;
+    'hermes global' | 'openclaw global') GLOBAL_BYTES=$(global_room) ;;
   esac
   lockfile=$state.lock
   WRITTEN=0 HELD=0
