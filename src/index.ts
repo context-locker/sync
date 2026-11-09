@@ -19,6 +19,7 @@ export {
   BUDGETS,
   OPENCLAW_AGENTS_MD,
   OPENCLAW_USER_MD,
+  ROOM_MEASURED,
   TARGETS,
   compile,
   notesSynced,
@@ -105,7 +106,6 @@ export {
   workPlacesRule,
   linkDestination,
   plainMarkdown,
-  PLAIN_WORDS,
   ASK_PROTOCOL,
   LOG_DECISIONS,
   preferenceLine,
@@ -190,3 +190,11 @@ export type {
   Finding as AiTextFinding,
   FindingRule as AiTextFindingRule,
 } from "./writing.js";
+
+export {
+  RULE_FILLS,
+  RULE_SLOTS,
+  STANDING_RULES,
+  standingRules,
+} from "./standing-rules.js";
+export type { RuleSlot, RulesEnvironment } from "./standing-rules.js";

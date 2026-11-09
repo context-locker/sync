@@ -74,6 +74,8 @@ class FakeLocker {
   requests: string[] = [];
   roomAware = false;
   rooms: Array<{ path: string; room: string | undefined }> = [];
+  /** The room each request said the app's global file leaves (G1-309) */
+  globalRooms: Array<{ path: string; room: string | undefined }> = [];
   /** What each kind of request sent, in order */
   sent: Record<string, string[]> = { find: [], record: [], map: [], done: [] };
   blobs = new Map<string, Blob>();
@@ -174,6 +176,11 @@ describe("a project in the sync", () => {
         const room = request.headers["context-locker-agents-md-bytes"] as
           string | undefined;
         fake.rooms.push({ path: `${url.pathname}${url.search}`, room });
+        fake.globalRooms.push({
+          path: `${url.pathname}${url.search}`,
+          room: request.headers["context-locker-global-bytes"] as
+            string | undefined,
+        });
         if (route === "GET /v1/sync") {
           const { status, text } = fake.manifest(url, harness, room);
           const etag = `"${sha256(text)}"`;
@@ -350,6 +357,54 @@ describe("a project in the sync", () => {
       `in ${shell}`,
       { skip: !HAVE_GIT && "git isn't installed" },
       () => {
+        it("says how much room Hermes's SOUL.md and OpenClaw's AGENTS.md leave for the block (G1-309)", async () => {
+          const block =
+            "<!-- context-locker:start v1 -->\n## Context Locker\n<!-- context-locker:end -->\n";
+          for (const [harness, file] of [
+            ["hermes", ".hermes/SOUL.md"],
+            ["openclaw", ".openclaw/workspace/AGENTS.md"],
+          ] as const) {
+            const machine = computer([harness]);
+            const path = join(machine.home, file);
+            mkdirSync(join(path, ".."), { recursive: true });
+            const said = async () => {
+              fake.globalRooms = [];
+              const result = await run(shell, machine, { harness });
+              assert.equal(result.status, 0, result.stderr);
+              const global = fake.globalRooms.filter(
+                (each) => each.path === "/v1/sync",
+              );
+              assert.ok(global.length > 0, harness);
+              return [...new Set(global.map((each) => each.room))];
+            };
+            // The person's 9,500 characters, and the line write_block adds
+            // before a new block: 20,000 less 9,501, in thousands
+            writeFileSync(path, filler(9_500));
+            assert.deepEqual(await said(), ["10000"], harness);
+            // Text after the block counts too
+            writeFileSync(path, `${filler(9_500)}\n${block}${filler(2_000)}`);
+            assert.deepEqual(await said(), ["8000"], harness);
+            // A file over the trim leaves nothing, never less than nothing
+            writeFileSync(path, filler(21_000));
+            assert.deepEqual(
+              await said(),
+              // Hermes keeps the last 4,000 characters of a longer file,
+              // where a new block goes
+              [harness === "hermes" ? "4000" : "0"],
+              harness,
+            );
+          }
+          // Apps whose global file has no trim say nothing
+          const machine = computer(["claude-code"]);
+          fake.globalRooms = [];
+          const result = await run(shell, machine, {});
+          assert.equal(result.status, 0, result.stderr);
+          assert.ok(
+            fake.globalRooms.every((each) => each.room === undefined),
+            JSON.stringify(fake.globalRooms),
+          );
+        });
+
         it("fits the same shared block for Codex and Hermes without false edits (G1-218)", async () => {
           const machine = computer(["codex", "hermes"]);
           fake.roomAware = true;

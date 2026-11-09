@@ -133,6 +133,12 @@ export interface CompileInput {
   /** Room left in a shared project AGENTS.md, in UTF-8 bytes, markers included. */
   agentsMdBytes?: number;
   /**
+   * Room left in Hermes's SOUL.md or OpenClaw's AGENTS.md after the file's
+   * own text, as the sync script measured it, in UTF-8 bytes, markers
+   * included (G1-309). Only the global sync of those two apps takes it.
+   */
+  globalBytes?: number;
+  /**
    * Null for the global sync, which carries everything that applies
    * everywhere. personal is true for a playbook whose owner allows personal
    * details in it (G1-246).

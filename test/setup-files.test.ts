@@ -10,7 +10,6 @@ import { fileURLToPath } from "node:url";
 
 import {
   ASK_PROTOCOL,
-  PLAIN_WORDS,
   SYNC_SCRIPT_RELEASE,
   SYNC_SCRIPT_VERSION,
 } from "../src/index.js";
@@ -36,7 +35,10 @@ describe("the published setup files", () => {
       "utf8",
     );
     const rules = skill.split("## Ground rules")[1]?.split("\n## ")[0] ?? "";
-    assert.ok(rules.includes(`- ${PLAIN_WORDS}\n`), rules);
+    assert.match(
+      rules,
+      /\n- When you tell the person what you did or found, say what is so and what they need to decide, in the present tense and in plain English, with the main points only\./,
+    );
   });
 
   it("say how to ask the person under Tickets, in the newest version (G1-277)", () => {

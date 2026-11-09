@@ -63,10 +63,10 @@ const indented = (line: string) => (line ? `  ${line}` : "");
  */
 export function importNext(bringIn: boolean): string {
   if (!bringIn) {
-    return `To bring in what your AI app already knows on this computer, ask it to follow Context Locker's Import skill, ${IMPORT_SKILL_NAME}. The import waits in your inbox, and nothing changes until you pick from it.`;
+    return `To bring in what your AI app already knows from its own files, ask it to follow Context Locker's Import skill, ${IMPORT_SKILL_NAME}. The import waits in your inbox, and nothing changes until you pick from it.`;
   }
   // As the session start's ask to import says it (G1-277)
-  return `Next, the person asked for what you already know on this computer, your own files, to come into Context Locker. ${IMPORT_NOW}`;
+  return `Next, the person asked for what you already know, from your own files, to come into Context Locker. ${IMPORT_NOW}`;
 }
 
 export async function setup(options: SetupOptions): Promise<number> {

@@ -331,8 +331,11 @@ export async function deviceSignin(
     started = true;
   }
 
+  // The computer by its name, as the approval page shows it, and never as
+  // this computer: the person may read it on another computer or a phone
+  // (G1-299)
   out(
-    `To connect ${namesOf(apps)} on this computer, open this link and approve the request:`,
+    `To connect ${namesOf(apps)} on ${machineName(place) ?? "its computer"}, open this link and approve the request:`,
   );
   out("");
   out(`  ${pending.link}`);

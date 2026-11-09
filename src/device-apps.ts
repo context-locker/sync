@@ -82,8 +82,10 @@ export const DEVICE_APPS: Readonly<Record<CompiledHarness, DeviceApp>> =
         projectBlock: "{project}/AGENTS.md",
         projectSkills: null,
       },
-      // Hermes trims SOUL.md past 20,000 characters
-      budget: 12_000,
+      // Hermes trims SOUL.md past 20,000 characters, persona included, so
+      // the block takes this or the room the sync script measures after the
+      // file's own text, whichever is smaller (G1-309)
+      budget: 14_000,
       memory: [
         { path: "{hermes}/SOUL.md", outsideBlock: true },
         { path: "{hermes}/USER.md" },
@@ -103,8 +105,10 @@ export const DEVICE_APPS: Readonly<Record<CompiledHarness, DeviceApp>> =
         projectBlock: null,
         projectSkills: null,
       },
-      // OpenClaw trims bootstrap files past 20,000 characters
-      budget: 12_000,
+      // OpenClaw trims bootstrap files past 20,000 characters, so the block
+      // takes this or the room the sync script measures after the file's
+      // own text, whichever is smaller (G1-309)
+      budget: 14_000,
       // Its daily logs, in memory/, stay out, as raw logs
       memory: [
         { path: "{openclaw}/AGENTS.md", outsideBlock: true },

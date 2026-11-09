@@ -20,14 +20,6 @@ export { plainMarkdown };
 export const START_HERE_MOST = 10;
 
 /**
- * What an app keeps for the next app or session, said where apps change it:
- * a synced edit carries no reason, so an inferred fact waits for the person's
- * word (G1-245)
- */
-const SHARED_FACTS =
-  "Keep what you learn that another app or a later session would need, or that the person would otherwise have to say again: change the line that holds it before adding one, one line a fact. A fact about the person, the company or the playbook goes in About, how they like work done in Preferences, and decisions or background in a note, in the narrowest playbook that fits. Save what the person said or confirmed, ask before saving anything inferred, and leave out secrets, task status and personal details unless the playbook allows them.";
-
-/**
  * Said in a playbook's block when its owner allows personal details in it
  * (G1-246): what apps may keep there. Nothing scans for personal details.
  */
@@ -35,20 +27,10 @@ const PERSONAL_DETAILS =
   "This playbook allows personal details: keep what the person shares about themselves here, health and finances included, and what they share about the people in their life for the help they ask for, noting that they shared it. Don't go looking for more.";
 
 /**
- * How an app speaks to the person (G1-257): what is so and what they need to
- * decide, in plain English, with the main points only, and one link to the
- * detail in place of the numbers that name it. Said in every app's global
- * block, the MCP server's instructions and get_context.
- */
-export const PLAIN_WORDS =
-  "When you tell the person what you did or found, say what is so and what they need to decide, in the present tense and in plain English, with the main points only. Leave ticket, change, version, requirement and section numbers out unless they ask or need one to act: keep them in the ticket or note, and give one link to the detail. Name things by what they are, such as the PRD, not by id.";
-
-/**
  * How an app asks the user (G1-277): the ask protocol, in at most 120
- * words, so an app that never read the plan asks the same way. Said in every
- * app's global block, the MCP server's instructions, beside the board rules
- * in get_context and playbook_map, the setup steps and the sync script's
- * tickets help.
+ * words, so an app that never read the plan asks the same way. Said beside
+ * the board rules in get_context and playbook_map, the setup steps and the
+ * sync script's tickets help; the standing rules say it in two sentences.
  */
 export const ASK_PROTOCOL =
   "Assume first: if a reasonable assumption settles an uncertainty, the result wouldn't change much and no preference says to ask, decide, do the work and record it with write_ticket's assumed. One decision per ask, one open ask per task: split compound uncertainties, asking first what unblocks most. Do the reading and attach the evidence; the user decides, never researches. Choices are outcomes, one recommended with why; for a yes or their own step, use kind approval or your_action. Finished work and news go on the task, never in an ask; nothing they must act on goes in a comment. Answer Something else with the work or a revised ask. After the same answer three times, suggest it as a preference.";
@@ -58,31 +40,23 @@ export const ASK_PROTOCOL =
  * logs it on what it's about, so decisions can be traced in one place. The
  * rule of 6 Nov 2026 that an approval asked in a chat stays in the chat now
  * reads: answered in the chat, logged on the platform. Said after the ask
- * protocol in every app's global block, the MCP server's instructions and
- * beside the board rules in get_context and playbook_map; the sync script's
- * tickets help says it from its next version.
+ * protocol beside the board rules in get_context and playbook_map, and in
+ * the sync script's tickets help.
  */
 export const LOG_DECISIONS =
   "In a chat, ask the user there, not in the inbox, and log their answer with remember, kind decision: your question and their words, on the task, entry or playbook it's about, or on this connection for setup, the doctor or an import. Log only what concerns Context Locker, never the rest of the chat. It never waits, and they can correct it.";
-
-/**
- * Where a fact goes, said where apps change it (G1-172, G1-299): this
- * connection's memory, a playbook, or the repo's own docs
- */
-const LOCAL_DETAILS =
-  "A fact goes where it's true: one only this connection needs, such as a local path, how its computer is set up or how this app's own tools behave, in this connection's memory, with \"project\": \"memory\" in that JSON; one about the person or a project in the narrowest playbook that fits; and how a repo's code works in the repo's own docs.";
 
 export const TEXT = {
   personalDetails: PERSONAL_DETAILS,
   globalTitle: "## Context Locker",
   globalIntro:
     "Your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
-  /** How to speak to the person, after the global block's intro (G1-257) */
-  plainWords: PLAIN_WORDS,
-  /** How to ask the user, after the plain words (G1-277) */
-  askProtocol: ASK_PROTOCOL,
-  /** What to do with an answer given in a chat, after the ask protocol (G1-300) */
-  logDecisions: LOG_DECISIONS,
+  /**
+   * The heading over the standing rules, after the global block's intro
+   * (G1-309). What follows it, up to the next heading, is Context Locker's
+   * own, so an edit there is never read back
+   */
+  rulesHeading: "### Standing rules",
   /** The heading over this connection's own preferences, from its memory (G1-299) */
   memoryHeading: "### This connection's memory",
   /** The intro of OpenClaw's second file, for preferences that didn't fit in USER.md. */
@@ -98,10 +72,6 @@ export const TEXT = {
     "Preferences for this playbook, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
   personalIntro: (name: string) =>
     `Context Locker preferences for ${name}. Where one has the same name as a general preference, it replaces that one here. To change one, ask your user to edit it in Context Locker.`,
-  endOfTask: `When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line here or the skill's files, and say why in your reply. The next sync saves the fix in Context Locker, unless it needs approval first. ${SHARED_FACTS} To save a fact or a preference at once, send JSON with kind fact or preference, name, one line of text and a reason to the sync script's remember <app>. ${LOCAL_DETAILS}`,
-  /** The same question, in a file that doesn't hold all the preference lines. */
-  endOfTaskIn: (where: string) =>
-    `When you finish a task, ask yourself: did a preference or skill mislead you or force a workaround? If so, fix its line in ${where}, or the skill's files, and say why in your reply. The next sync saves the fix in Context Locker, unless it needs approval first. ${SHARED_FACTS} To save a fact or a preference at once, send JSON with kind fact or preference, name, one line of text and a reason to the sync script's remember <app>. ${LOCAL_DETAILS}`,
   overflow: (count: number, where: string | null) =>
     count === 1
       ? `1 more preference didn't fit in this file. ${where ? `It's in ${where}.` : "It's in Context Locker."}`
@@ -430,6 +400,12 @@ export const OLD_INTROS: readonly string[] = [
   "Your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync sends your edit for review.",
   "Preferences for this project, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync sends your edit for review.",
   "More of your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync sends your edit for review.",
+  // What the global block said after its intro until the standing rules
+  // (G1-309): how to speak to the person, the ask protocol and what to do
+  // with an answer given in a chat
+  "When you tell the person what you did or found, say what is so and what they need to decide, in the present tense and in plain English, with the main points only. Leave ticket, change, version, requirement and section numbers out unless they ask or need one to act: keep them in the ticket or note, and give one link to the detail. Name things by what they are, such as the PRD, not by id.",
+  ASK_PROTOCOL,
+  LOG_DECISIONS,
 ];
 
 /**
@@ -490,6 +466,8 @@ export interface BlockPlan {
   aboutHeading?: string;
   /** A project's map, whose Start here entries and docs home join its block */
   map?: MapPlan;
+  /** Always put the preferences under their headings, as after the standing rules (G1-309) */
+  headed?: boolean;
   /**
    * This connection's own preferences, from its memory, under their own
    * heading after the person's, fitted after them (G1-299)
@@ -531,16 +509,24 @@ function assemble(
       ...preferenceSections(
         kept,
         plan.aboutHeading ?? TEXT.aboutUser,
-        map.startHere.length > 0,
+        plan.headed === true || map.startHere.length > 0,
       ),
     );
-  } else if (
-    plan.empty &&
-    overflowCount === 0 &&
-    leftOutCount === 0 &&
-    keptMemory.length === 0
-  ) {
-    sections.push(plan.empty);
+  } else {
+    // A block that always heads its preferences heads them with none yet,
+    // so a line the person adds there reads back as one (G1-309)
+    const empty =
+      plan.empty &&
+      overflowCount === 0 &&
+      leftOutCount === 0 &&
+      keptMemory.length === 0;
+    if (plan.headed) {
+      sections.push(
+        empty
+          ? `${TEXT.preferencesHeading}\n\n${plan.empty}`
+          : TEXT.preferencesHeading,
+      );
+    } else if (empty) sections.push(plan.empty!);
   }
   if (keptMemory.length > 0) {
     sections.push(

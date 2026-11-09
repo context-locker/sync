@@ -8,6 +8,7 @@ import {
   importSkill,
 } from "./import-skill.js";
 import { notesFolderOutputs } from "./notes.js";
+import { standingRules } from "./standing-rules.js";
 import {
   renderBlock,
   renderContext,
@@ -41,13 +42,25 @@ export const BUDGETS = Object.freeze({
    * files after 32 KiB in all, so the block takes well under half of that.
    */
   sharedAgentsMd: 12_000,
-  /** Hermes's SOUL.md, from its entry in DEVICE_APPS */
+  /**
+   * The most Hermes's SOUL.md takes, from its entry in DEVICE_APPS. The
+   * sync script says how much room Hermes's trim leaves after the file's own
+   * text, and the block takes the smaller (G1-309).
+   */
   hermesSoul: DEVICE_APPS.hermes.budget,
   /**
-   * OpenClaw's workspace AGENTS.md, which holds its whole block, leaving
-   * USER.md to the person (G1-299), from its entry in DEVICE_APPS
+   * The most OpenClaw's workspace AGENTS.md takes, which holds its whole
+   * block, leaving USER.md to the person (G1-299), from its entry in
+   * DEVICE_APPS. The sync script says how much room OpenClaw's trim leaves
+   * after the file's own text, and the block takes the smaller (G1-309).
    */
   openclawAgents: DEVICE_APPS.openclaw.budget,
+  /**
+   * Hermes's SOUL.md and OpenClaw's AGENTS.md when the sync script didn't
+   * say how much room they have, which leaves the person 8,000 characters
+   * of their own under the apps' 20,000-character trim
+   */
+  unmeasuredGlobal: 12_000,
   /** Session-start output. Claude Code previews hook output over 10,000 characters. */
   context: 8_000,
   /**
@@ -57,6 +70,16 @@ export const BUDGETS = Object.freeze({
    */
   startHere: 3_000,
 });
+
+/**
+ * The apps whose global file holds the person's own text beside the block
+ * and is trimmed whole past 20,000 characters, so the sync script measures
+ * the room it leaves (G1-309)
+ */
+export const ROOM_MEASURED: ReadonlySet<string> = new Set<CompiledHarness>([
+  "hermes",
+  "openclaw",
+]);
 
 /** Where each app's compiled files go, from its entry in DEVICE_APPS. Roots in braces are resolved by the sync script. */
 export const TARGETS: Readonly<Record<CompiledHarness, DeviceApp["targets"]>> =
@@ -173,6 +196,8 @@ function compileGlobal(
   docsLocations?: DocsLocation[],
   /** This connection's own preferences, from its memory (G1-299) */
   memory: PreferenceInput[] = [],
+  /** The room the sync script measured in the app's global file (G1-309) */
+  globalBytes?: number,
 ): Compiled {
   const targets = TARGETS[harness];
   const map = docsLocations?.length
@@ -183,16 +208,23 @@ function compileGlobal(
     personal,
   );
 
-  const budget = DEVICE_APPS[harness].budget;
+  const budget = ROOM_MEASURED.has(harness)
+    ? Math.min(
+        DEVICE_APPS[harness].budget,
+        globalBytes ?? BUDGETS.unmeasuredGlobal,
+      )
+    : DEVICE_APPS[harness].budget;
   const rendered = renderBlock({
     title: TEXT.globalTitle,
-    intro: `${TEXT.globalIntro}\n\n${TEXT.plainWords}\n\n${TEXT.askProtocol}\n\n${TEXT.logDecisions}`,
+    // The standing rules, then the person's preferences, always under their
+    // headings, so reading an edit back knows where the rules end (G1-309)
+    intro: `${TEXT.globalIntro}\n\n${TEXT.rulesHeading}\n\n${standingRules("sync")}`,
+    headed: true,
     preferences,
     memory,
     empty: TEXT.noPreferences,
     budget,
     map,
-    footer: TEXT.endOfTask,
   });
   return {
     outputs: [
@@ -388,5 +420,6 @@ export function compile(input: CompileInput): Compiled {
         skillList,
         input.docsLocations,
         [...(input.memory ?? [])],
+        input.globalBytes,
       );
 }

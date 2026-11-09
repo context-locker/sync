@@ -19,14 +19,14 @@ Choose `claude-code`, `codex`, `hermes` or `openclaw`. Setup connects and config
 5. Adds the selected app's hook, keeping everything else in the file, with a copy in `~/.contextlocker/backups` first.
 6. Runs the doctor for that app and shows anything to fix.
 7. For Hermes and OpenClaw, says how to add a daily job to the app's own scheduler, which runs the sync once a day with no model call, if you want one: `sh ~/.contextlocker/sync.sh daily-job hermes`, for example. It adds the job once.
-8. When you ticked Bring in as you approved it, or as you made its one-time code, tells your AI app to bring in what your AI apps on this computer already know, now. The import waits in your inbox, where you pick what comes in.
+8. When you ticked Bring in as you approved it, or as you made its one-time code, tells your AI app to bring in what it already knows from its own files, now. The import waits in your inbox, where you pick what comes in.
 
 Then ask your AI app to bring in what your AI apps already know, with Context Locker's Import skill. Nothing comes in until you approve its plan.
 
 ## Options
 
 - `--app <name>`: set up only this app, such as `--app claude-code`. One app per installation. Run setup separately to connect another.
-- `--environment <computer|cloud>`: where the app runs. Known Claude cloud sessions and Codespaces report Cloud; otherwise the app runs on this device. A connection's place is fixed once it connects: to move it, revoke it and connect again.
+- `--environment <computer|cloud>`: where the app runs. Known Claude cloud sessions and Codespaces report Cloud; otherwise the app runs on a computer. A connection's place is fixed once it connects: to move it, revoke it and connect again.
 - `--code <code>`: connect one app with a one-time code made in Context Locker, with nothing to approve.
 - `--no-browser`: show the approval link without opening it.
 - `--wait <seconds>`: how long to wait for the approval. Run the command again to keep waiting.
