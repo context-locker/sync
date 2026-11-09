@@ -29,6 +29,8 @@ import {
   blobArchive,
   buildManifest,
 } from "../src/index.js";
+import { computerPattern } from "./computer-name.js";
+import { SCRIPT_PATH } from "./script-path.js";
 
 const SCRIPTS = fileURLToPath(new URL("../scripts/", import.meta.url));
 const WORKSPACE = "6f1d2c4e-8a3b-4c5d-9e7f-0a1b2c3d4e5f";
@@ -182,7 +184,7 @@ describe("signin in a Claude cloud session, the doctor and remove (G1-260)", () 
       const child = spawn(shell, args, {
         cwd: machine.home,
         env: {
-          PATH: process.env.PATH ?? "",
+          PATH: SCRIPT_PATH,
           HOME: machine.home,
           POWERSHELL_TELEMETRY_OPTOUT: "1",
           ...env,
@@ -263,7 +265,9 @@ describe("signin in a Claude cloud session, the doctor and remove (G1-260)", () 
         const doctor = await run(shell, machine, ["doctor", "claude-code"]);
         assert.match(
           doctor.stdout,
-          /FAIL {2}This computer's connection for Claude Code was revoked in Context Locker, so nothing syncs here any more\. To take Context Locker off this computer, run .*remove claude-code to see what it takes out, and only once the person says yes, run it again with -?-[yY]es\./,
+          new RegExp(
+            `FAIL {2}Claude Code's connection on ${computerPattern(shell)} was revoked in Context Locker, so nothing syncs there any more\\. To take Context Locker off ${computerPattern(shell)}, run .*remove claude-code to see what it takes out, and only once the person says yes, run it again with -?-[yY]es\\.`,
+          ),
         );
         assert.doesNotMatch(doctor.stdout, /signin claude-code/);
       });
@@ -340,7 +344,9 @@ describe("signin in a Claude cloud session, the doctor and remove (G1-260)", () 
         assert.equal(removed.status, 0, removed.stdout + removed.stderr);
         assert.match(
           removed.stdout,
-          /Context Locker is off this computer for Claude Code/,
+          new RegExp(
+            `Context Locker is off ${computerPattern(shell)} for Claude Code`,
+          ),
         );
         assert.match(removed.stdout, /The connection stays in Context Locker/);
         assert.ok(!existsSync(rules), "the block's own file is gone");

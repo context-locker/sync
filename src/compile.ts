@@ -1,6 +1,7 @@
 // The harness compilers. Each AI app reads instructions and skills from its
 // own places, with its own limits; these turn one playbook into the files each
 // app needs, and the sync script writes them.
+import { DEVICE_APPS, byApp, type DeviceApp } from "./device-apps.js";
 import {
   IMPORT_SKILL_NAME,
   LEGACY_IMPORT_SKILL_NAME,
@@ -31,21 +32,22 @@ import type {
 
 /** Most bytes each compiled block may take, markers included. */
 export const BUDGETS = Object.freeze({
-  /** Claude Code loads rule files whole; this keeps 100 one-line preferences with room to spare. */
-  claudeRules: 40_000,
-  /** Codex loads the global AGENTS.md whole and re-reads it every turn. */
-  codexGlobal: 40_000,
+  /** Claude Code's global block, from its entry in DEVICE_APPS */
+  claudeRules: DEVICE_APPS["claude-code"].budget,
+  /** Codex's global AGENTS.md, from its entry in DEVICE_APPS */
+  codexGlobal: DEVICE_APPS.codex.budget,
   /**
    * A repo's AGENTS.md is read by several apps. Codex stops reading project
    * files after 32 KiB in all, so the block takes well under half of that.
    */
   sharedAgentsMd: 12_000,
-  /** Hermes trims SOUL.md past 20,000 characters. */
-  hermesSoul: 12_000,
-  /** OpenClaw loads at most 4,000 characters of USER.md; the rest is the person's. */
-  openclawUser: 2_400,
-  /** OpenClaw trims bootstrap files past 20,000 characters. */
-  openclawAgents: 12_000,
+  /** Hermes's SOUL.md, from its entry in DEVICE_APPS */
+  hermesSoul: DEVICE_APPS.hermes.budget,
+  /**
+   * OpenClaw's workspace AGENTS.md, which holds its whole block, leaving
+   * USER.md to the person (G1-299), from its entry in DEVICE_APPS
+   */
+  openclawAgents: DEVICE_APPS.openclaw.budget,
   /** Session-start output. Claude Code previews hook output over 10,000 characters. */
   context: 8_000,
   /**
@@ -56,44 +58,19 @@ export const BUDGETS = Object.freeze({
   startHere: 3_000,
 });
 
-/** Where each app's compiled files go. Roots in braces are resolved by the sync script. */
-export const TARGETS = Object.freeze({
-  "claude-code": {
-    global: "{claude}/rules/context-locker.md",
-    skills: "{claude}/skills",
-    projectBlock: "{project}/.claude/rules/context-locker.md",
-    projectSkills: "{project}/.claude/skills",
-  },
-  codex: {
-    global: "{codex}/AGENTS.md",
-    skills: "{agents}/skills",
-    projectBlock: "{project}/AGENTS.md",
-    projectSkills: "{project}/.agents/skills",
-  },
-  hermes: {
-    global: "{hermes}/SOUL.md",
-    skills: "{hermes}/skills",
-    projectBlock: "{project}/AGENTS.md",
-    projectSkills: null,
-  },
-  openclaw: {
-    global: "{openclaw}/USER.md",
-    skills: "{agents}/skills",
-    projectBlock: null,
-    projectSkills: null,
-  },
-} satisfies Record<
-  CompiledHarness,
-  {
-    global: string;
-    skills: string;
-    projectBlock: string | null;
-    projectSkills: string | null;
-  }
->);
+/** Where each app's compiled files go, from its entry in DEVICE_APPS. Roots in braces are resolved by the sync script. */
+export const TARGETS: Readonly<Record<CompiledHarness, DeviceApp["targets"]>> =
+  byApp((app) => app.targets);
 
-/** OpenClaw's second file: preferences that don't fit in USER.md, and the end-of-task question. */
+/** OpenClaw's workspace AGENTS.md, which holds its whole block (G1-299) */
 export const OPENCLAW_AGENTS_MD = "{openclaw}/AGENTS.md";
+
+/**
+ * Where OpenClaw's block began until G1-299. Nothing is written there now,
+ * and the sync takes the old block out, but an edit made to it before then
+ * still reads back.
+ */
+export const OPENCLAW_USER_MD = "{openclaw}/USER.md";
 
 /**
  * Whether an app's project sync mirrors the project's notes into its notes
@@ -110,14 +87,7 @@ export function notesSynced(
   return !(harness === "hermes" && layer === "personal");
 }
 
-const OPENCLAW_OVERFLOW = "AGENTS.md, under Context Locker";
-
-const NAMES: Record<CompiledHarness, string> = {
-  "claude-code": "Claude Code",
-  codex: "Codex",
-  hermes: "Hermes",
-  openclaw: "OpenClaw",
-};
+const NAMES = byApp((app) => app.name);
 
 function block(target: string, rendered: RenderedBlock): Output {
   return { kind: "block", target, text: rendered.text, items: rendered.items };
@@ -201,6 +171,8 @@ function compileGlobal(
   preferences: PreferenceInput[],
   personal: SkillInput[],
   docsLocations?: DocsLocation[],
+  /** This connection's own preferences, from its memory (G1-299) */
+  memory: PreferenceInput[] = [],
 ): Compiled {
   const targets = TARGETS[harness];
   const map = docsLocations?.length
@@ -211,51 +183,12 @@ function compileGlobal(
     personal,
   );
 
-  if (harness === "openclaw") {
-    const user = renderBlock({
-      title: TEXT.globalTitle,
-      intro: TEXT.globalIntro,
-      preferences,
-      empty: TEXT.noPreferences,
-      budget: BUDGETS.openclawUser,
-      overflowTo: OPENCLAW_OVERFLOW,
-    });
-    // USER.md's room is for preferences, so the rules on speaking to the
-    // person and asking them are in OpenClaw's AGENTS.md (G1-257, G1-277)
-    const more = renderBlock({
-      title: TEXT.globalTitle,
-      intro: `${
-        user.overflow.length > 0
-          ? TEXT.moreIntro
-          : "Context Locker keeps your preferences in USER.md."
-      }\n\n${TEXT.plainWords}\n\n${TEXT.askProtocol}`,
-      preferences: user.overflow,
-      budget: BUDGETS.openclawAgents,
-      map,
-      footer: TEXT.endOfTaskIn(
-        user.overflow.length > 0 ? "USER.md or this file" : "USER.md",
-      ),
-    });
-    return {
-      outputs: [
-        block(targets.global, user),
-        block(OPENCLAW_AGENTS_MD, more),
-        ...skills(targets.skills, skillList),
-      ],
-      notes: [...capNotes(more, "OpenClaw's AGENTS.md"), ...skillNotes],
-    };
-  }
-
-  const budget =
-    harness === "claude-code"
-      ? BUDGETS.claudeRules
-      : harness === "codex"
-        ? BUDGETS.codexGlobal
-        : BUDGETS.hermesSoul;
+  const budget = DEVICE_APPS[harness].budget;
   const rendered = renderBlock({
     title: TEXT.globalTitle,
-    intro: `${TEXT.globalIntro}\n\n${TEXT.plainWords}\n\n${TEXT.askProtocol}`,
+    intro: `${TEXT.globalIntro}\n\n${TEXT.plainWords}\n\n${TEXT.askProtocol}\n\n${TEXT.logDecisions}`,
     preferences,
+    memory,
     empty: TEXT.noPreferences,
     budget,
     map,
@@ -449,5 +382,11 @@ export function compile(input: CompileInput): Compiled {
         { notes: [...(input.notes ?? [])], tags: [...(input.tags ?? [])] },
         input.agentsMdBytes,
       )
-    : compileGlobal(input.harness, preferences, skillList, input.docsLocations);
+    : compileGlobal(
+        input.harness,
+        preferences,
+        skillList,
+        input.docsLocations,
+        [...(input.memory ?? [])],
+      );
 }

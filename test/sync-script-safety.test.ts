@@ -26,6 +26,7 @@ import {
   blockHash,
   writeTar,
 } from "../src/index.js";
+import { SCRIPT_PATH } from "./script-path.js";
 
 const SCRIPT = fileURLToPath(new URL("../scripts/sync.sh", import.meta.url));
 const WORKSPACE = "6f1d2c4e-8a3b-4c5d-9e7f-0a1b2c3d4e5f";
@@ -102,7 +103,7 @@ describe("the sync script's checks", () => {
       const child = spawn(shell, args, {
         cwd,
         env: {
-          PATH: process.env.PATH ?? "",
+          PATH: SCRIPT_PATH,
           HOME: dir,
           POWERSHELL_TELEMETRY_OPTOUT: "1",
         },

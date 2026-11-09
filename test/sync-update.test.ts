@@ -27,6 +27,8 @@ import { fileURLToPath } from "node:url";
 import { after, before, describe, it } from "node:test";
 
 import { SYNC_SCRIPT_VERSION, buildManifest } from "../src/index.js";
+import { computerPattern } from "./computer-name.js";
+import { SCRIPT_PATH } from "./script-path.js";
 
 const SCRIPTS = fileURLToPath(new URL("../scripts/", import.meta.url));
 const WORKSPACE = "6f1d2c4e-8a3b-4c5d-9e7f-0a1b2c3d4e5f";
@@ -205,7 +207,7 @@ describe("the sync scripts' update command", () => {
       const child = spawn(shell, args, {
         cwd: machine.home,
         env: {
-          PATH: process.env.PATH ?? "",
+          PATH: SCRIPT_PATH,
           HOME: machine.home,
           POWERSHELL_TELEMETRY_OPTOUT: "1",
         },
@@ -386,7 +388,9 @@ describe("the sync scripts' update command", () => {
                 body: '{"error":"invalid_token"}',
               };
             },
-            says: /connection for Codex was revoked or has expired, so the sync script stays as it is\./,
+            says: new RegExp(
+              `Codex's connection on ${computerPattern(shell)} was revoked or has expired, so the sync script stays as it is\\.`,
+            ),
           },
         ];
         for (const each of cases) {

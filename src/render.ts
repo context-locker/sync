@@ -53,9 +53,24 @@ export const PLAIN_WORDS =
 export const ASK_PROTOCOL =
   "Assume first: if a reasonable assumption settles an uncertainty, the result wouldn't change much and no preference says to ask, decide, do the work and record it with write_ticket's assumed. One decision per ask, one open ask per task: split compound uncertainties, asking first what unblocks most. Do the reading and attach the evidence; the user decides, never researches. Choices are outcomes, one recommended with why; for a yes or their own step, use kind approval or your_action. Finished work and news go on the task, never in an ask; nothing they must act on goes in a comment. Answer Something else with the work or a revised ask. After the same answer three times, suggest it as a preference.";
 
-/** What a playbook holds, said where apps change it (G1-172) */
+/**
+ * What an app does with an answer the user gives in a chat (G1-300): it
+ * logs it on what it's about, so decisions can be traced in one place. The
+ * rule of 6 Nov 2026 that an approval asked in a chat stays in the chat now
+ * reads: answered in the chat, logged on the platform. Said after the ask
+ * protocol in every app's global block, the MCP server's instructions and
+ * beside the board rules in get_context and playbook_map; the sync script's
+ * tickets help says it from its next version.
+ */
+export const LOG_DECISIONS =
+  "In a chat, ask the user there, not in the inbox, and log their answer with remember, kind decision: your question and their words, on the task, entry or playbook it's about, or on this connection for setup, the doctor or an import. Log only what concerns Context Locker, never the rest of the chat. It never waits, and they can correct it.";
+
+/**
+ * Where a fact goes, said where apps change it (G1-172, G1-299): this
+ * connection's memory, a playbook, or the repo's own docs
+ */
 const LOCAL_DETAILS =
-  "Context Locker holds only what's true for every AI app and computer: keep a detail of this computer or this app, such as a local path, how this machine is set up or how this app's own tools behave, in this app's own memory.";
+  "A fact goes where it's true: one only this connection needs, such as a local path, how its computer is set up or how this app's own tools behave, in this connection's memory, with \"project\": \"memory\" in that JSON; one about the person or a project in the narrowest playbook that fits; and how a repo's code works in the repo's own docs.";
 
 export const TEXT = {
   personalDetails: PERSONAL_DETAILS,
@@ -66,6 +81,10 @@ export const TEXT = {
   plainWords: PLAIN_WORDS,
   /** How to ask the user, after the plain words (G1-277) */
   askProtocol: ASK_PROTOCOL,
+  /** What to do with an answer given in a chat, after the ask protocol (G1-300) */
+  logDecisions: LOG_DECISIONS,
+  /** The heading over this connection's own preferences, from its memory (G1-299) */
+  memoryHeading: "### This connection's memory",
   /** The intro of OpenClaw's second file, for preferences that didn't fit in USER.md. */
   moreIntro:
     "More of your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
@@ -471,6 +490,11 @@ export interface BlockPlan {
   aboutHeading?: string;
   /** A project's map, whose Start here entries and docs home join its block */
   map?: MapPlan;
+  /**
+   * This connection's own preferences, from its memory, under their own
+   * heading after the person's, fitted after them (G1-299)
+   */
+  memory?: PreferenceInput[];
 }
 
 export interface RenderedBlock {
@@ -495,6 +519,8 @@ function assemble(
   overflowCount: number,
   leftOutCount: number,
   map: RenderedMap,
+  /** This connection's own preferences that fit (G1-299) */
+  keptMemory: PreferenceInput[] = [],
 ): string {
   const sections: string[] = [
     `${plan.title}\n\n${plan.intro}`,
@@ -508,8 +534,18 @@ function assemble(
         map.startHere.length > 0,
       ),
     );
-  } else if (plan.empty && overflowCount === 0 && leftOutCount === 0) {
+  } else if (
+    plan.empty &&
+    overflowCount === 0 &&
+    leftOutCount === 0 &&
+    keptMemory.length === 0
+  ) {
     sections.push(plan.empty);
+  }
+  if (keptMemory.length > 0) {
+    sections.push(
+      `${TEXT.memoryHeading}\n\n${keptMemory.map(preferenceLine).join("\n")}`,
+    );
   }
   const notes: string[] = [];
   if (overflowCount > 0) {
@@ -538,22 +574,40 @@ export function renderBlock(plan: BlockPlan): RenderedBlock {
   const candidates = aboutFirst(
     plan.preferences.filter((preference) => !leftOut.includes(preference)),
   );
+  // This connection's own come after the person's, fitted after them (G1-299)
+  const memory = plan.memory ?? [];
+  const all = [...candidates, ...memory];
 
   const fit = (map: RenderedMap): RenderedBlock => {
     const kept: PreferenceInput[] = [];
-    for (const [index, preference] of candidates.entries()) {
-      const remaining = candidates.length - index - 1;
+    const split = (list: PreferenceInput[]) => [
+      list.filter((preference) => !memory.includes(preference)),
+      list.filter((preference) => memory.includes(preference)),
+    ];
+    for (const [index, preference] of all.entries()) {
+      const remaining = all.length - index - 1;
+      const [own, mine] = split([...kept, preference]);
       if (
-        bytes(
-          assemble(plan, [...kept, preference], remaining, leftOut.length, map),
-        ) > plan.budget
+        bytes(assemble(plan, own!, remaining, leftOut.length, map, mine!)) >
+        plan.budget
       )
         break;
       kept.push(preference);
     }
-    const overflow = candidates.slice(kept.length);
+    const [own, mine] = split(kept);
+    const overflow = candidates.filter(
+      (preference) => !own!.includes(preference),
+    );
+    const memoryOverflow = memory.length - mine!.length;
     return {
-      text: assemble(plan, kept, overflow.length, leftOut.length, map),
+      text: assemble(
+        plan,
+        own!,
+        overflow.length + memoryOverflow,
+        leftOut.length,
+        map,
+        mine!,
+      ),
       items: [
         ...map.items,
         ...kept.map(({ id, version }) => ({ id, version })),

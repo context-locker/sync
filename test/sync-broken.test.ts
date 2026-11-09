@@ -22,6 +22,8 @@ import { fileURLToPath } from "node:url";
 import { after, before, describe, it } from "node:test";
 
 import { SYNC_SCRIPT_VERSION, buildManifest } from "../src/index.js";
+import { computerName, computerPattern } from "./computer-name.js";
+import { SCRIPT_PATH } from "./script-path.js";
 
 const SCRIPTS = fileURLToPath(new URL("../scripts/", import.meta.url));
 const WORKSPACE = "6f1d2c4e-8a3b-4c5d-9e7f-0a1b2c3d4e5f";
@@ -149,7 +151,7 @@ describe("a session start when the sync can't get Context Locker's answer", () =
       const child = spawn(shell, args, {
         cwd: machine.home,
         env: {
-          PATH: process.env.PATH ?? "",
+          PATH: SCRIPT_PATH,
           HOME: machine.home,
           POWERSHELL_TELEMETRY_OPTOUT: "1",
           ...env,
@@ -208,7 +210,7 @@ describe("a session start when the sync can't get Context Locker's answer", () =
         // answer named comes with setting up again, or not at all
         assert.equal(
           additional(session.stdout),
-          `Context Locker: this computer's connection for Claude Code was revoked in Context Locker, so nothing syncs here any more, and Claude Code's files are as they were on 26 Oct 2026. Offer to take Context Locker off this computer: run \`${runLine(shell)} remove claude-code\`, which says what it would take out and changes nothing, and only once the person says yes, run it again with \`${yes(shell)}\`.`,
+          `Context Locker: Claude Code's connection on ${computerName(shell)} was revoked in Context Locker, so nothing syncs there any more, and Claude Code's files are as they were on 26 Oct 2026. Offer to take Context Locker off ${computerName(shell)}: run \`${runLine(shell)} remove claude-code\`, which says what it would take out and changes nothing, and only once the person says yes, run it again with \`${yes(shell)}\`.`,
         );
         assert.match(session.stderr, /was revoked in Context Locker/);
       });
@@ -222,7 +224,7 @@ describe("a session start when the sync can't get Context Locker's answer", () =
         assert.equal(expired.status, 0, expired.stderr);
         assert.equal(
           expired.stdout,
-          `Context Locker: this computer's connection for Codex was revoked or has expired, so Codex's files are as they were on 26 Oct 2026. ${CONNECT}\n`,
+          `Context Locker: Codex's connection on ${computerName(shell)} was revoked or has expired, so Codex's files are as they were on 26 Oct 2026. ${CONNECT}\n`,
         );
 
         // Without a token, it never asks Context Locker
@@ -233,9 +235,12 @@ describe("a session start when the sync can't get Context Locker's answer", () =
         assert.equal(unset.status, 0, unset.stderr);
         assert.equal(
           unset.stdout,
-          `Context Locker: Codex isn't connected on this computer, so Codex's files are as they were on 26 Oct 2026. ${CONNECT}\n`,
+          `Context Locker: Codex isn't connected on ${computerName(shell)}, so Codex's files are as they were on 26 Oct 2026. ${CONNECT}\n`,
         );
-        assert.match(unset.stderr, /isn't connected on this computer/);
+        assert.ok(
+          unset.stderr.includes(`isn't connected on ${computerName(shell)}.`),
+          unset.stderr,
+        );
         assert.deepEqual(fake.requests, []);
 
         writeFileSync(token, "ctxl_at_not!a!token\n", { mode: 0o600 });
@@ -258,7 +263,7 @@ describe("a session start when the sync can't get Context Locker's answer", () =
         assert.equal(session.status, 0, session.stderr);
         assert.equal(
           additional(session.stdout),
-          `Context Locker: Claude Code isn't connected on this computer, so nothing has synced here yet. ${CONNECT}`,
+          `Context Locker: Claude Code isn't connected on ${computerName(shell)}, so nothing has synced yet. ${CONNECT}`,
         );
         assert.equal(
           JSON.parse(session.stdout).hookSpecificOutput.hookEventName,
@@ -340,7 +345,7 @@ describe("a session start when the sync can't get Context Locker's answer", () =
         assert.equal(revoked.status, 1);
         assert.ok(
           revoked.stderr.includes(
-            `Context Locker: this computer's connection for Codex was revoked in Context Locker, so nothing syncs here any more. Offer to take Context Locker off this computer: run \`${runLine(shell)} remove codex\``,
+            `Context Locker: Codex's connection on ${computerName(shell)} was revoked in Context Locker, so nothing syncs there any more. Offer to take Context Locker off ${computerName(shell)}: run \`${runLine(shell)} remove codex\``,
           ),
           revoked.stderr,
         );
@@ -350,7 +355,7 @@ describe("a session start when the sync can't get Context Locker's answer", () =
         assert.equal(expired.status, 1);
         assert.ok(
           expired.stderr.includes(
-            `Context Locker: this computer's connection for Codex was revoked or has expired. ${CONNECT}`,
+            `Context Locker: Codex's connection on ${computerName(shell)} was revoked or has expired. ${CONNECT}`,
           ),
           expired.stderr,
         );
@@ -360,7 +365,9 @@ describe("a session start when the sync can't get Context Locker's answer", () =
         assert.equal(update.status, 1);
         assert.match(
           update.stderr,
-          /was revoked in Context Locker, so the sync script stays as it is, and nothing syncs here any more\. Offer to take Context Locker off this computer/,
+          new RegExp(
+            `on ${computerPattern(shell)} was revoked in Context Locker, so the sync script stays as it is, and nothing syncs there any more\\. Offer to take Context Locker off ${computerPattern(shell)}:`,
+          ),
         );
       });
     });

@@ -18,6 +18,7 @@ export {
 export {
   BUDGETS,
   OPENCLAW_AGENTS_MD,
+  OPENCLAW_USER_MD,
   TARGETS,
   compile,
   notesSynced,
@@ -46,7 +47,17 @@ export {
   treeHash,
 } from "./hash.js";
 export {
+  MEMORY_FILE_ENDINGS,
+  MEMORY_PLACES,
+  MEMORY_TARGET_CHARACTERS,
+  memoryPlaceOf,
+} from "./memory-places.js";
+export type { MemoryPlace } from "./memory-places.js";
+export { DEVICE_APPS } from "./device-apps.js";
+export type { DeviceApp } from "./device-apps.js";
+export {
   MANIFEST_HEADER,
+  MEMORY_FILES,
   SYNC_SCRIPT_RELEASE,
   SYNC_SCRIPT_VERSION,
   buildManifest,
@@ -57,6 +68,7 @@ export type {
   Hold,
   Manifest,
   ManifestEntry,
+  MemoryFiles,
   RepoLink,
   ScriptRelease,
   ScriptShell,
@@ -95,6 +107,7 @@ export {
   plainMarkdown,
   PLAIN_WORDS,
   ASK_PROTOCOL,
+  LOG_DECISIONS,
   preferenceLine,
   startHereLine,
 } from "./render.js";
@@ -160,3 +173,20 @@ export type { DocsLocation, WorkPlace } from "./types.js";
 export { oneAppPlace, type OneAppPlace } from "./one-app-places.js";
 
 export { indexedTreeHash } from "./hash.js";
+
+export {
+  AI_TEXT_BUDGETS,
+  checkAiText,
+  checkAiTexts,
+  compareWithBaseline,
+  duplicateSentences,
+  findingKey,
+  sentencesOf,
+} from "./writing.js";
+export type {
+  AiText,
+  AiTextBudget,
+  BaselineComparison,
+  Finding as AiTextFinding,
+  FindingRule as AiTextFindingRule,
+} from "./writing.js";

@@ -42,6 +42,7 @@ import {
   tarPadding,
   type Blob,
 } from "../src/index.js";
+import { SCRIPT_PATH } from "./script-path.js";
 
 const SCRIPTS = fileURLToPath(new URL("../scripts/", import.meta.url));
 const WORKSPACE = "6f1d2c4e-8a3b-4c5d-9e7f-0a1b2c3d4e5f";
@@ -446,7 +447,7 @@ describe("the sync scripts' tools", () => {
       const child = spawn(shell, args, {
         cwd: options.cwd ?? machine.home,
         env: {
-          PATH: process.env.PATH ?? "",
+          PATH: SCRIPT_PATH,
           HOME: machine.home,
           POWERSHELL_TELEMETRY_OPTOUT: "1",
           GIT_CONFIG_NOSYSTEM: "1",

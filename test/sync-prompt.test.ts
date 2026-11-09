@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import { after, before, describe, it } from "node:test";
 
 import { SYNC_SCRIPT_VERSION } from "../src/index.js";
+import { SCRIPT_PATH } from "./script-path.js";
 
 const SCRIPTS = fileURLToPath(new URL("../scripts/", import.meta.url));
 // SYNC_TEST_SHELLS=dash,pwsh runs only those, while working on the scripts
@@ -126,7 +127,7 @@ describe("the per-prompt hook (G1-271)", () => {
       const child = spawn(shell, args, {
         cwd: machine.home,
         env: {
-          PATH: process.env.PATH ?? "",
+          PATH: SCRIPT_PATH,
           HOME: machine.home,
           POWERSHELL_TELEMETRY_OPTOUT: "1",
         },

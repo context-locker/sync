@@ -151,6 +151,12 @@ export interface CompileInput {
   /** The skills for this sync, scoped the same way. */
   skills: SkillInput[];
   /**
+   * For the global sync: this connection's own preferences, from its memory,
+   * under their own heading after the person's, so an edit there is read
+   * back as the memory's (G1-299). OpenClaw's come with its block's move.
+   */
+  memory?: PreferenceInput[];
+  /**
    * For a project sync: its Start here entries, notes and pointers, in the
    * order they're listed. A block lists 10 at most.
    */
@@ -210,6 +216,17 @@ export type Output =
       /** A whole file Context Locker writes, such as the notes folder's README. */
       target: string;
       text: string;
+    }
+  | {
+      kind: "memory";
+      /**
+       * One of the app's own memory files, which its connection's memory
+       * keeps as a note, in the app's own format (G1-299)
+       */
+      target: string;
+      /** The file as the app keeps it, or for a file that holds Context Locker's block too, the rest of it */
+      text: string;
+      item: ItemRef;
     };
 
 export interface Compiled {
