@@ -22,12 +22,13 @@ Defaults:
 - Read the person's playbook here, and the playbook for the folder you work in from its block or session start.
 - When two sources of truth disagree on a decision, ask the person.
 - Keep what another AI app or session needs where every app can read it, such as a note or a repo file, never only in a chat or a place one app can open, such as a Claude artifact.
-- Keep each fact where it's true: one only this connection needs, such as a local path, in this connection's memory; one about the person or their work in the narrowest playbook that fits; and how a repo's code works in its own docs.
-- Save what the person said or confirmed, and ask before saving what you inferred. Leave out secrets, ticket status and personal details unless the playbook allows them. Keep one at once by sending JSON with kind, name, text and reason to the sync script's `remember <app>`, adding "project": "memory" for this connection's memory.
-- When a reasonable assumption settles an uncertainty and the result wouldn't change much, decide, do the work and record it as assumed on the ticket with `tickets <app> write`.
+- Keep a fact only this connection needs, such as a local path, in this connection's memory, others in the narrowest playbook that fits, and how a repo's code works in its own docs.
+- Save what the person said or confirmed, and ask before saving what you inferred. Leave out secrets, ticket status and personal details unless the playbook allows them. Keep one at once with the sync script's `remember <app>`.
+- When a reasonable assumption settles an uncertainty and changing it later is cheap, decide, do the work and record it as assumed on the ticket with `tickets <app> write`. Ask before a step that's hard to take back.
 - Otherwise ask one decision at a time, with the evidence and 2 to 4 choices that are outcomes, one recommended with why, in the chat while the person is there, logging their answer with `remember <app>` as kind decision, and otherwise as an ask in their inbox with `tickets <app> write`.
-- When you report to the person, say what is so and what they need to decide, in plain English, with the main points and one link to the detail, not ticket, change or version numbers.
+- When you report to the person, say what is so and what they need to decide, in plain English, with one link to the detail and no ticket, change or version numbers.
 - When a preference or skill misled you, fix its line here or the skill's files, which the next sync saves, and say why in your reply.
+- Before an operation such as asking, a ticket, a note or a change, read its topic in the guide, the skill context-locker in your skills folder.
 
 ### About the user
 
@@ -44,6 +45,10 @@ Defaults:
   - a title in the imperative mood
   - then why the change was made
 <!-- context-locker:end -->
+
+== skill {hermes}/skills/context-locker
+item: c0de0000-6a7e-4e00-8000-000000000002@6
+files: SKILL.md, topics/asking.md, topics/tickets.md, topics/notes-and-links.md, topics/playbooks.md, topics/memory.md, topics/changes.md, topics/requests.md, topics/messages.md, topics/decisions-in-chat.md, topics/reporting.md, topics/import.md, topics/sync.md, topics/projects.md, topics/when-something-breaks.md
 
 == skill {hermes}/skills/context-locker-import
 item: c0de0000-6a7e-4e00-8000-000000000001@22

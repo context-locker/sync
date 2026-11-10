@@ -6,6 +6,7 @@
 // until G1-206: the sync takes the old folder away as it writes the new one,
 // and get_skill still answers to the old name. Agents read every word, so
 // none of it may look like prompt injection.
+import { GUIDE_SKILL_NAME } from "./guide.js";
 import { NOTE_FILE_RULES } from "./notes.js";
 import type { CompiledHarness, SkillFile, SkillInput } from "./types.js";
 
@@ -481,7 +482,10 @@ export function importSkill(harness: CompiledHarness): SkillInput {
 /** The skill's description, as its SKILL.md gives it */
 export const IMPORT_SKILL_DESCRIPTION = DESCRIPTION;
 
-/** Whether a skill name is kept for Context Locker's own skills */
+/**
+ * Whether a skill name is kept for Context Locker's own skills: its guide's
+ * (G1-309), or any that starts context-locker-
+ */
 export function isReservedSkillName(name: string): boolean {
-  return name.startsWith(RESERVED_SKILL_PREFIX);
+  return name === GUIDE_SKILL_NAME || name.startsWith(RESERVED_SKILL_PREFIX);
 }

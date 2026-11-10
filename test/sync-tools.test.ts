@@ -293,7 +293,8 @@ describe("the sync scripts' tools", () => {
             url.pathname.startsWith("/v1/sync/requests/") ||
             url.pathname.startsWith("/v1/sync/notes/") ||
             url.pathname === "/v1/sync/suggest" ||
-            url.pathname === "/v1/sync/remember")
+            url.pathname === "/v1/sync/remember" ||
+            url.pathname === "/v1/sync/message")
         ) {
           fake.ticketCalls.push({
             command: url.pathname.split("/").at(-1)!,
@@ -687,7 +688,7 @@ describe("the sync scripts' tools", () => {
         );
       });
 
-      it("sends notes, suggest and remember commands online, with the current playbook (G1-244, G1-245, G1-247)", async () => {
+      it("sends notes, suggest, remember and message commands online, with the current playbook (G1-244, G1-245, G1-247, G1-313)", async () => {
         const machine = computer(shell);
         const cwd = project(machine.home);
         const file = join(machine.home, "note request.json");
@@ -744,6 +745,21 @@ describe("the sync scripts' tools", () => {
         assert.ok(
           fake.requests.includes(`POST /v1/sync/remember?project=${PROJECT}`),
         );
+        // message writes to other AI apps, with the same JSON (G1-313)
+        const messaged = await run(shell, machine, {
+          mode: "message",
+          cwd,
+          args: [file],
+        });
+        assert.equal(messaged.status, 0, messaged.stderr);
+        assert.deepEqual(fake.ticketCalls.at(-1), {
+          command: "message",
+          body: payload,
+          accept: "text/plain",
+        });
+        assert.ok(
+          fake.requests.includes(`POST /v1/sync/message?project=${PROJECT}`),
+        );
         const sent = fake.ticketCalls.length;
         // Each needs its request, and notes a command it knows
         for (const [mode, args] of [
@@ -754,6 +770,8 @@ describe("the sync scripts' tools", () => {
           ["suggest", []],
           ["remember", []],
           ["remember", [file, "--daily"]],
+          ["message", []],
+          ["message", [file, "--all"]],
         ] as const) {
           const invalid = await run(shell, machine, {
             mode,
@@ -1029,7 +1047,7 @@ describe("the sync scripts' tools", () => {
         // code-review, and Context Locker's own Import skill
         assert.match(
           doctor.stdout,
-          /^PASS {2}1 block and 2 skills in place\.$/m,
+          /^PASS {2}1 block and 3 skills in place\.$/m,
         );
         assert.doesNotMatch(doctor.stdout, /^(WARN|FAIL) /m);
         assert.ok(

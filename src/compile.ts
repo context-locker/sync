@@ -2,6 +2,7 @@
 // own places, with its own limits; these turn one playbook into the files each
 // app needs, and the sync script writes them.
 import { DEVICE_APPS, byApp, type DeviceApp } from "./device-apps.js";
+import { GUIDE_SKILL_NAME, guideSkill } from "./guide.js";
 import {
   IMPORT_SKILL_NAME,
   LEGACY_IMPORT_SKILL_NAME,
@@ -173,18 +174,22 @@ function globalSkills(
   harness: CompiledHarness,
   skillList: SkillInput[],
 ): { skills: SkillInput[]; notes: string[] } {
+  // Context Locker's own skills: Import, and the guide (G1-309)
   const ours = (skill: SkillInput) =>
-    skill.name === IMPORT_SKILL_NAME || skill.name === LEGACY_IMPORT_SKILL_NAME;
+    skill.name === IMPORT_SKILL_NAME ||
+    skill.name === LEGACY_IMPORT_SKILL_NAME ||
+    skill.name === GUIDE_SKILL_NAME;
   return {
     skills: [
       ...skillList.filter((skill) => !ours(skill)),
       importSkill(harness),
+      guideSkill(harness),
     ].sort(byName),
     notes: skillList
       .filter(ours)
       .map(
         (skill) =>
-          `Your skill ${skill.name} has the name of Context Locker's own Import skill, so it was left out of ${NAMES[harness]}'s files.`,
+          `Your skill ${skill.name} has the name of one of Context Locker's own skills, so it was left out of ${NAMES[harness]}'s files.`,
       ),
   };
 }

@@ -28,15 +28,23 @@ Defaults:
 - {read}
 - When two sources of truth disagree on a decision, ask the person.
 - Keep what another AI app or session needs where every app can read it, such as a note or a repo file, never only in a chat or a place one app can open, such as a Claude artifact.
-- Keep each fact where it's true: one only this connection needs, such as a local path, in this connection's memory; one about the person or their work in the narrowest playbook that fits; and how a repo's code works in its own docs.
+- Keep a fact only this connection needs, such as a local path, in this connection's memory, others in the narrowest playbook that fits, and how a repo's code works in its own docs.
 - Save what the person said or confirmed, and ask before saving what you inferred. Leave out secrets, ticket status and personal details unless the playbook allows them. {keep}
-- When a reasonable assumption settles an uncertainty and the result wouldn't change much, decide, do the work and {assume}.
+- When a reasonable assumption settles an uncertainty and changing it later is cheap, decide, do the work and {assume}. Ask before a step that's hard to take back.
 - Otherwise ask one decision at a time, with the evidence and 2 to 4 choices that are outcomes, one recommended with why, {where}.
-- When you report to the person, say what is so and what they need to decide, in plain English, with the main points and one link to the detail, not ticket, change or version numbers.
-- When a preference or skill misled you, {fix}, and say why in your reply.`;
+- When you report to the person, say what is so and what they need to decide, in plain English, with one link to the detail and no ticket, change or version numbers.
+- When a preference or skill misled you, {fix}, and say why in your reply.
+- Before an operation such as asking, a ticket, a note or a change, read its topic in the guide, {guide}.`;
 
 /** The slots STANDING_RULES has */
-export const RULE_SLOTS = ["read", "keep", "assume", "where", "fix"] as const;
+export const RULE_SLOTS = [
+  "read",
+  "keep",
+  "assume",
+  "where",
+  "fix",
+  "guide",
+] as const;
 export type RuleSlot = (typeof RULE_SLOTS)[number];
 
 /** Each slot's words in each environment */
@@ -45,19 +53,21 @@ export const RULE_FILLS: Readonly<
 > = Object.freeze({
   mcp: Object.freeze({
     read: "At the start of every conversation or task, and once earlier messages were summarised, read the person's playbook with get_context, unless your own instruction files hold it.",
-    keep: "Keep one with remember, giving playbook memory for this connection's memory.",
+    keep: "Keep one with remember.",
     assume: "record it with write_ticket's assumed",
     where:
       "in the chat while the person is there, logging their answer with remember as kind decision, and otherwise as an ask in their inbox with write_ticket",
     fix: "fix it with suggest, giving a brief and the version you read",
+    guide: "the skill context-locker, with get_skill",
   }),
   sync: Object.freeze({
     read: "Read the person's playbook here, and the playbook for the folder you work in from its block or session start.",
-    keep: 'Keep one at once by sending JSON with kind, name, text and reason to the sync script\'s `remember <app>`, adding "project": "memory" for this connection\'s memory.',
+    keep: "Keep one at once with the sync script's `remember <app>`.",
     assume: "record it as assumed on the ticket with `tickets <app> write`",
     where:
       "in the chat while the person is there, logging their answer with `remember <app>` as kind decision, and otherwise as an ask in their inbox with `tickets <app> write`",
     fix: "fix its line here or the skill's files, which the next sync saves",
+    guide: "the skill context-locker in your skills folder",
   }),
   brief: Object.freeze({
     read: "Read the person's playbook in this brief, as it was when they made it.",
@@ -65,6 +75,7 @@ export const RULE_FILLS: Readonly<
     assume: "say the assumption in your reply",
     where: "in the conversation",
     fix: "tell the person, who changes it in Context Locker",
+    guide: "at context.locker/docs",
   }),
 });
 

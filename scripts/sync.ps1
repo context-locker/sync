@@ -18,6 +18,7 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 notes <app> search|read|write <request.json> [-Project <id>] [-Json]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 suggest <app> <request.json> [-Json]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 remember <app> <request.json> [-Json]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 message <app> <request.json> [-Json]
 #
 # Keeps one AI app's files in step with your playbook at context.locker. <app>
 # is claude-code, codex, hermes or openclaw. The script asks for a manifest of
@@ -193,7 +194,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 44
+$ScriptVersion = 46
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -207,7 +208,7 @@ if ($Second.StartsWith('-')) {
 }
 $Mode = 'sync'
 $Harness = $First
-if (@('signin', 'plan', 'doctor', 'readback', 'map', 'gather', 'gather-submit', 'keep', 'export', 'notes-move-out', 'fix', 'daily-job', 'update', 'remove', 'tickets', 'requests', 'notes', 'suggest', 'remember', 'prompt') -contains $First) {
+if (@('signin', 'plan', 'doctor', 'readback', 'map', 'gather', 'gather-submit', 'keep', 'export', 'notes-move-out', 'fix', 'daily-job', 'update', 'remove', 'tickets', 'requests', 'notes', 'suggest', 'remember', 'message', 'prompt') -contains $First) {
   $Mode = $First
   $Harness = $Second
 } elseif (@('import', 'import-submit') -contains $First) {
@@ -228,9 +229,10 @@ if (($Mode -eq 'tickets' -or $Mode -eq 'requests' -or $Mode -eq 'notes') -and $e
     $extra = @($extra | Select-Object -Skip 1)
   }
 }
-# suggest and remember take only their request: suggest a preference, a fact
-# or a skill, and remember one line as a fact or a preference (G1-245, G1-247)
-if ($Mode -eq 'suggest' -or $Mode -eq 'remember') {
+# suggest, remember and message take only their request: suggest a
+# preference, a fact or a skill, remember one line as a fact or a preference
+# (G1-245, G1-247), and write to other AI apps (G1-313)
+if ($Mode -eq 'suggest' -or $Mode -eq 'remember' -or $Mode -eq 'message') {
   $TicketCommand = $Mode
   if ($extra.Count -gt 0 -and -not $extra[0].StartsWith('-')) {
     $TicketFile = $extra[0]
@@ -319,7 +321,7 @@ $badTickets = if ($Mode -eq 'tickets') {
   ($TicketCommand -ne 'list' -and -not $TicketFile) -or $All -or $Daily
 } elseif ($Mode -eq 'notes') {
   (@('search', 'read', 'write') -cnotcontains $TicketCommand) -or -not $TicketFile -or $All -or $Daily
-} elseif ($Mode -eq 'suggest' -or $Mode -eq 'remember') {
+} elseif ($Mode -eq 'suggest' -or $Mode -eq 'remember' -or $Mode -eq 'message') {
   (-not $TicketFile) -or $All -or $Daily
 } else { [bool]$Json }
 # -Apps was for gather, to read some of every app's files (G1-11). Import
@@ -333,6 +335,7 @@ if ($badOption -or $badTo -or $badFix -or $badCode -or $badEnvironment -or $badY
   [Console]::Error.WriteLine('Notes: sync.ps1 notes <app> search|read|write <request.json> [-Project <id>] [-Json], with search_notes, read_note or write_note arguments')
   [Console]::Error.WriteLine('Suggest: sync.ps1 suggest <app> <request.json> [-Json], with suggest arguments')
   [Console]::Error.WriteLine('Remember: sync.ps1 remember <app> <request.json> [-Json], with kind fact or preference, name, one line of text and a reason')
+  [Console]::Error.WriteLine('Message: sync.ps1 message <app> <request.json> [-Json], with the apps by handle in to or the text, and the playbook, ticket or entry a new thread is about, or the thread to write on')
   [Console]::Error.WriteLine("Usage: sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]`n       sync.ps1 map <app> [-All]`n       sync.ps1 import <app>`n       sync.ps1 import-submit <app> <plan.json>`n       sync.ps1 keep <app> <file or folder>`n       sync.ps1 export <app> [-To <folder>]`n       sync.ps1 notes-move-out <app> -To <folder>`n       sync.ps1 fix <app> [-All]`n       sync.ps1 fix <app> -Done <id> | -Skip <id> -Reason <text> | -Working <id> [-Recap <text>]`n       sync.ps1 fix <app> -Waiting <id> -Reason <question> --choice <label> --choice <label> ...`n       sync.ps1 signin <app> [-Code <code>] [-Environment computer|cloud]`n       sync.ps1 plan|doctor|readback|daily-job <app>`n       sync.ps1 prompt <app>`n       sync.ps1 update <app>`n       sync.ps1 remove <app> [-Yes]`n<app> is claude-code, codex, hermes or openclaw.")
   exit 2
 }
@@ -3503,8 +3506,9 @@ function Sync-Scope([string]$Query, [string]$State) {
       $outcome = Send-Edit $t $kind $path $R $Query
       switch ($outcome) {
         'pending' { $held++; $wrote.Add("wrote $kind $R $t") }
-        { @('rejected', 'accepted', 'same') -contains $_ } {
+        { @('rejected', 'accepted', 'same', 'sent_back') -contains $_ } {
           if ($outcome -eq 'rejected') { Warn "your edit to $path was declined, so it was put back. A copy is in $(Join-Path $ClHome 'backups')." }
+          if ($outcome -eq 'sent_back') { Warn "your edit to $path went back to you to make again, as what it changes changed in Context Locker since. The file has the current version, and your edit is in $(Join-Path $ClHome 'backups')." }
           $write.Keep = $true; $actions.Add($write)
         }
         'gone' { $actions.Add(@{ Action = 'untrack'; Target = $t; Kind = $kind }) }
@@ -5920,7 +5924,7 @@ function Invoke-Tickets {
   }
   if (Find-Project 'ask') { $query = "?project=$($Script:ProjectId)" }
   $accept = if ($Json) { 'application/json' } else { 'text/plain' }
-  $path = if ($Mode -eq 'suggest' -or $Mode -eq 'remember') { "/v1/sync/$Mode" } else { "/v1/sync/$Mode/$TicketCommand" }
+  $path = if ($Mode -eq 'suggest' -or $Mode -eq 'remember' -or $Mode -eq 'message') { "/v1/sync/$Mode" } else { "/v1/sync/$Mode/$TicketCommand" }
   $reply = Invoke-Api 'POST' "$path$query" $body 'application/json' @{ Accept = $accept }
   $words = $Utf8.GetString($reply.Body) -replace '[\x00-\x08\x0b-\x1f\x7f]', ''
   if ($reply.Status -eq 200) { Write-Out $words; return 0 }
@@ -7804,6 +7808,7 @@ if ($Mode -ne 'sync') {
       'notes' { $exitCode = Invoke-Tickets }
       'suggest' { $exitCode = Invoke-Tickets }
       'remember' { $exitCode = Invoke-Tickets }
+      'message' { $exitCode = Invoke-Tickets }
     }
   } catch {
     [Console]::Error.WriteLine("Context Locker: $($_.Exception.Message)")
