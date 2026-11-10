@@ -176,6 +176,7 @@ export { indexedTreeHash } from "./hash.js";
 
 export {
   AI_TEXT_BUDGETS,
+  DOC_PARTS,
   checkAiText,
   checkAiTexts,
   compareWithBaseline,

@@ -30,6 +30,17 @@ export const AI_TEXT_BUDGETS = Object.freeze({
 
 export type AiTextBudget = keyof typeof AI_TEXT_BUDGETS;
 
+/**
+ * Each part of an MCP tool's description, and of a sync script command's
+ * help, at most (G1-309): what it does, its fields and the limits that make a
+ * call valid or safe, before the line naming its topic in the guide
+ */
+export const DOC_PARTS = Object.freeze({
+  does: 200,
+  fields: 210,
+  limits: 280,
+});
+
 /** One text an AI app reads, as a test gathers it */
 export interface AiText {
   /** What it is, such as "tool write_ticket" or "the setup skill" */

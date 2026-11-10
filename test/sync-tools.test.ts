@@ -30,6 +30,7 @@ import { after, before, describe, it } from "node:test";
 
 import {
   ASK_PROTOCOL,
+  DOC_PARTS,
   SYNC_SCRIPT_VERSION,
   TAR_END,
   blobArchive,
@@ -37,6 +38,7 @@ import {
   buildManifest,
   compile,
   extractBlock,
+  guideTopics,
   sha256,
   tarHeader,
   tarPadding,
@@ -789,7 +791,7 @@ describe("the sync scripts' tools", () => {
         assert.equal(read(file), payload, "the request file is unchanged");
       });
 
-      it("refuses missing requests, unknown commands and oversized imports before sending, with how to ask in its help (G1-277)", async () => {
+      it("refuses missing requests, unknown commands and oversized imports before sending, with the board's guide topic in its help (G1-277, G1-309)", async () => {
         const machine = computer(shell);
         for (const args of [
           ["write"],
@@ -799,11 +801,14 @@ describe("the sync scripts' tools", () => {
         ]) {
           const result = await run(shell, machine, { mode: "tickets", args });
           assert.equal(result.status, 2, `${args}: ${result.stderr}`);
-          if (args[0] === "approve")
+          // How to ask is the guide's, which the board's topic points to
+          if (args[0] === "approve") {
             assert.ok(
-              result.stderr.includes(`\nAsks: ${ASK_PROTOCOL}\n`),
+              result.stderr.includes(" Guide: topics/tickets.md.\n"),
               result.stderr,
             );
+            assert.ok(!result.stderr.includes(ASK_PROTOCOL), result.stderr);
+          }
         }
         const file = join(machine.home, "too-large.json");
         writeFileSync(file, "x".repeat(4194305));
@@ -814,6 +819,48 @@ describe("the sync scripts' tools", () => {
         assert.equal(large.status, 1, large.stderr);
         assert.match(large.stderr, /4 MiB/);
         assert.equal(fake.ticketCalls.length, 0);
+      });
+
+      it("gives every command its topic in the guide, in the one shape of a tool's description (G1-309)", async () => {
+        const machine = computer(shell);
+        const help = await run(shell, machine, {
+          mode: "tickets",
+          args: ["approve"],
+        });
+        assert.equal(help.status, 2, help.stderr);
+        const topics = new Set(guideTopics("sync").map((topic) => topic.file));
+        const command = shell === "pwsh" ? "sync.ps1 " : "sh sync.sh ";
+        const lines = help.stderr.trimEnd().split("\n");
+        const usage = lines.shift() ?? "";
+        assert.ok(usage.startsWith(`Usage: ${command}<command> <app>`), usage);
+        let commands = 0;
+        let described = 0;
+        for (const line of lines) {
+          if (line.startsWith(command)) {
+            commands++;
+            continue;
+          }
+          // What it does, its fields, its limits and its topic, as an MCP
+          // tool's description says them
+          const shape =
+            /^  (.+?)(?: Fields: (.+?))?(?: Limits: (.+?))? Guide: (topics\/[a-z-]+\.md)\.$/.exec(
+              line,
+            );
+          assert.ok(shape, line);
+          assert.ok(commands > 0, `nothing before ${line}`);
+          const [, does = "", fields = "", limits = "", topic = ""] = shape;
+          assert.ok(topics.has(topic), topic);
+          const parts = { does, fields, limits };
+          for (const part of ["does", "fields", "limits"] as const)
+            assert.ok(
+              parts[part].length <= DOC_PARTS[part],
+              `${part} is ${parts[part].length} characters: ${parts[part]}`,
+            );
+          commands = 0;
+          described++;
+        }
+        assert.equal(commands, 0, "the last command has no description");
+        assert.equal(described, 18);
       });
 
       it("prints Tidy-up with fix, for the project, and marks an item done or skipped", async () => {
