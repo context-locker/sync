@@ -174,7 +174,7 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=46
+SCRIPT_VERSION=47
 FIX_OFFSET=0
 FIX_OFFSET_SET=0
 MODE=sync
@@ -1722,7 +1722,6 @@ notes_up() {
   # it's new here: in neither the list nor the manifest
   awk -v readme="$NOTES_TARGET/README.md" '
     FILENAME == ARGV[1] && ($1 == "note" || $1 == "file") { S[$3] = $2; next }
-    FILENAME == ARGV[2] && $1 == "entry" && $2 == "skill" { ri[$4] = $5; rv[$4] = $6; next }
     FILENAME == ARGV[2] && $1 == "wrote" { R[$4] = $3; rk[$4] = $2; ri[$4] = $5; rv[$4] = $6; next }
     FILENAME == ARGV[3] { L[$2] = $1; next }
     END {
