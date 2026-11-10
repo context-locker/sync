@@ -8,7 +8,7 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v60`](setup/v60), which runs `context-locker@0.1.18`, bundling script 40, then takes script 47, the newest, with `update`. The setup command 0.1.19, on npm since 9 Nov 2026, bundles script 44 itself. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for the app you are, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
+Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v61`](setup/v61), which runs `context-locker@0.1.18`, bundling script 40, then takes script 48, the newest, with `update`. The setup command 0.1.19, on npm since 9 Nov 2026, bundles script 44 itself. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for the app you are, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
 
 Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.19 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
 
@@ -140,6 +140,10 @@ sh ~/.contextlocker/sync.sh message codex message.json --json
 ## A project's notes beside its skills in PowerShell
 
 Script 47, in setup 60, keeps a project's sync going in PowerShell when the project has both a notes folder and a project skill. Until script 47, PowerShell's notes step read the sync's plan before the sync had made it, so once such a project had synced, every project sync there stopped. The sh script never stopped, and its matching rule, which never matched, goes too, so the two scripts keep doing the same steps. Setup 60 runs 0.1.18, then takes script 47 with `update`.
+
+## Each command's help in one shape
+
+Script 48, in setup 61, says in its help what each command does, its fields, the limits that make a call valid or safe, and its topic in the guide, the skill context-locker, as each of Context Locker's MCP tools says in its description. Each part keeps within `DOC_PARTS` in [`src/writing.ts`](src/writing.ts), which the tools' descriptions share, and both scripts say the same, each in its own spelling. The help leaves how to ask you to the guide's topic on asking, which the board's topic points to, and a test runs it in dash, bash and PowerShell and checks each command names a topic the guide has. Setup 61 runs 0.1.18, then takes script 48 with `update`.
 
 ## Skill file transfers
 
