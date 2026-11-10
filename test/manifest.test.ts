@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import {
+  GUIDE_SKILL_ID,
+  GUIDE_SKILL_VERSION,
   IMPORT_SKILL_ID,
   IMPORT_SKILL_VERSION,
   MANIFEST_HEADER,
@@ -45,14 +47,17 @@ describe("the sync manifest", () => {
     });
     const block = outputs[0];
     const skill = outputs[1];
-    const ours = outputs[2];
+    const guide = outputs[2];
+    const ours = outputs[3];
     assert.ok(
       block?.kind === "block" &&
         skill?.kind === "skill" &&
+        guide?.kind === "skill" &&
         ours?.kind === "skill",
     );
 
-    // Context Locker's own Import skill goes with the person's
+    // Context Locker's own skills, its guide (G1-309) and Import, go with
+    // the person's
     assert.equal(
       manifest.text,
       [
@@ -60,6 +65,7 @@ describe("the sync manifest", () => {
         `workspace ${WORKSPACE_ID}`,
         `block ${blockHash(block.text)} {codex}/AGENTS.md`,
         `skill ${treeHash(skill.files)} {agents}/skills/code-review ${skill.item.id} 2`,
+        `skill ${treeHash(guide.files)} {agents}/skills/context-locker ${GUIDE_SKILL_ID} ${GUIDE_SKILL_VERSION}`,
         `skill ${treeHash(ours.files)} {agents}/skills/context-locker-import ${IMPORT_SKILL_ID} ${IMPORT_SKILL_VERSION}`,
         `hold ${"a".repeat(64)} {agents}/skills/code-review`,
         "",

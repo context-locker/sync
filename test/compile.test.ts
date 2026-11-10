@@ -10,6 +10,7 @@ import {
   COMPILED_HARNESSES,
   START_HERE_MOST,
   TEXT,
+  guideTopics,
   standingRules,
   compile,
   injectionMatches,
@@ -802,7 +803,12 @@ describe("the standing rules in a block (G1-309)", () => {
     );
     // Its own example of a local detail, which stays in this connection's memory
     assert.match(rules, /such as a local path, in this connection's memory/);
-    assert.match(rules, /"project": "memory"/);
+    // How to keep one there is in the guide's memory topic (G1-309)
+    assert.match(
+      guideTopics("sync").find((topic) => topic.file === "topics/memory.md")!
+        .text,
+      /"project": "memory"/,
+    );
   });
 
   it("take the place of the old footer, which no block ends with now", () => {

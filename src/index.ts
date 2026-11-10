@@ -198,3 +198,14 @@ export {
   standingRules,
 } from "./standing-rules.js";
 export type { RuleSlot, RulesEnvironment } from "./standing-rules.js";
+
+export {
+  GUIDE_SKILL_ID,
+  GUIDE_SKILL_NAME,
+  GUIDE_SKILL_VERSION,
+  guideForPeople,
+  guideSkill,
+  guideSkillFiles,
+  guideTopics,
+} from "./guide.js";
+export type { GuideEnvironment } from "./guide.js";

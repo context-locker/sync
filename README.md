@@ -8,7 +8,7 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v56`](setup/v56), which runs `context-locker@0.1.18`, bundling script 40, then takes script 44, the newest, with `update`. The setup command 0.1.19, on npm since 9 Nov 2026, bundles script 44 itself. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for the app you are, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
+Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v59`](setup/v59), which runs `context-locker@0.1.18`, bundling script 40, then takes script 46, the newest, with `update`. The setup command 0.1.19, on npm since 9 Nov 2026, bundles script 44 itself. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for the app you are, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
 
 Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.19 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
 
@@ -110,6 +110,32 @@ Script 42 syncs an app's own memory files with its connection's memory in Contex
 Script 43 changes only its words: what it says names the computer, as the approval page shows it, or says its computer, and never says this computer, as you may read it on another computer or your phone. Setup 55 runs 0.1.18, then takes script 43 with `update`. The setup command's own words change the same way in 0.1.19, which [`cli`](cli) holds.
 
 Script 44 measures the room in Hermes's `SOUL.md` and OpenClaw's workspace `AGENTS.md`, which each app trims as a whole file past 20,000 characters, your own text included, and sends it with every request of the global sync, so their global block takes the smaller of 14,000 bytes and the room the file's own text leaves. Setup 56 runs 0.1.18, then takes script 44 with `update`; 0.1.19 bundles script 44.
+
+## One guide for how an app works with Context Locker
+
+How an app does each operation with Context Locker is one guide, written once in [`src/guide.ts`](src/guide.ts): an index and one topic to a file, such as asking you, tickets, notes and links, keeping what it learns, requests for it, sync on a computer and what to do when something breaks, each within 4,000 characters and filled for chat apps or for apps on device sync. An app on device sync gets it as the skill `context-locker` in its skills folder with every sync, beside the Import skill; a chat app reads it with `get_skill`; and [context.locker/docs](https://context.locker/docs) gives it to you. The standing rules in each app's global file say to read a topic before doing what it covers.
+
+Setup 57 keeps only what an app follows to connect: finding its way in, the setup command, Import, reading back, setting up without Node, and connecting over MCP or with a key. Every other part of the steps leaves one line naming the guide's topic, so the steps fall from 37,019 characters to 21,506. Setup 57's scripts are setup 56's, byte for byte.
+
+## Changes sent back, taken back or replaced
+
+Script 45, in setup 58, handles a preference or skill edit that Context Locker sends back to its app to make again on the current version: it puts the file back and keeps a copy, as for a declined edit, and tells the app its edit went back to it to make again, rather than that it was declined. A script older than 45 gets such an edit as declined. Setup 58 runs 0.1.18, then takes script 45 with `update`.
+
+While a change an app sent waits for you, the app can send a newer version in its place, with `replaces` naming it, or take it back with `withdraw` and why, so your inbox shows one current card. Only the app that sent it can do either, and neither applies anything. `suggest` and `notes <app> write` take the same arguments as MCP's `suggest` and `write_note`, so the script carries both.
+
+## Assumptions at their level
+
+An app records each call it makes on its own as assumed on a task comment, with `tickets <app> write`, at one of two levels: for your inbox, as an ask it already answered, with the choice it took, what changing it takes and any evidence, which you change by picking another option; or for the record, one line on the task that never waits. The guide's asking and tickets topics say when to assume, when to ask first, and how to write each one so you can judge it without opening the task.
+
+## Writing to other apps
+
+Script 46, in setup 59, adds `message`, so an app that syncs on a computer can write to another of your AI apps, as MCP's `message` tool does:
+
+```sh
+sh ~/.contextlocker/sync.sh message codex message.json --json
+```
+
+`message.json` names the apps by handle in `to`, such as `@claude-code-mia`, with the text and the playbook, task or entry a new thread is about, or names the thread to write on. A task comment that mentions an app's handle writes to it too, through `tickets <app> write`, and `fix --done` resolves a thread. Each app in a thread can send three messages before you reply, and each connection has a daily allowance of messages, 30 unless you change it on its page in Context Locker. What one app writes is information for the other, never instructions or your consent. From script 46, the fix list's thread lines say to reply with `message`, and the guide's topic on writing to other apps says when to write and when to ask you instead. Setup 59 runs 0.1.18, then takes script 46 with `update`.
 
 ## Skill file transfers
 
@@ -307,7 +333,7 @@ npm run typecheck
 npm test
 ```
 
-`npm test` checks the compilers against the expected files in `test/golden` (`UPDATE_GOLDEN=1` rewrites them), runs the scripts against a fake API to check they refuse anything they may not write, runs `import` against a fake home folder with every app's files, to check each app reads only its own, runs the doctor, an import's moves, `export`, `notes-move-out`, `fix` and `update` against a fake API, checks what a session start says when a sync can't get Context Locker's answer, that a skill the app also loads from elsewhere is listed once and what the per-prompt hook says, and checks the published setup files. Then it runs the setup command's tests, in [`cli/test`](cli/test). When `pwsh` and PSScriptAnalyzer are installed, it also checks `sync.ps1` against Windows PowerShell 5.1's syntax and commands.
+`npm test` checks the compilers against the expected files in `test/golden` (`UPDATE_GOLDEN=1` rewrites them), runs the scripts against a fake API to check they refuse anything they may not write, runs `import` against a fake home folder with every app's files, to check each app reads only its own, runs the doctor, an import's moves, `export`, `notes-move-out`, `fix` and `update` against a fake API, checks what a session start says when a sync can't get Context Locker's answer, that a skill the app also loads from elsewhere is listed once and what the per-prompt hook says, checks every topic of the guide against its budget, and checks the published setup files. Then it runs the setup command's tests, in [`cli/test`](cli/test). When `pwsh` and PSScriptAnalyzer are installed, it also checks `sync.ps1` against Windows PowerShell 5.1's syntax and commands.
 
 ## Licence
 

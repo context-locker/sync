@@ -20,6 +20,7 @@
 #   sh sync.sh notes <app> search|read|write <request.json> [--project <id>] [--json]
 #   sh sync.sh suggest <app> <request.json> [--json]
 #   sh sync.sh remember <app> <request.json> [--json]
+#   sh sync.sh message <app> <request.json> [--json]
 #
 # Keeps one AI app's files in step with your playbook at context.locker. <app>
 # is claude-code, codex, hermes or openclaw. The script asks for a manifest of
@@ -173,12 +174,12 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=44
+SCRIPT_VERSION=46
 FIX_OFFSET=0
 FIX_OFFSET_SET=0
 MODE=sync
 case ${1:-} in
-  signin | plan | doctor | readback | map | gather | gather-submit | keep | export | notes-move-out | fix | daily-job | update | remove | tickets | requests | notes | suggest | remember | prompt)
+  signin | plan | doctor | readback | map | gather | gather-submit | keep | export | notes-move-out | fix | daily-job | update | remove | tickets | requests | notes | suggest | remember | message | prompt)
     MODE=$1
     shift
     ;;
@@ -223,9 +224,10 @@ if { [ "$MODE" = tickets ] || [ "$MODE" = requests ] || [ "$MODE" = notes ]; } &
     case $1 in -*) ;; *) TICKET_FILE=$1; shift ;; esac
   fi
 fi
-# suggest and remember take only their request: suggest a preference, a fact
-# or a skill, and remember one line as a fact or a preference (G1-245, G1-247)
-if [ "$MODE" = suggest ] || [ "$MODE" = remember ]; then
+# suggest, remember and message take only their request: suggest a
+# preference, a fact or a skill, remember one line as a fact or a preference
+# (G1-245, G1-247), and write to other AI apps (G1-313)
+if [ "$MODE" = suggest ] || [ "$MODE" = remember ] || [ "$MODE" = message ]; then
   TICKET_COMMAND=$MODE
   if [ $# -gt 0 ]; then
     case $1 in -*) ;; *) TICKET_FILE=$1; shift ;; esac
@@ -331,7 +333,7 @@ usage() {
   printf 'Tickets: sh sync.sh tickets <app> list|read|write|places [request.json] [--project <id>] [--json]\nUse a UTF-8 JSON file with the corresponding MCP tool arguments. Only list may omit it.\n' >&2
   # How to ask the user, as every app's instructions say (G1-277)
   printf '%s\n' "Asks: Assume first: if a reasonable assumption settles an uncertainty, the result wouldn't change much and no preference says to ask, decide, do the work and record it with write_ticket's assumed. One decision per ask, one open ask per task: split compound uncertainties, asking first what unblocks most. Do the reading and attach the evidence; the user decides, never researches. Choices are outcomes, one recommended with why; for a yes or their own step, use kind approval or your_action. Finished work and news go on the task, never in an ask; nothing they must act on goes in a comment. Answer Something else with the work or a revised ask. After the same answer three times, suggest it as a preference." >&2
-  printf 'Notes: sh sync.sh notes <app> search|read|write <request.json> [--project <id>] [--json], with search_notes, read_note or write_note arguments\nSuggest: sh sync.sh suggest <app> <request.json> [--json], with suggest arguments\nRemember: sh sync.sh remember <app> <request.json> [--json], with kind fact or preference, name, one line of text and a reason\n' >&2
+  printf 'Notes: sh sync.sh notes <app> search|read|write <request.json> [--project <id>] [--json], with search_notes, read_note or write_note arguments\nSuggest: sh sync.sh suggest <app> <request.json> [--json], with suggest arguments\nRemember: sh sync.sh remember <app> <request.json> [--json], with kind fact or preference, name, one line of text and a reason\nMessage: sh sync.sh message <app> <request.json> [--json], with the apps by handle in to or the text, and the playbook, ticket or entry a new thread is about, or the thread to write on\n' >&2
   printf 'Usage: sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]\n       sh sync.sh map <app> [--all]\n       sh sync.sh import <app>\n       sh sync.sh import-submit <app> <plan.json>\n       sh sync.sh keep <app> <file or folder>\n       sh sync.sh export <app> [--to <folder>]\n       sh sync.sh notes-move-out <app> --to <folder>\n       sh sync.sh fix <app> [--all]\n       sh sync.sh fix <app> --done <id> | --skip <id> --reason <text> | --working <id> [--recap <text>]\n       sh sync.sh fix <app> --waiting <id> --reason <question> --choice <label> --choice <label> ...\n       sh sync.sh signin <app> [--code <code>] [--environment computer|cloud]\n       sh sync.sh plan|doctor|readback|daily-job <app>\n       sh sync.sh prompt <app>\n       sh sync.sh update <app>\n       sh sync.sh remove <app> [--yes]\n<app> is claude-code, codex, hermes or openclaw.\n' >&2
   exit 2
 }
@@ -347,8 +349,8 @@ if [ "$MODE" = tickets ]; then
 elif [ "$MODE" = requests ]; then
   case $TICKET_COMMAND in list) ;; read | answer) [ -n "$TICKET_FILE" ] || usage ;; *) usage ;; esac
   { [ "$ALL" = 1 ] || [ "$DAILY" = 1 ]; } && usage
-elif [ "$MODE" = notes ] || [ "$MODE" = suggest ] || [ "$MODE" = remember ]; then
-  case $MODE:$TICKET_COMMAND in notes:search | notes:read | notes:write | suggest:suggest | remember:remember) ;; *) usage ;; esac
+elif [ "$MODE" = notes ] || [ "$MODE" = suggest ] || [ "$MODE" = remember ] || [ "$MODE" = message ]; then
+  case $MODE:$TICKET_COMMAND in notes:search | notes:read | notes:write | suggest:suggest | remember:remember | message:message) ;; *) usage ;; esac
   [ -n "$TICKET_FILE" ] || usage
   { [ "$ALL" = 1 ] || [ "$DAILY" = 1 ]; } && usage
 elif [ "$TICKET_JSON" = 1 ]; then usage; fi
@@ -3457,8 +3459,9 @@ sync_scope() {
           HELD=$((HELD + 1))
           printf 'wrote %s %s %s\n' "$kind" "$R" "$t" >>"$TMP/wrote"
           ;;
-        rejected | accepted | same)
+        rejected | accepted | same | sent_back)
           [ "$outcome" = rejected ] && warn "your edit to $path was declined, so it was put back. A copy is in $CL_HOME/backups."
+          [ "$outcome" = sent_back ] && warn "your edit to $path went back to you to make again, as what it changes changed in Context Locker since. The file has the current version, and your edit is in $CL_HOME/backups."
           printf 'write %s %s %s %s %s 1\n' "$t" "$kind" "$S" "$item" "$ver" >>"$TMP/actions"
           ;;
         gone)
@@ -5835,7 +5838,7 @@ tickets_mode() {
   tk_accept=text/plain
   [ "$TICKET_JSON" = 1 ] && tk_accept=application/json
   tk_path=/v1/sync/$MODE/$TICKET_COMMAND
-  case $MODE in suggest | remember) tk_path=/v1/sync/$MODE ;; esac
+  case $MODE in suggest | remember | message) tk_path=/v1/sync/$MODE ;; esac
   tk_code=$(status_of "$(http POST "$tk_path$tk_query" "$TMP/ticket-reply" "$TMP/ticket-body" application/json '' '' '' "$tk_accept")")
   case $tk_code in
     200) tr -d '\000-\010\013-\037\177' <"$TMP/ticket-reply"; return 0 ;;
@@ -7807,7 +7810,7 @@ if [ "$MODE" != sync ]; then
     daily-job) daily_job_mode ;;
     update) update_mode ;;
     remove) remove_mode ;;
-    tickets | requests | notes | suggest | remember) tickets_mode ;;
+    tickets | requests | notes | suggest | remember | message) tickets_mode ;;
   esac
   exit $?
 fi

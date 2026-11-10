@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import {
   ASK_PROTOCOL,
   SYNC_SCRIPT_RELEASE,
+  guideTopics,
   SYNC_SCRIPT_VERSION,
 } from "../src/index.js";
 
@@ -41,13 +42,33 @@ describe("the published setup files", () => {
     );
   });
 
-  it("say how to ask the person under Tickets, in the newest version (G1-277)", () => {
+  it("leave how to do each thing after setup to the guide, in the newest version (G1-309)", () => {
     const skill = readFileSync(
       `${SITE}setup/${versions.at(-1)}/SKILL.md`,
       "utf8",
     );
-    const tickets = skill.split("\n## Tickets\n")[1]?.split("\n## ")[0] ?? "";
-    assert.ok(tickets.includes(` ${ASK_PROTOCOL}\n`), tickets);
+    const after = skill.split("\n## After setup\n")[1]?.split("\n## ")[0] ?? "";
+    for (const topic of guideTopics("sync")) {
+      if (
+        [
+          "topics/reporting.md",
+          "topics/import.md",
+          "topics/playbooks.md",
+          "topics/changes.md",
+          "topics/when-something-breaks.md",
+        ].includes(topic.file)
+      )
+        continue;
+      assert.ok(after.includes(`\`${topic.file}\``), topic.file);
+    }
+    for (const gone of [
+      "## Tickets",
+      "## Notes and facts",
+      "## Feedback and recurring agent checks",
+      "## Decisions in chat",
+    ])
+      assert.ok(!skill.includes(`\n${gone}\n`), gone);
+    assert.ok(!skill.includes(ASK_PROTOCOL));
   });
 
   it("name the script they publish in the newest version (G1-281)", () => {

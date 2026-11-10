@@ -177,8 +177,8 @@ describe("the Import skill, context-locker-import", () => {
       ),
     );
     assert.deepEqual(compiled.notes, [
-      "Your skill context-locker-gather has the name of Context Locker's own Import skill, so it was left out of Codex's files.",
-      "Your skill context-locker-import has the name of Context Locker's own Import skill, so it was left out of Codex's files.",
+      "Your skill context-locker-gather has the name of one of Context Locker's own skills, so it was left out of Codex's files.",
+      "Your skill context-locker-import has the name of one of Context Locker's own skills, so it was left out of Codex's files.",
     ]);
     assert.equal(isReservedSkillName(IMPORT_SKILL_NAME), true);
     assert.equal(isReservedSkillName("code-review"), false);
