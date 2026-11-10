@@ -53,7 +53,7 @@ export const MANIFEST_HEADER = "context-locker-sync 1";
  * The newest version of the sync scripts, as their SCRIPT_VERSION says. The
  * global manifest names it, so an older script can say a newer one is out.
  */
-export const SYNC_SCRIPT_VERSION = 46;
+export const SYNC_SCRIPT_VERSION = 47;
 
 /** The shell a sync script runs in: sh on macOS and Linux, PowerShell on Windows */
 export type ScriptShell = "sh" | "powershell";
@@ -75,11 +75,11 @@ export interface ScriptRelease {
 
 export const SYNC_SCRIPT_RELEASE: ScriptRelease = Object.freeze({
   version: SYNC_SCRIPT_VERSION,
-  setup: 59,
+  setup: 60,
   sha256: Object.freeze({
-    sh: "8fd436d56d744188650052e9b2db6a3f34486b852825c31c88a6e2b9c7710b69",
+    sh: "fb03ce374f9286d7bbeb4c0a3ffa25884d49f0ae915ac8ddf89fc440b612bc28",
     powershell:
-      "43dfb5c45d7be791287cbf8ad370f669c5711c73f137d391c05038d8ecab0c7b",
+      "b270d9fceccde9a5843b67e3d5e6a5a8624a43d8bdf3f3a7d881c798bfb5a4fa",
   }),
   updatesFrom: 40,
 });

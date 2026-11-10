@@ -49,7 +49,7 @@ Defaults:
 <!-- context-locker:end -->
 
 == skill {agents}/skills/context-locker
-item: c0de0000-6a7e-4e00-8000-000000000002@6
+item: c0de0000-6a7e-4e00-8000-000000000002@7
 files: SKILL.md, topics/asking.md, topics/tickets.md, topics/notes-and-links.md, topics/playbooks.md, topics/memory.md, topics/changes.md, topics/requests.md, topics/messages.md, topics/decisions-in-chat.md, topics/reporting.md, topics/import.md, topics/sync.md, topics/projects.md, topics/when-something-breaks.md
 
 == skill {agents}/skills/context-locker-import

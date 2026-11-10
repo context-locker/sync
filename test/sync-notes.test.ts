@@ -36,6 +36,7 @@ import {
   writeNoteReply,
   type Blob,
   type NoteInput,
+  type SkillInput,
 } from "../src/index.js";
 import { SCRIPT_PATH } from "./script-path.js";
 
@@ -88,6 +89,8 @@ function readFront(text: string): Record<string, unknown> {
 /** A fake Context Locker that keeps a project's notes */
 class FakeLocker {
   notes = new Map<string, NoteInput>();
+  /** The project's own skills, written beside its notes */
+  skills: SkillInput[] = [];
   tags = ["release", "q4", "writing"];
   requests: string[] = [];
   uploads: Upload[] = [];
@@ -131,7 +134,7 @@ class FakeLocker {
       harness: harness as "claude-code",
       project: { ...PROJECT, layer },
       preferences: [],
-      skills: [],
+      skills: this.skills,
       notes: [...this.notes.values()],
       tags: this.tags,
     }).outputs;
@@ -638,6 +641,57 @@ describe("a project's notes folder", () => {
         assert.equal(again.status, 0, again.stderr);
         assert.equal(again.stderr, "");
         assert.equal(fake.uploads.length, 1);
+      });
+
+      it("syncs again with a project skill beside the notes, and saves an edit", async () => {
+        const machine = computer();
+        const plan = fake.add({
+          name: "release-plan",
+          title: "Release plan",
+          version: 3,
+        });
+        fake.skills.push({
+          id: randomUUID(),
+          version: 2,
+          name: "release-checks",
+          files: [
+            {
+              path: "SKILL.md",
+              content:
+                "---\nname: release-checks\ndescription: Checks a release.\n---\n\nRead the release plan first.\n",
+              encoding: "utf8",
+            },
+          ],
+        });
+        const first = await run(shell, machine);
+        assert.equal(first.status, 0, first.stderr);
+        assert.equal(first.stderr, "");
+        const skill = join(
+          machine.home,
+          "repo",
+          ".claude",
+          "skills",
+          "release-checks",
+          "SKILL.md",
+        );
+        assert.match(read(skill), /Read the release plan first\./);
+
+        // The second sync finds the skill in what the first one kept, and
+        // goes on to send the edited note
+        const path = join(machine.notes, "release-plan.md");
+        const edited = read(path).replace(
+          "What it says.",
+          "What it says, and when.",
+        );
+        writeFileSync(path, edited);
+        const second = await run(shell, machine);
+        assert.equal(second.status, 0, second.stderr);
+        assert.equal(second.stderr, "");
+        assert.equal(fake.uploads.length, 1);
+        assert.equal(fake.uploads[0]?.base, `${plan.id} 3`);
+        assert.equal(fake.notes.get(plan.id)?.version, 4);
+        assert.match(read(path), /^version: 4$/m);
+        assert.match(read(skill), /Read the release plan first\./);
       });
 
       it("saves a new file as a new note, named after the file", async () => {

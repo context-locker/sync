@@ -194,7 +194,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 46
+$ScriptVersion = 47
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -1717,12 +1717,6 @@ function Send-Notes([string]$Query, [string[]]$Entries) {
     if (($f[0] -eq 'note' -or $f[0] -eq 'file') -and $f.Length -ge 3) { $inManifest[$f[2]] = $f[1] }
   }
   $records = @{}
-  foreach ($line in $lockLines) {
-    $f = $line.Split(' ')
-    if ($f.Length -ge 6 -and $f[0] -eq 'entry' -and $f[1] -eq 'skill' -and $plan.ContainsKey($f[3])) {
-      $plan[$f[3]].RId = $f[4]; $plan[$f[3]].RVer = $f[5]
-    }
-  }
   foreach ($line in $Script:NotesRecords) {
     $f = $line.Split(' ')
     if ($f[0] -eq 'wrote' -and $f.Length -ge 6) { $records[$f[3]] = @{ Kind = $f[1]; Hash = $f[2]; Id = $f[4]; Ver = $f[5] } }
