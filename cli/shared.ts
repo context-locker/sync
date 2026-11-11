@@ -44,11 +44,11 @@ export const HARNESS_NAMES: Readonly<Record<AgentHarness, string>> =
     "grok-build": "Grok Build",
     hermes: "Hermes",
     openclaw: "OpenClaw",
-    other: "An AI app",
+    other: "An agent",
     claude: "Claude",
     chatgpt: "ChatGPT",
-    mcp: "An AI app",
-    cloud: "An AI app in the cloud",
+    mcp: "An agent",
+    cloud: "An agent in the cloud",
   });
 
 /**

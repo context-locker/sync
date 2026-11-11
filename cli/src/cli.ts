@@ -5,7 +5,7 @@ import { VERSION } from "./http.js";
 import { placeFrom } from "./place.js";
 import { DONE, FAILED, USAGE, setup } from "./setup.js";
 
-const HELP = `Context Locker setup: connect one AI app.
+const HELP = `Context Locker setup: connect one agent.
 
   npx context-locker setup [options]
 

@@ -53,7 +53,7 @@ export const MANIFEST_HEADER = "context-locker-sync 1";
  * The newest version of the sync scripts, as their SCRIPT_VERSION says. The
  * global manifest names it, so an older script can say a newer one is out.
  */
-export const SYNC_SCRIPT_VERSION = 48;
+export const SYNC_SCRIPT_VERSION = 49;
 
 /** The shell a sync script runs in: sh on macOS and Linux, PowerShell on Windows */
 export type ScriptShell = "sh" | "powershell";
@@ -75,11 +75,11 @@ export interface ScriptRelease {
 
 export const SYNC_SCRIPT_RELEASE: ScriptRelease = Object.freeze({
   version: SYNC_SCRIPT_VERSION,
-  setup: 61,
+  setup: 62,
   sha256: Object.freeze({
-    sh: "1d4b4ae4f54829b63822ffdcd1c5d041e8d4fd31d05d4c5da483532842934603",
+    sh: "02ecc0baf1bb02bd159616944dcacc7fdd24616ce7f695447e8188bc168a5619",
     powershell:
-      "c40168148dbab27442eb0ec2f155ea750b3a9c082f4a19768a8627b44f70e166",
+      "7f4ecc2a08a1c55fa7e8c1efaba56f15a739d79806971a6a7cb11439cc37d677",
   }),
   updatesFrom: 40,
 });
@@ -210,7 +210,7 @@ export function buildManifest(input: {
     throw new Error("A script version is a whole number");
   }
   if (input.memoryFiles && !UUID.test(input.memoryFiles.connection)) {
-    throw new Error("The connection's id must be a UUID");
+    throw new Error("The agent's id must be a UUID");
   }
   if (
     input.update &&

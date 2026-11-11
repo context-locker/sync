@@ -97,7 +97,7 @@ test("a Start here link or a documentation location says when only one app can o
   ]);
   assert.match(
     rule,
-    /Keep anything another AI app needs where every app can read it: a place only one app can open, such as a Claude artifact, a chat, a session's own files or a page on localhost, is fine as a view or a working copy, never as its only home\./,
+    /Keep anything another agent needs where every app can read it: a place only one app can open, such as a Claude artifact, a chat, a session's own files or a page on localhost, is fine as a view or a working copy, never as its only home\./,
   );
   assert.match(
     rule,

@@ -97,6 +97,8 @@ export {
 } from "./notes.js";
 export type { NoteReply } from "./notes.js";
 export {
+  DOCS_LOCATIONS_RULE,
+  NO_DOCS_LOCATIONS,
   OLD_INTROS,
   START_HERE_MOST,
   TEXT,
@@ -177,11 +179,13 @@ export { indexedTreeHash } from "./hash.js";
 export {
   AI_TEXT_BUDGETS,
   DOC_PARTS,
+  RETIRED_WORDS,
   checkAiText,
   checkAiTexts,
   compareWithBaseline,
   duplicateSentences,
   findingKey,
+  retiredWords,
   sentencesOf,
 } from "./writing.js";
 export type {

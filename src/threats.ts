@@ -49,7 +49,7 @@ const PATTERNS: ReadonlyArray<readonly [string, RegExp]> = [
   [
     "deception_hide",
     new RegExp(
-      String.raw`\b(?:do\s+not|don't|never)\s+${FILLER}(?:tell|inform|show)\s+${FILLER}the\s+user\b`,
+      String.raw`\b(?:do\s+not|don't|never)\s+${FILLER}(?:tell|inform|show)\s+${FILLER}the\s+(?:user|person)\b`,
       "iu",
     ),
   ],

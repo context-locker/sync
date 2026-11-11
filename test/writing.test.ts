@@ -1,3 +1,6 @@
+// The checks of Writing for AI apps (G1-310). The glossary they follow is in
+// the platform repo's AGENTS.md, which isn't part of this copy, so the check
+// that it names each retired word stays there.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
@@ -7,6 +10,7 @@ import {
   checkAiTexts,
   compareWithBaseline,
   duplicateSentences,
+  retiredWords,
   sentencesOf,
   type Finding,
 } from "../src/writing.js";
@@ -91,6 +95,43 @@ describe("the checks of Writing for AI apps (G1-310)", () => {
     assert.deepEqual(rulesOf("Organise the colour of the person's notes."), []);
   });
 
+  it("finds every word the glossary retires, keeping a team's owner and My playbook (G1-319)", () => {
+    const found = (text: string) =>
+      [...retiredWords(text)].map(([word, count]) => `${word}:${count}`).sort();
+    assert.deepEqual(
+      found(
+        "Open the ticket in the playbook from Everywhere with write_ticket, as the AI app's connection said in AI inboxes, with a suggestion from a persona in the workspace.",
+      ),
+      [
+        "AI app:1",
+        "AI inbox:1",
+        "Everywhere:1",
+        "connection:1",
+        "persona:1",
+        "playbook:1",
+        "suggestion:1",
+        "ticket:2",
+        "workspace:1",
+      ],
+    );
+    // A tool's old name counts too, as playbook_map and list_tickets do
+    assert.deepEqual(found("Call playbook_map, then list_tickets."), [
+      "playbook:1",
+      "ticket:1",
+    ]);
+    assert.deepEqual(
+      found(
+        "My playbook and the team's playbook apply everywhere, as your playbook does. The team's owner decides with admins: an owner, admins and members. Tasks, agents, projects and changes, by workspace_id and owner_id.",
+      ),
+      [],
+    );
+    // Anywhere else, owner means the person
+    assert.deepEqual(found("The owner decides, as the user said."), [
+      "owner:1",
+      "user:1",
+    ]);
+  });
+
   it("holds a text to its budget", () => {
     const limit = AI_TEXT_BUDGETS.promptLine;
     assert.deepEqual(rulesOf("x".repeat(limit), { budget: "promptLine" }), []);
@@ -165,13 +206,13 @@ describe("the checks of Writing for AI apps (G1-310)", () => {
       { id: "the standing rules", text: rules, source: "the standing rules" },
       {
         id: "server instructions",
-        text: `Context Locker keeps the playbooks.\n\n${rules}`,
+        text: `Context Locker keeps the person's preferences.\n\n${rules}`,
         includes: rules,
         budget: "promptLine",
       },
       {
         id: "get_context's head",
-        text: `# The playbook\n\n${rules}`,
+        text: `# The project\n\n${rules}`,
         includes: rules,
       },
     ]);

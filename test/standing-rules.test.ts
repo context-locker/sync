@@ -67,10 +67,10 @@ describe("the standing rules (G1-309)", () => {
 
   it("say how each environment keeps a fact and asks", () => {
     assert.match(standingRules("mcp"), /Keep one with remember/);
-    assert.match(standingRules("mcp"), /write_ticket/);
+    assert.match(standingRules("mcp"), /write_task/);
     assert.match(standingRules("sync"), /`remember <app>`/);
-    assert.match(standingRules("sync"), /`tickets <app> write`/);
-    assert.doesNotMatch(standingRules("brief"), /remember|write_ticket/);
+    assert.match(standingRules("sync"), /`tasks <app> write`/);
+    assert.doesNotMatch(standingRules("brief"), /remember|write_task/);
   });
 });
 

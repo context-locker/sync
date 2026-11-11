@@ -557,7 +557,7 @@ describe("the sync scripts' tools", () => {
         const before = readdirSync(cwd).sort();
         for (const command of ["list", "read", "write", "places"]) {
           const result = await run(shell, machine, {
-            mode: "tickets",
+            mode: "tasks",
             cwd,
             args: [command, file, "--json"],
           });
@@ -574,7 +574,7 @@ describe("the sync scripts' tools", () => {
             ),
           );
         }
-        const listed = await run(shell, machine, { mode: "tickets", cwd });
+        const listed = await run(shell, machine, { mode: "tasks", cwd });
         assert.equal(listed.status, 0, listed.stderr);
         assert.equal(
           fake.ticketCalls.at(-1)?.body,
@@ -601,7 +601,7 @@ describe("the sync scripts' tools", () => {
           text: "G1-151 is held by another AI app.\n",
         };
         const result = await run(shell, machine, {
-          mode: "tickets",
+          mode: "tasks",
           args: ["write", file],
         });
         assert.equal(result.status, 1);
@@ -799,12 +799,12 @@ describe("the sync scripts' tools", () => {
           ["list", "--daily"],
           ["list", "--all"],
         ]) {
-          const result = await run(shell, machine, { mode: "tickets", args });
+          const result = await run(shell, machine, { mode: "tasks", args });
           assert.equal(result.status, 2, `${args}: ${result.stderr}`);
           // How to ask is the guide's, which the board's topic points to
           if (args[0] === "approve") {
             assert.ok(
-              result.stderr.includes(" Guide: topics/tickets.md.\n"),
+              result.stderr.includes(" Guide: topics/tasks.md.\n"),
               result.stderr,
             );
             assert.ok(!result.stderr.includes(ASK_PROTOCOL), result.stderr);
@@ -813,7 +813,7 @@ describe("the sync scripts' tools", () => {
         const file = join(machine.home, "too-large.json");
         writeFileSync(file, "x".repeat(4194305));
         const large = await run(shell, machine, {
-          mode: "tickets",
+          mode: "tasks",
           args: ["write", file],
         });
         assert.equal(large.status, 1, large.stderr);
@@ -824,7 +824,7 @@ describe("the sync scripts' tools", () => {
       it("gives every command its topic in the guide, in the one shape of a tool's description (G1-309)", async () => {
         const machine = computer(shell);
         const help = await run(shell, machine, {
-          mode: "tickets",
+          mode: "tasks",
           args: ["approve"],
         });
         assert.equal(help.status, 2, help.stderr);
@@ -866,13 +866,13 @@ describe("the sync scripts' tools", () => {
       it("prints Tidy-up with fix, for the project, and marks an item done or skipped", async () => {
         const machine = computer(shell);
         const id = randomUUID();
-        fake.fixes.text = `1 thing needs looking after in the user's playbook.\n1. A problem.\x1b[31m Its evidence.\n   Id: ${id}\n`;
+        fake.fixes.text = `1 thing needs looking after in the person's playbook.\n1. A problem.\x1b[31m Its evidence.\n   Id: ${id}\n`;
         const listed = await run(shell, machine, { mode: "fix" });
         assert.equal(listed.status, 0, listed.stderr);
         // Control characters never show
         assert.equal(
           listed.stdout,
-          `1 thing needs looking after in the user's playbook.\n1. A problem.[31m Its evidence.\n   Id: ${id}\n`,
+          `1 thing needs looking after in the person's playbook.\n1. A problem.[31m Its evidence.\n   Id: ${id}\n`,
         );
         assert.ok(
           fake.requests.includes("GET /v1/sync/fixes"),
@@ -903,17 +903,17 @@ describe("the sync scripts' tools", () => {
           "Done. The check no longer finds the problem, so it's gone from Tidy-up.\n",
         );
         fake.marked.text =
-          "Skipped. It stays in Tidy-up for the user, with your reason.\n";
+          "Skipped. It stays in Tidy-up for the person, with your reason.\n";
         const skipped = await run(shell, machine, {
           mode: "fix",
-          args: ["--skip", id, "--reason", "It still holds, says the user."],
+          args: ["--skip", id, "--reason", "It still holds, says the person."],
         });
         assert.equal(skipped.status, 0, skipped.stderr);
         assert.deepEqual(
           fake.marks.map(({ id: marked, body }) => [marked, body]),
           [
             [id, "done\n"],
-            [id, "skipped\nIt still holds, says the user.\n"],
+            [id, "skipped\nIt still holds, says the person.\n"],
           ],
         );
         assert.match(fake.marks[0]?.type ?? "", /^text\/plain/);
@@ -924,12 +924,12 @@ describe("the sync scripts' tools", () => {
         ]) {
           const result = await run(shell, machine, {
             mode: "fix",
-            args: [flag!, id, "--reason", "The user's exact words."],
+            args: [flag!, id, "--reason", "The person's exact words."],
           });
           assert.equal(result.status, 0, result.stderr);
           assert.equal(
             fake.marks.at(-1)?.body,
-            `${outcome}\nThe user's exact words.\n`,
+            `${outcome}\nThe person's exact words.\n`,
           );
         }
         // An app says it has started on one (G1-269), saying what it's
@@ -1043,7 +1043,7 @@ describe("the sync scripts' tools", () => {
         assert.equal(reader.status, 1);
         assert.match(
           reader.stderr,
-          /Codex may only read your playbook, so it can't mark Tidy-up items\./,
+          /Codex may only read, so it can't mark Tidy-up items\./,
         );
         fake.fixes = { status: 500, text: '{"error":"internal"}' };
         const down = await run(shell, machine, { mode: "fix" });
@@ -1141,14 +1141,14 @@ describe("the sync scripts' tools", () => {
         assert.doesNotMatch(odd.stdout, /Not from Context Locker/);
         assert.match(
           odd.stdout,
-          /^WARN {2}Couldn't check how full your playbook's limits are: Context Locker answered 200\.$/m,
+          /^WARN {2}Couldn't check how full your account's limits are: Context Locker answered 200\.$/m,
         );
         fake.caps = { status: 500, text: '{"error":"x"}' };
         const down = await run(shell, machine, { mode: "doctor" });
         assert.equal(down.status, 0, down.stdout + down.stderr);
         assert.match(
           down.stdout,
-          /^WARN {2}Couldn't check how full your playbook's limits are: Context Locker answered 500\.$/m,
+          /^WARN {2}Couldn't check how full your account's limits are: Context Locker answered 500\.$/m,
         );
       });
 
@@ -1198,7 +1198,7 @@ describe("the sync scripts' tools", () => {
           assert.equal(doctor.status, 0, doctor.stdout + doctor.stderr);
           const choice = (path: string) =>
             escape(
-              `Bring them into your playbook with Import (${runLine(shell)} import codex), or keep them in Codex only (${runLine(shell)} keep codex ${path}).`,
+              `Bring them into Context Locker with Import (${runLine(shell)} import codex), or keep them in Codex only (${runLine(shell)} keep codex ${path}).`,
             );
           assert.match(
             doctor.stdout,
@@ -1241,7 +1241,7 @@ describe("the sync scripts' tools", () => {
         const today = escape(dayOf(new Date()));
         const choice = (path: string) =>
           escape(
-            `Bring them into your playbook with Import (${runLine(shell)} import codex), or keep them in Codex only (${runLine(shell)} keep codex ${path}).`,
+            `Bring them into Context Locker with Import (${runLine(shell)} import codex), or keep them in Codex only (${runLine(shell)} keep codex ${path}).`,
           );
         const memoriesAsked = (what: string) =>
           new RegExp(
@@ -1272,7 +1272,7 @@ describe("the sync scripts' tools", () => {
         assert.equal(kept.status, 0, kept.stdout + kept.stderr);
         assert.equal(
           kept.stdout,
-          `Kept in Codex only: 2 files in ~/.codex/memories. The doctor asks about them again only once one is new or changes. To bring them into your playbook later, run Import: ${runLine(shell)} import codex\n`,
+          `Kept in Codex only: 2 files in ~/.codex/memories. The doctor asks about them again only once one is new or changes. To bring them into Context Locker later, run Import: ${runLine(shell)} import codex\n`,
         );
         const sources = read(join(machine.home, ".contextlocker", "sources"))
           .split("\n")
@@ -1336,7 +1336,7 @@ describe("the sync scripts' tools", () => {
         assert.equal(keptFile.status, 0, keptFile.stdout + keptFile.stderr);
         assert.equal(
           keptFile.stdout,
-          `Kept in Codex only: ~/.codex/AGENTS.md. The doctor asks about it again only once it changes. To bring it into your playbook later, run Import: ${runLine(shell)} import codex\n`,
+          `Kept in Codex only: ~/.codex/AGENTS.md. The doctor asks about it again only once it changes. To bring it into Context Locker later, run Import: ${runLine(shell)} import codex\n`,
         );
         assert.match(
           (await run(shell, machine, { mode: "doctor" })).stdout,
@@ -1424,21 +1424,21 @@ describe("the sync scripts' tools", () => {
         );
         const choice = (path: string) =>
           escape(
-            `Bring them into your playbook with Import (${runLine(shell)} import codex), or keep them in Codex only (${runLine(shell)} keep codex ${path}).`,
+            `Bring them into Context Locker with Import (${runLine(shell)} import codex), or keep them in Codex only (${runLine(shell)} keep codex ${path}).`,
           );
 
         const linked = await run(shell, machine, { mode: "doctor", cwd: repo });
         assert.match(
           linked.stdout,
-          /^PASS {2}~\/repo\/AGENTS\.md is in your playbook as a link\.$/m,
+          /^PASS {2}~\/repo\/AGENTS\.md is in Context Locker as a link\.$/m,
         );
         assert.match(
           linked.stdout,
-          /^PASS {2}~\/repo\/CLAUDE\.md only points at AGENTS\.md, which your playbook links to\.$/m,
+          /^PASS {2}~\/repo\/CLAUDE\.md only points at AGENTS\.md, which Context Locker links to\.$/m,
         );
         assert.match(
           linked.stdout,
-          /^PASS {2}~\/repo\/\.claude\/CLAUDE\.md only points at AGENTS\.md, which your playbook links to\.$/m,
+          /^PASS {2}~\/repo\/\.claude\/CLAUDE\.md only points at AGENTS\.md, which Context Locker links to\.$/m,
         );
         // A line of its own besides the import is something to ask about
         assert.match(
@@ -1506,11 +1506,11 @@ describe("the sync scripts' tools", () => {
         assert.equal(planned.status, 0, planned.stdout + planned.stderr);
         assert.match(
           planned.stdout,
-          /^- Take 1 line you brought into your playbook out of ~\/\.codex\/AGENTS\.md\. A copy of the file goes in .+\/backups first\.$/m,
+          /^- Take 1 line you brought into Context Locker out of ~\/\.codex\/AGENTS\.md\. A copy of the file goes in .+\/backups first\.$/m,
         );
         assert.match(
           planned.stdout,
-          /^- Leave 1 line in ~\/\.codex\/AGENTS\.md as they are: they changed since you brought them into your playbook\.$/m,
+          /^- Leave 1 line in ~\/\.codex\/AGENTS\.md as they are: they changed since you brought them into Context Locker\.$/m,
         );
         assert.equal(read(agents), mine);
         assert.equal(fake.movesSaid.length, 0);
@@ -1547,21 +1547,21 @@ describe("the sync scripts' tools", () => {
         );
         assert.match(
           synced.stdout,
-          /Context Locker: took 1 line you brought into your playbook out of ~\/\.codex\/AGENTS\.md, so Codex doesn't read them twice\. A copy of the file is in ~\/\.contextlocker\/backups\./,
+          /Context Locker: took 1 line you brought into Context Locker out of ~\/\.codex\/AGENTS\.md, so Codex doesn't read them twice\. A copy of the file is in ~\/\.contextlocker\/backups\./,
         );
         assert.match(
           synced.stdout,
-          /Context Locker: 1 line you brought into your playbook from ~\/\.codex\/AGENTS\.md changed there since, or are there more than once, so they stay as they are\./,
+          /Context Locker: 1 line you brought into Context Locker from ~\/\.codex\/AGENTS\.md changed there since, or are there more than once, so they stay as they are\./,
         );
         assert.ok(
           synced.stdout.includes(
-            "Context Locker: you brought 1 line from ~/repo/AGENTS.md into your playbook. The file stays as it is, as it's in a code repository, which others may share. If they shouldn't be there any more, take them out:\n    - Use tabs.\n",
+            "Context Locker: you brought 1 line from ~/repo/AGENTS.md into Context Locker. The file stays as it is, as it's in a code repository, which others may share. If they shouldn't be there any more, take them out:\n    - Use tabs.\n",
           ),
           synced.stdout,
         );
         assert.ok(
           synced.stdout.includes(
-            "from ~/elsewhere/notes.md into your playbook. The file stays as it is, as it isn't one of Codex's own files.",
+            "from ~/elsewhere/notes.md into Context Locker. The file stays as it is, as it isn't one of Codex's own files.",
           ),
           synced.stdout,
         );
@@ -1729,7 +1729,7 @@ describe("the sync scripts' tools", () => {
         assert.equal(
           exported.stdout,
           [
-            `Context Locker exported the playbook to ${folder}:`,
+            `Context Locker exported My playbook and your projects to ${folder}:`,
             "- 4 preferences, 2 of them About facts",
             "- 1 skill",
             "- 3 notes and 2 pointers",

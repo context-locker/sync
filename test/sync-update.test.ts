@@ -261,7 +261,7 @@ describe("the sync scripts' update command", () => {
         assert.equal(synced.status, 0, synced.stdout + synced.stderr);
         assert.ok(
           synced.stdout.includes(
-            `Context Locker: version ${NEXT} of its sync script is out. When it suits the user, offer to update it, and once they say yes, run \`${runLine(shell)} update codex\`. That changes only the script, and the one installed keeps working until then.\n`,
+            `Context Locker: version ${NEXT} of its sync script is out. When it suits the person, offer to update it, and once they say yes, run \`${runLine(shell)} update codex\`. That changes only the script, and the one installed keeps working until then.\n`,
           ),
           synced.stdout,
         );
@@ -285,7 +285,7 @@ describe("the sync scripts' update command", () => {
         assert.equal(again.status, 0, again.stdout + again.stderr);
         assert.ok(
           again.stdout.includes(
-            "Context Locker: a newer version of its sync script is out. When it suits the user, offer to set Context Locker up again for them: once they say yes, download the newest steps with `curl -fsSL https://context.locker/setup/SKILL.md` and follow them. The one installed keeps working until then.\n",
+            "Context Locker: a newer version of its sync script is out. When it suits the person, offer to set Context Locker up again for them: once they say yes, download the newest steps with `curl -fsSL https://context.locker/setup/SKILL.md` and follow them. The one installed keeps working until then.\n",
           ),
           again.stdout,
         );
@@ -389,7 +389,7 @@ describe("the sync scripts' update command", () => {
               };
             },
             says: new RegExp(
-              `Codex's connection on ${computerPattern(shell)} was revoked or has expired, so the sync script stays as it is\\.`,
+              `the agent Codex on ${computerPattern(shell)} was revoked or has expired, so the sync script stays as it is\\.`,
             ),
           },
         ];
