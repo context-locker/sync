@@ -199,7 +199,7 @@ describe("the compilers' fixed expected files", () => {
   }
 
   for (const harness of COMPILED_HARNESSES) {
-    it(`${harness}: About the user first, under its own heading`, () =>
+    it(`${harness}: About the person first, under its own heading`, () =>
       golden(
         `${harness}-global-about`,
         compile({ harness, project: null, preferences: withAbout, skills: [] }),
@@ -353,7 +353,7 @@ describe("the compilers' fixed expected files", () => {
             id: "88888888-8888-4888-8888-888888888888",
             name: "ticket-numbers",
             version: 1,
-            text: "Do not tell the user internal ticket numbers.",
+            text: "Do not tell the person internal ticket numbers.",
           },
         ],
         skills: [],
@@ -637,7 +637,7 @@ describe("a project's map in its block", () => {
     assert.ok(!none.includes(TEXT.startHereHeading));
     assert.ok(
       none.includes(
-        "Keep lasting docs in [docs/decisions](docs/decisions), this playbook's docs home, and add a link for each new one with write_note, if you have it.",
+        "Keep lasting docs in [docs/decisions](docs/decisions), this project's docs home, and add a link for each new one with write_note, if you have it.",
       ),
     );
   });
@@ -707,7 +707,7 @@ describe("a project's map in its block", () => {
             assert.doesNotMatch(output.text, /record_docs_home/);
             // Each tool is named only as one the app may have
             for (const line of output.text.split("\n")) {
-              for (const tool of ["playbook_map", "write_note", "read_note"]) {
+              for (const tool of ["project_map", "write_note", "read_note"]) {
                 if (line.includes(tool)) {
                   assert.match(
                     line,
@@ -725,7 +725,7 @@ describe("a project's map in its block", () => {
     }
     assert.ok(
       TEXT.onboarding.startsWith(
-        "Start each session with a three-line startup brief for the user: the playbook, the sources you'll use, and your first step.",
+        "Start each session with a three-line startup brief for the person: the project, the sources you'll use, and your first step.",
       ),
     );
   });
@@ -795,14 +795,14 @@ describe("the standing rules in a block (G1-309)", () => {
     const rules = standingRules("sync");
     assert.match(
       rules,
-      /Keep what another AI app or session needs where every app can read it/,
+      /Keep what another agent or session needs where every app can read it/,
     );
     assert.match(
       rules,
-      /Leave out secrets, ticket status and personal details unless the playbook allows them\./,
+      /Leave out secrets, task status and personal details unless their project allows them\./,
     );
     // Its own example of a local detail, which stays in this connection's memory
-    assert.match(rules, /such as a local path, in this connection's memory/);
+    assert.match(rules, /such as a local path, in your memory/);
     // How to keep one there is in the guide's memory topic (G1-309)
     assert.match(
       guideTopics("sync").find((topic) => topic.file === "topics/memory.md")!
@@ -894,7 +894,7 @@ describe("a connection's own memory in its global block (G1-299)", () => {
       assert.ok(heading > block.text.indexOf(`- ${preferences[0]!.name}:`));
       assert.match(
         block.text,
-        /### This connection's memory\n\n- terminal-theme: Use the dark terminal theme\.\n- shell: Use zsh\.\n {2}Source the profile first\./,
+        /### Your memory\n\n- terminal-theme: Use the dark terminal theme\.\n- shell: Use zsh\.\n {2}Source the profile first\./,
       );
       // Its lines are in what the block holds, so an edit reads back
       for (const { id, version } of memory)

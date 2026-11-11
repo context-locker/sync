@@ -243,7 +243,7 @@ describe("signin in a Claude cloud session, the doctor and remove (G1-260)", () 
         assert.equal(warned.status, 3, warned.stdout + warned.stderr);
         assert.match(
           warned.stdout,
-          /this is a Claude cloud session, whose sandbox may not last: a device connection made here ends with it\./,
+          /this is a Claude cloud session, whose sandbox may not last: an agent connected here ends with it\./,
         );
         assert.equal(
           JSON.parse(started()[0]?.body ?? "{}").environment,
@@ -266,7 +266,7 @@ describe("signin in a Claude cloud session, the doctor and remove (G1-260)", () 
         assert.match(
           doctor.stdout,
           new RegExp(
-            `FAIL {2}Claude Code's connection on ${computerPattern(shell)} was revoked in Context Locker, so nothing syncs there any more\\. To take Context Locker off ${computerPattern(shell)}, run .*remove claude-code to see what it takes out, and only once the person says yes, run it again with -?-[yY]es\\.`,
+            `FAIL {2}The agent Claude Code on ${computerPattern(shell)} was revoked in Context Locker, so nothing syncs there any more\\. To take Context Locker off ${computerPattern(shell)}, run .*remove claude-code to see what it takes out, and only once the person says yes, run it again with -?-[yY]es\\.`,
           ),
         );
         assert.doesNotMatch(doctor.stdout, /signin claude-code/);
@@ -332,7 +332,7 @@ describe("signin in a Claude cloud session, the doctor and remove (G1-260)", () 
         assert.match(listed.stdout, /context-locker\.md/);
         assert.match(listed.stdout, /session-start hook in .*settings\.json/);
         assert.match(listed.stdout, /per-prompt hook in .*settings\.json/);
-        assert.match(listed.stdout, /The connection stays in Context Locker/);
+        assert.match(listed.stdout, /The agent stays in Context Locker/);
         assert.ok(existsSync(rules));
         assert.ok(existsSync(machine.installed));
 
@@ -348,7 +348,7 @@ describe("signin in a Claude cloud session, the doctor and remove (G1-260)", () 
             `Context Locker is off ${computerPattern(shell)} for Claude Code`,
           ),
         );
-        assert.match(removed.stdout, /The connection stays in Context Locker/);
+        assert.match(removed.stdout, /The agent stays in Context Locker/);
         assert.ok(!existsSync(rules), "the block's own file is gone");
         assert.ok(!existsSync(join(machine.clHome, "claude-code")));
         assert.ok(!existsSync(machine.installed));

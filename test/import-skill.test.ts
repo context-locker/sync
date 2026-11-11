@@ -75,7 +75,7 @@ describe("the Import skill, context-locker-import", () => {
     const skillMd = importSkillFiles("mcp")[0]?.content ?? "";
     const collect = /## 1\. Collect\n\n(.+)\n/.exec(skillMd)?.[1] ?? "";
     assert.match(collect, /^Work from what you know about the person/);
-    assert.match(collect, /any export from another AI app they pasted/);
+    assert.match(collect, /any export from another app they pasted/);
     assert.match(skillMd, /Then call `submit_import` with it\./);
   });
 
@@ -256,7 +256,7 @@ describe("the Import skill, context-locker-import", () => {
   it("reads only the app's own files, with no picker, and falls back to gather for an older script (G1-206)", () => {
     for (const harness of ["claude-code", "codex", "mcp"] as const) {
       const skillMd = importSkillFiles(harness)[0]?.content ?? "";
-      assert.match(skillMd, /your own files, never another AI app's/);
+      assert.match(skillMd, /your own files, never another agent's/);
       assert.match(skillMd, /sync\.sh import <app>/);
       assert.match(skillMd, /use `gather` in place of `import`/);
       assert.doesNotMatch(

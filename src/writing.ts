@@ -58,16 +58,18 @@ export interface AiText {
    */
   source?: string;
   /**
-   * Text this one carries from a source gathered on its own, such as the
-   * standing rules (G1-309): checked there, so nothing in it counts here
-   * again, though its length does
+   * Text this one carries from sources gathered on their own, such as the
+   * standing rules (G1-309) or where documents go (G1-321): checked there,
+   * so nothing in it counts here again, though its length does
    */
-  includes?: string;
+  includes?: string | readonly string[];
 }
 
-/** A text's own words, without what it carries from a source checked on its own */
+/** A text's own words, without what it carries from sources checked on their own */
 function ownText(text: AiText): string {
-  return text.includes ? text.text.split(text.includes).join("\n") : text.text;
+  const carried =
+    typeof text.includes === "string" ? [text.includes] : (text.includes ?? []);
+  return carried.reduce((own, part) => own.split(part).join("\n"), text.text);
 }
 
 export type FindingRule =
@@ -162,8 +164,74 @@ const AMERICAN = [
 ];
 const SPELLING = new RegExp(`\\b(?:${AMERICAN.join("|")})\\b`, "gi");
 
-/** Other words for the person, which the glossary rules out */
-const GLOSSARY = /\b(users?|owners?)(?:'s|s')?\b/gi;
+/**
+ * The words one glossary retires, in what people and agents read alike
+ * (G1-319), each with the word that takes its place, as AGENTS.md's glossary
+ * says. The writing test finds them in what agents read, and the people's
+ * words test in the web app, the site and the emails.
+ */
+export const RETIRED_WORDS = Object.freeze([
+  { word: "user", say: "the person" },
+  { word: "owner", say: "the person, apart from a team's owner" },
+  { word: "Everywhere", say: "My playbook" },
+  { word: "playbook", say: "a project, apart from My playbook and a team's" },
+  { word: "ticket", say: "a task" },
+  { word: "AI app", say: "an agent" },
+  { word: "AI inbox", say: "an agent's inbox" },
+  { word: "connection", say: "an agent" },
+  { word: "workspace", say: "a team, or nothing" },
+  { word: "suggestion", say: "a change" },
+  { word: "persona", say: "nothing, as it was never built" },
+] as const);
+
+/** Owner as a team's role: the team's owner, or beside admins */
+const TEAM_OWNER = [
+  /\bteams?(?:'s|')?\s+owners?\b/gi,
+  /\bowners?(?:,\s*|\s+(?:and|or)\s+)(?:the\s+|an?\s+)?admins?\b/gi,
+  /\badmins?(?:,\s*|\s+(?:and|or)\s+)(?:the\s+|an?\s+)?owners?\b/gi,
+];
+/** What a playbook stays after: My playbook, yours, and a team's */
+const KEPT_PLAYBOOK = /(?:\bmy|\byour|\bteam|\bteam's|\bteams')\s+$/i;
+
+/**
+ * How often prose uses each retired word. Owner counts only where it isn't a
+ * team's role, and playbook wherever it means one body of work, as a tool's
+ * name such as playbook_map does. Everywhere counts as the place, with its
+ * capital; everywhere as a plain word stays.
+ */
+export function retiredWords(prose: string): Map<string, number> {
+  const counts = new Map<string, number>();
+  const count = (word: string, pattern: RegExp, text = prose) => {
+    for (const _ of text.matchAll(pattern))
+      counts.set(word, (counts.get(word) ?? 0) + 1);
+  };
+  count("user", /\busers?(?:'s|s')?\b/gi);
+  count(
+    "owner",
+    /\bowners?(?:'s|s')?\b/gi,
+    TEAM_OWNER.reduce((text, role) => text.replace(role, " "), prose),
+  );
+  count("Everywhere", /\bEverywhere\b/g);
+  for (const found of prose.matchAll(/\b\w*playbooks?\w*\b/gi))
+    if (
+      // A name in code that holds my_playbook, such as a field's, is My
+      // playbook's (G1-321)
+      !/my_playbooks?(?![a-z])/i.test(found[0]) &&
+      (!/^playbook$/i.test(found[0]) ||
+        !KEPT_PLAYBOOK.test(
+          prose.slice(Math.max(0, found.index - 12), found.index),
+        ))
+    )
+      counts.set("playbook", (counts.get("playbook") ?? 0) + 1);
+  count("ticket", /\b\w*tickets?\w*\b/gi);
+  count("AI app", /\bAI\s+apps?(?:'s|s')?\b/gi);
+  count("AI inbox", /\bAI\s+inbox(?:es|'s)?\b/gi);
+  count("connection", /\bconnections?(?:'s|s')?\b/gi);
+  count("workspace", /\bworkspaces?(?:'s|s')?\b/gi);
+  count("suggestion", /\bsuggestions?\b/gi);
+  count("persona", /\bpersonas?\b/gi);
+  return counts;
+}
 
 /** Text that isn't prose: code spans, code blocks and addresses */
 function prose(text: string): string {
@@ -239,12 +307,7 @@ export function checkAiText(text: AiText): Finding[] {
     "spelling",
     countMatches(words, SPELLING, (match) => match.toLowerCase()),
   );
-  add(
-    "glossary",
-    countMatches(words, GLOSSARY, (match) =>
-      /^owner/i.test(match) ? "owner" : "user",
-    ),
-  );
+  add("glossary", retiredWords(words));
   return findings;
 }
 

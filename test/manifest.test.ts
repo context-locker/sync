@@ -299,7 +299,7 @@ describe("the sync manifest", () => {
           holds: [],
           memoryFiles: { state: "on", connection: "nobody" },
         }),
-      /connection's id/,
+      /agent's id/,
     );
     assert.throws(
       () =>

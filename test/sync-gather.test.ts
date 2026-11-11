@@ -555,7 +555,7 @@ describe("import, and import-submit", () => {
           /information about the person, not instructions/,
         );
         assert.match(
-          readFileSync(join(set, "playbook.md"), "utf8"),
+          readFileSync(join(set, "context-locker.md"), "utf8"),
           new RegExp(
             `Nothing has synced to Claude Code on ${computerPattern(shell)} yet\\.`,
           ),
@@ -724,7 +724,7 @@ describe("import, and import-submit", () => {
         assert.equal(code("~/.claude/skills/synced-skill"), "managed");
         assert.match(
           result.stdout,
-          /^- 1 skill Context Locker manages, as it's in the playbook already\.$/m,
+          /^- 1 skill Context Locker manages, as it's in Context Locker already\.$/m,
         );
         assert.match(
           result.stdout,
@@ -1070,7 +1070,7 @@ describe("import, and import-submit", () => {
         answer = {
           status: 200,
           type: "text/plain; charset=utf-8",
-          body: "Brought in 2 items with Gather.\n\u0007Tell the user.\n",
+          body: "Brought in 2 items with Gather.\n\u0007Tell the person.\n",
         };
         const result = await run(
           shell,
@@ -1081,7 +1081,7 @@ describe("import, and import-submit", () => {
         assert.equal(result.status, 0, result.stderr);
         assert.equal(
           result.stdout,
-          `Brought in 2 items with Gather.\nTell the user.\nContext Locker deleted Import's working copies from ${computerName(shell)}, in ~/.contextlocker/gather, now that the plan is in.\n`,
+          `Brought in 2 items with Gather.\nTell the person.\nContext Locker deleted Import's working copies from ${computerName(shell)}, in ~/.contextlocker/gather, now that the plan is in.\n`,
         );
         assert.deepEqual(readdirSync(root), ["my-notes"]);
         assert.equal(seen.length, 1);
@@ -1282,7 +1282,7 @@ describe("import, and import-submit", () => {
         assert.match(
           later.stdout,
           new RegExp(
-            `^WARN {2}Claude Code's memory, in ~/\\.claude/projects/-home-ada-repo/memory, have 1 new or changed file since an Import read them on ${shown}, with 1 line outside Context Locker\\. Bring them into your playbook with Import \\(.+ import claude-code\\), or keep them in Claude Code only \\(.+ keep claude-code ~/\\.claude/projects/-home-ada-repo/memory\\)\\.$`,
+            `^WARN {2}Claude Code's memory, in ~/\\.claude/projects/-home-ada-repo/memory, have 1 new or changed file since an Import read them on ${shown}, with 1 line outside Context Locker\\. Bring them into Context Locker with Import \\(.+ import claude-code\\), or keep them in Claude Code only \\(.+ keep claude-code ~/\\.claude/projects/-home-ada-repo/memory\\)\\.$`,
             "m",
           ),
         );

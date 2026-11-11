@@ -210,7 +210,7 @@ describe("a session start when the sync can't get Context Locker's answer", () =
         // answer named comes with setting up again, or not at all
         assert.equal(
           additional(session.stdout),
-          `Context Locker: Claude Code's connection on ${computerName(shell)} was revoked in Context Locker, so nothing syncs there any more, and Claude Code's files are as they were on 26 Oct 2026. Offer to take Context Locker off ${computerName(shell)}: run \`${runLine(shell)} remove claude-code\`, which says what it would take out and changes nothing, and only once the person says yes, run it again with \`${yes(shell)}\`.`,
+          `Context Locker: the agent Claude Code on ${computerName(shell)} was revoked in Context Locker, so nothing syncs there any more, and Claude Code's files are as they were on 26 Oct 2026. Offer to take Context Locker off ${computerName(shell)}: run \`${runLine(shell)} remove claude-code\`, which says what it would take out and changes nothing, and only once the person says yes, run it again with \`${yes(shell)}\`.`,
         );
         assert.match(session.stderr, /was revoked in Context Locker/);
       });
@@ -224,7 +224,7 @@ describe("a session start when the sync can't get Context Locker's answer", () =
         assert.equal(expired.status, 0, expired.stderr);
         assert.equal(
           expired.stdout,
-          `Context Locker: Codex's connection on ${computerName(shell)} was revoked or has expired, so Codex's files are as they were on 26 Oct 2026. ${CONNECT}\n`,
+          `Context Locker: the agent Codex on ${computerName(shell)} was revoked or has expired, so Codex's files are as they were on 26 Oct 2026. ${CONNECT}\n`,
         );
 
         // Without a token, it never asks Context Locker
@@ -283,7 +283,7 @@ describe("a session start when the sync can't get Context Locker's answer", () =
           offline.stdout,
           `Context Locker: can't reach Context Locker, so Codex's files are as they were on 26 Oct 2026. The next sync tries again. If it keeps happening, offer to look into it with \`${runLine(shell)} doctor codex\`.\n` +
             "\n" +
-            `Context Locker: as of the last sync, on 26 Oct 2026, version ${NEXT} of its sync script is out. When it suits the user, offer to update it, and once they say yes, run \`${runLine(shell)} update codex\`. That changes only the script, and the one installed keeps working until then.\n`,
+            `Context Locker: as of the last sync, on 26 Oct 2026, version ${NEXT} of its sync script is out. When it suits the person, offer to update it, and once they say yes, run \`${runLine(shell)} update codex\`. That changes only the script, and the one installed keeps working until then.\n`,
         );
         assert.match(offline.stderr, /can't reach Context Locker/);
 
@@ -302,7 +302,7 @@ describe("a session start when the sync can't get Context Locker's answer", () =
         const back = await run(shell, machine, ["codex"]);
         assert.equal(
           back.stdout,
-          `Context Locker: version ${NEXT} of its sync script is out. When it suits the user, offer to update it, and once they say yes, run \`${runLine(shell)} update codex\`. That changes only the script, and the one installed keeps working until then.\n`,
+          `Context Locker: version ${NEXT} of its sync script is out. When it suits the person, offer to update it, and once they say yes, run \`${runLine(shell)} update codex\`. That changes only the script, and the one installed keeps working until then.\n`,
         );
       });
 
@@ -332,7 +332,7 @@ describe("a session start when the sync can't get Context Locker's answer", () =
         assert.equal(readFileSync(lock, "utf8"), before);
         assert.ok(
           waiting.stdout.startsWith(
-            "Context Locker: a newer version of its sync script is out. When it suits the user, offer to set Context Locker up again for them: once they say yes, download the newest steps with `curl -fsSL https://context.locker/setup/SKILL.md` and follow them. The one installed keeps working until then.\n",
+            "Context Locker: a newer version of its sync script is out. When it suits the person, offer to set Context Locker up again for them: once they say yes, download the newest steps with `curl -fsSL https://context.locker/setup/SKILL.md` and follow them. The one installed keeps working until then.\n",
           ),
           waiting.stdout,
         );
@@ -345,7 +345,7 @@ describe("a session start when the sync can't get Context Locker's answer", () =
         assert.equal(revoked.status, 1);
         assert.ok(
           revoked.stderr.includes(
-            `Context Locker: Codex's connection on ${computerName(shell)} was revoked in Context Locker, so nothing syncs there any more. Offer to take Context Locker off ${computerName(shell)}: run \`${runLine(shell)} remove codex\``,
+            `Context Locker: the agent Codex on ${computerName(shell)} was revoked in Context Locker, so nothing syncs there any more. Offer to take Context Locker off ${computerName(shell)}: run \`${runLine(shell)} remove codex\``,
           ),
           revoked.stderr,
         );
@@ -355,7 +355,7 @@ describe("a session start when the sync can't get Context Locker's answer", () =
         assert.equal(expired.status, 1);
         assert.ok(
           expired.stderr.includes(
-            `Context Locker: Codex's connection on ${computerName(shell)} was revoked or has expired. ${CONNECT}`,
+            `Context Locker: the agent Codex on ${computerName(shell)} was revoked or has expired. ${CONNECT}`,
           ),
           expired.stderr,
         );

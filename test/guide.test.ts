@@ -62,10 +62,10 @@ describe("Context Locker's guide (G1-309)", () => {
       guideTopics(environment)
         .map((topic) => topic.text)
         .join("\n");
-    assert.match(text("mcp"), /write_ticket/);
+    assert.match(text("mcp"), /write_task/);
     assert.match(text("mcp"), /with remember/);
-    assert.doesNotMatch(text("mcp"), /tickets <app>|remember <app>/);
-    assert.match(text("sync"), /`tickets <app> write`/);
+    assert.doesNotMatch(text("mcp"), /tasks <app>|remember <app>/);
+    assert.match(text("sync"), /`tasks <app> write`/);
     assert.match(text("sync"), /`remember <app>`/);
   });
 

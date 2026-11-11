@@ -53,7 +53,7 @@ describe("the published setup files", () => {
         [
           "topics/reporting.md",
           "topics/import.md",
-          "topics/playbooks.md",
+          "topics/projects.md",
           "topics/changes.md",
           "topics/when-something-breaks.md",
         ].includes(topic.file)

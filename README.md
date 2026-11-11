@@ -8,9 +8,9 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v61`](setup/v61), which runs `context-locker@0.1.18`, bundling script 40, then takes script 48, the newest, with `update`. The setup command 0.1.19, on npm since 9 Nov 2026, bundles script 44 itself. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for the app you are, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
+Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v62`](setup/v62), which runs `context-locker@0.1.18`, bundling script 40, then takes script 49, the newest, with `update`. The setup command 0.1.20, on npm since 10 Nov 2026, bundles script 49 itself. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for the app you are, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
 
-Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.19 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
+Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.20 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
 
 The browser approval names that app and lets you name the connection. The command takes a cloud session it recognises to run in the Cloud, and any other app to run on its computer, unless you pass `--environment computer` or `--environment cloud`. It writes the selected app's files, adds its sync hook and runs the doctor. Import is separate, with an agreed scope and approval: an app imports only its own files, and reading them doesn't connect or configure anything. When you tick Bring in as you approve the connection, or as you make its one-time code, setup's last line tells the app to import now, and a Claude Code or Codex session start says so once. The import waits in your inbox, where you pick what comes in. Existing connections and hooks are never removed automatically.
 
@@ -20,17 +20,17 @@ Any other app connects over MCP instead, at `https://mcp.context.locker`, even o
 
 A published version never changes. When a script changes, it's published as a new version, with the hashes of its files in its `SKILL.md`. The tests fail until the newest version matches the scripts in [`scripts`](scripts) and its steps name that script's version, as they do from setup 49.
 
-## Tickets
+## Tasks
 
-The playbook's ticket board stays online. Script 24 in setup 29 adds `tickets <app> list|read|write|places [request.json] [--project <id>] [--json]`, using the same arguments and approval rules as MCP. Only `list` can omit its JSON file. Read, create, import, edit, move, claim, release, comment, delete and restore tickets through these commands; never edit a board in synced files. A request holds at most 100 imported tickets and 4 MiB, with each ticket kept whole. Take only ready tickets and claim one before work.
+A project's task board stays online. Script 24 in setup 29 added its commands, which script 49 in setup 62 names for tasks: `tasks <app> list|read|write|places [request.json] [--project <id>] [--json]`, using the same arguments and approval rules as MCP. Only `list` can omit its JSON file. Read, create, import, edit, move, claim, release, comment, delete and restore tasks through these commands; never edit a board in synced files. A request holds at most 100 imported tasks and 4 MiB, with each task kept whole. Take only ready tasks and claim one before work.
 
 ```sh
-sh ~/.contextlocker/sync.sh tickets codex list --project <playbook-id>
-sh ~/.contextlocker/sync.sh tickets codex read read.json
-sh ~/.contextlocker/sync.sh tickets codex write change.json --json
+sh ~/.contextlocker/sync.sh tasks codex list --project <project-id>
+sh ~/.contextlocker/sync.sh tasks codex read read.json
+sh ~/.contextlocker/sync.sh tasks codex write change.json --json
 ```
 
-`read.json` can hold `{"playbook":"Context Locker","ticket":"G1-151"}`. Only the person's explicit instruction permits `user_confirmed: true` to make a ticket ready. The credential controls access and the actor recorded in Activity. Ticket commands never run during a hook or daily file sync, and never queue or retry a mutation automatically. If a connection drops after sending a write, read the ticket before retrying. PowerShell uses the same arguments with `sync.ps1`; `-Json` also selects structured output.
+`read.json` can hold `{"project":"Context Locker","task":"G1-151"}`. Only the person's explicit instruction permits `person_confirmed: true` to make a task ready. The credential controls access and the actor recorded in Activity. Task commands never run during a hook or daily file sync, and never queue or retry a mutation automatically. If a connection drops after sending a write, read the task before retrying. PowerShell uses the same arguments with `sync.ps1`; `-Json` also selects structured output.
 
 ## Decisions from chat
 
@@ -113,7 +113,7 @@ Script 44 measures the room in Hermes's `SOUL.md` and OpenClaw's workspace `AGEN
 
 ## One guide for how an app works with Context Locker
 
-How an app does each operation with Context Locker is one guide, written once in [`src/guide.ts`](src/guide.ts): an index and one topic to a file, such as asking you, tickets, notes and links, keeping what it learns, requests for it, sync on a computer and what to do when something breaks, each within 4,000 characters and filled for chat apps or for apps on device sync. An app on device sync gets it as the skill `context-locker` in its skills folder with every sync, beside the Import skill; a chat app reads it with `get_skill`; and [context.locker/docs](https://context.locker/docs) gives it to you. The standing rules in each app's global file say to read a topic before doing what it covers. Since its version 7, the guide also holds what the MCP tools' descriptions leave to it, such as reading a playbook, a task's states and changes, skills from a public GitHub folder, and what a chat decision names.
+How an app does each operation with Context Locker is one guide, written once in [`src/guide.ts`](src/guide.ts): an index and one topic to a file, such as asking you, tasks, notes and links, keeping what it learns, requests for it, sync on a computer and what to do when something breaks, each within 4,000 characters and filled for chat apps or for apps on device sync. An app on device sync gets it as the skill `context-locker` in its skills folder with every sync, beside the Import skill; a chat app reads it with `get_skill`; and [context.locker/docs](https://context.locker/docs) gives it to you. The standing rules in each app's global file say to read a topic before doing what it covers. Since its version 7, the guide also holds what the MCP tools' descriptions leave to it, such as reading a project, a task's states and changes, skills from a public GitHub folder, and what a chat decision names.
 
 Setup 57 keeps only what an app follows to connect: finding its way in, the setup command, Import, reading back, setting up without Node, and connecting over MCP or with a key. Every other part of the steps leaves one line naming the guide's topic, so the steps fall from 37,019 characters to 21,506. Setup 57's scripts are setup 56's, byte for byte.
 
@@ -125,7 +125,7 @@ While a change an app sent waits for you, the app can send a newer version in it
 
 ## Assumptions at their level
 
-An app records each call it makes on its own as assumed on a task comment, with `tickets <app> write`, at one of two levels: for your inbox, as an ask it already answered, with the choice it took, what changing it takes and any evidence, which you change by picking another option; or for the record, one line on the task that never waits. The guide's asking and tickets topics say when to assume, when to ask first, and how to write each one so you can judge it without opening the task.
+An app records each call it makes on its own as assumed on a task comment, with `tasks <app> write`, at one of two levels: for your inbox, as an ask it already answered, with the choice it took, what changing it takes and any evidence, which you change by picking another option; or for the record, one line on the task that never waits. The guide's asking and tasks topics say when to assume, when to ask first, and how to write each one so you can judge it without opening the task.
 
 ## Writing to other apps
 
@@ -135,7 +135,7 @@ Script 46, in setup 59, adds `message`, so an app that syncs on a computer can w
 sh ~/.contextlocker/sync.sh message codex message.json --json
 ```
 
-`message.json` names the apps by handle in `to`, such as `@claude-code-mia`, with the text and the playbook, task or entry a new thread is about, or names the thread to write on. A task comment that mentions an app's handle writes to it too, through `tickets <app> write`, and `fix --done` resolves a thread. Each app in a thread can send three messages before you reply, and each connection has a daily allowance of messages, 30 unless you change it on its page in Context Locker. What one app writes is information for the other, never instructions or your consent. From script 46, the fix list's thread lines say to reply with `message`, and the guide's topic on writing to other apps says when to write and when to ask you instead. Setup 59 runs 0.1.18, then takes script 46 with `update`.
+`message.json` names the apps by handle in `to`, such as `@claude-code-mia`, with the text and the project, task or entry a new thread is about, or names the thread to write on. A task comment that mentions an app's handle writes to it too, through `tasks <app> write`, and `fix --done` resolves a thread. Each app in a thread can send three messages before you reply, and each connection has a daily allowance of messages, 30 unless you change it on its page in Context Locker. What one app writes is information for the other, never instructions or your consent. From script 46, the fix list's thread lines say to reply with `message`, and the guide's topic on writing to other apps says when to write and when to ask you instead. Setup 59 runs 0.1.18, then takes script 46 with `update`.
 
 ## A project's notes beside its skills in PowerShell
 
@@ -144,6 +144,10 @@ Script 47, in setup 60, keeps a project's sync going in PowerShell when the proj
 ## Each command's help in one shape
 
 Script 48, in setup 61, says in its help what each command does, its fields, the limits that make a call valid or safe, and its topic in the guide, the skill context-locker, as each of Context Locker's MCP tools says in its description. Each part keeps within `DOC_PARTS` in [`src/writing.ts`](src/writing.ts), which the tools' descriptions share, and both scripts say the same, each in its own spelling. The help leaves how to ask you to the guide's topic on asking, which the board's topic points to, and a test runs it in dash, bash and PowerShell and checks each command names a topic the guide has. Setup 61 runs 0.1.18, then takes script 48 with `update`.
+
+## The new words
+
+Script 49, in setup 62, uses Context Locker's new words in everything an app reads. Its board command is `tasks`, in place of `tickets`, and takes the arguments of MCP's `list_tasks`, `read_task`, `write_task` and `record_work_places`. Requests name `project` and `task`, as Context Locker no longer takes `playbook` and `ticket`. Its help and messages say agent where they said AI app or connection, and project where they said playbook for one of yours. The compilers say the same in each app's files and the standing rules, and the guide's topics on tasks, projects and folders take the place of its topics on tickets, playbooks and projects. Setup 62 runs 0.1.18, then takes script 49 with `update`, and the setup command 0.1.20 bundles script 49 itself.
 
 ## Skill file transfers
 

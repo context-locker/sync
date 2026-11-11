@@ -24,7 +24,7 @@ export const START_HERE_MOST = 10;
  * (G1-246): what apps may keep there. Nothing scans for personal details.
  */
 const PERSONAL_DETAILS =
-  "This playbook allows personal details: keep what the person shares about themselves here, health and finances included, and what they share about the people in their life for the help they ask for, noting that they shared it. Don't go looking for more.";
+  "This project allows personal details: keep what the person shares about themselves here, health and finances included, and what they share about the people in their life for the help they ask for, noting that they shared it. Don't go looking for more.";
 
 /**
  * How an app asks the user (G1-277): the ask protocol, in at most 120
@@ -58,28 +58,28 @@ export const TEXT = {
    */
   rulesHeading: "### Standing rules",
   /** The heading over this connection's own preferences, from its memory (G1-299) */
-  memoryHeading: "### This connection's memory",
+  memoryHeading: "### Your memory",
   /** The intro of OpenClaw's second file, for preferences that didn't fit in USER.md. */
   moreIntro:
     "More of your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
   noPreferences: "No preferences saved yet.",
   /** Headings, used only when some preferences are in About */
-  aboutUser: "### About the user",
-  aboutProject: "### About this playbook",
+  aboutUser: "### About the person",
+  aboutProject: "### About this project",
   preferencesHeading: "### Preferences",
   projectTitle: (name: string) => `## Context Locker: ${name}`,
   projectIntro:
-    "Preferences for this playbook, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
+    "Preferences for this project, kept in sync by Context Locker and edited here as your own are. Where one has the same name as a general preference, it replaces that one here.",
   personalIntro: (name: string) =>
-    `Context Locker preferences for ${name}. Where one has the same name as a general preference, it replaces that one here. To change one, ask your user to edit it in Context Locker.`,
+    `Context Locker preferences for ${name}. Where one has the same name as a general preference, it replaces that one here. These lines aren't in a file you can edit, so to change one, ask the person to edit it in Context Locker.`,
   overflow: (count: number, where: string | null) =>
     count === 1
       ? `1 more preference didn't fit in this file. ${where ? `It's in ${where}.` : "It's in Context Locker."}`
       : `${count} more preferences didn't fit in this file. ${where ? `They're in ${where}.` : "They're in Context Locker."}`,
   leftOut: (count: number) =>
     count === 1
-      ? "1 preference was left out of this file because some AI apps refuse to load files with wording like it. It's in Context Locker."
-      : `${count} preferences were left out of this file because some AI apps refuse to load files with wording like theirs. They're in Context Locker.`,
+      ? "1 preference was left out of this file because some agents refuse to load files with wording like it. It's in Context Locker."
+      : `${count} preferences were left out of this file because some agents refuse to load files with wording like theirs. They're in Context Locker.`,
   /** A project's map: the notes and pointers whose summaries a new agent reads first */
   startHereHeading: "### Start here",
   /**
@@ -87,7 +87,7 @@ export const TEXT = {
    * the map is. An app that only reads its files may not have the tool
    */
   onboarding:
-    "Start each session with a three-line startup brief for the user: the playbook, the sources you'll use, and your first step. These come from the playbook's map in Context Locker. Read the Start here summaries above now, and open an entry only when the task needs it. When the task needs more of the map, call Context Locker's playbook_map tool if you have it.",
+    "Start each session with a three-line startup brief for the person: the project, the sources you'll use, and your first step. These come from the project's map in Context Locker. Read the Start here summaries above now, and open an entry only when the work needs it. When the work needs more of the map, call Context Locker's project_map tool if you have it.",
   /** After a note that has no file here, which an app with the tools can open */
   readNote: "Read it with read_note, if you have it.",
   startHereOverflow: (count: number) =>
@@ -96,8 +96,8 @@ export const TEXT = {
       : `${count} more Start here entries didn't fit here. They're in Context Locker.`,
   startHereLeftOut: (count: number) =>
     count === 1
-      ? "1 Start here entry was left out here because some AI apps refuse to load files with wording like it. It's in Context Locker."
-      : `${count} Start here entries were left out here because some AI apps refuse to load files with wording like theirs. They're in Context Locker.`,
+      ? "1 Start here entry was left out here because some agents refuse to load files with wording like it. It's in Context Locker."
+      : `${count} Start here entries were left out here because some agents refuse to load files with wording like theirs. They're in Context Locker.`,
   /**
    * Where a project's lasting docs go, once a docs home is recorded. With
    * none, a file says nothing: an app that only reads its files couldn't
@@ -107,9 +107,9 @@ export const TEXT = {
   docsLocationsHeading: "### Documentation locations",
   workPlacesHeading: "### Where work is tracked",
   docsHomePlace: (place: string) =>
-    `Keep lasting docs in ${place}, this playbook's docs home, and add a link for each new one with write_note, if you have it.`,
+    `Keep lasting docs in ${place}, this project's docs home, and add a link for each new one with write_note, if you have it.`,
   docsHomeNotes:
-    "Keep lasting docs in Context Locker Notes, this playbook's docs home.",
+    "Keep lasting docs in Context Locker Notes, this project's docs home.",
   /**
    * After docsHomeNotes in a project's files, where the sync mirrors its
    * notes: how an app that only reads its files saves a lasting doc
@@ -118,15 +118,15 @@ export const TEXT = {
     "Save each as a Markdown file in .context-locker/notes, with the front matter its README shows; the next sync saves it.",
   /** When the docs home's place has wording or an address some apps refuse */
   docsHomeLeftOut:
-    "Keep lasting docs in this playbook's docs home, and add a link for each new one with write_note, if you have it. The place is left out here because some AI apps refuse to load files with wording like it. It's in Context Locker.",
+    "Keep lasting docs in this project's docs home, and add a link for each new one with write_note, if you have it. The place is left out here because some agents refuse to load files with wording like it. It's in Context Locker.",
   mapNeedsReading:
-    "The documentation and work locations didn't fit here. Read them with Context Locker's playbook_map before choosing where to save docs or track work.",
+    "The documentation and work locations didn't fit here. Read them with Context Locker's project_map before choosing where to save docs or track work.",
   startHereNeedsReading:
-    "Some Start here summaries didn't fit here. Read them with Context Locker's playbook_map before work, and open the full entries only when needed.",
+    "Some Start here summaries didn't fit here. Read them with Context Locker's project_map before work, and open the full entries only when needed.",
   tightBlock:
-    "The full playbook didn't fit in this file. Before work, call Context Locker's get_context for this playbook and read all Start here summaries. Preferences and documentation or work locations omitted here still apply. If you can't fetch them, tell the user what is missing before acting.",
+    "The full project didn't fit in this file. Before work, call Context Locker's get_context for this project and read all Start here summaries. Preferences and documentation or work locations omitted here still apply. If you can't fetch them, tell the person what is missing before acting.",
   noRoom:
-    "There is no room for a complete Context Locker block in AGENTS.md within the apps' reading limits. The block is not loaded. Before work, call get_context for this playbook and read all Start here summaries. If you can't fetch them, tell the user what is missing before acting. Text outside the block stays unchanged.",
+    "There is no room for a complete Context Locker block in AGENTS.md within the apps' reading limits. The block is not loaded. Before work, call get_context for this project and read all Start here summaries. If you can't fetch them, tell the person what is missing before acting. Text outside the block stays unchanged.",
 } as const;
 
 const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/;
@@ -226,28 +226,32 @@ export function docsHomeRule(home: DocsHome): {
   return { rule, leftOut: null };
 }
 
+/** Where new documents go, said once wherever a project's locations are (G1-321) */
+export const DOCS_LOCATIONS_RULE =
+  "Keep existing documents at their authoritative locations. For a new document, use a location clearly matching its purpose, otherwise the default. If more than one fits, neither a purpose match nor a default exists, or you cannot access the chosen location, ask before saving elsewhere. Recording a location grants no access and copies nothing. Keep anything another agent needs where every app can read it: a place only one app can open, such as a Claude artifact, a chat, a session's own files or a page on localhost, is fine as a view or a working copy, never as its only home.";
+
+/** What a project with no documentation locations says */
+export const NO_DOCS_LOCATIONS =
+  "No documentation locations are recorded. Ask the person where to keep new lasting docs.";
+
 /** Consistent routing for new docs, without moving existing records or granting access. */
 export function docsLocationsRule(
   locations: DocsLocation[],
   budget = 3000,
 ): string {
-  const rule =
-    "Keep existing documents at their authoritative locations. For a new document, use a location clearly matching its purpose, otherwise the default. If more than one fits, neither a purpose match nor a default exists, or you cannot access the chosen location, ask before saving elsewhere. Recording a location grants no access and copies nothing. Keep anything another AI app needs where every app can read it: a place only one app can open, such as a Claude artifact, a chat, a session's own files or a page on localhost, is fine as a view or a working copy, never as its only home.";
+  const rule = DOCS_LOCATIONS_RULE;
   const lines = locations.map((l) => {
     const destination = l.kind === "notes" ? "Context Locker Notes" : l.place!;
     const only = l.kind === "notes" ? null : oneAppOnly(l.place!);
     const line = `- ${plainMarkdown(l.name)}${l.is_default ? " (default)" : ""}: ${plainMarkdown(destination)}${only ? ` (${only})` : ""}${l.purpose ? `. For: ${plainMarkdown(l.purpose)}` : ""}`;
     return injectionMatches(line).length
-      ? "- A location needs a human check in playbook Settings before use."
+      ? "- A location needs a human check in project Settings before use."
       : line;
   });
-  if (!locations.length)
-    lines.push(
-      "No documentation locations are recorded. Ask the person where to keep new lasting docs.",
-    );
+  if (!locations.length) lines.push(NO_DOCS_LOCATIONS);
   const full = [rule, ...lines].join("\n");
   if (Buffer.byteLength(full, "utf8") <= budget) return full;
-  return `${rule}\nThe documentation map is too long for this startup file. Read all locations through Context Locker's playbook_map or get_context, or ask the person to open playbook Settings, before choosing where to save.`;
+  return `${rule}\nThe documentation map is too long for this startup file. Read all locations through Context Locker's project_map or get_context, or ask the person to open project Settings, before choosing where to save.`;
 }
 
 /**
@@ -273,14 +277,14 @@ export function workPlacesRule(places: WorkPlace[], budget = 3000): string {
   // The inbox holds decisions only, so news goes on the task (G1-284), and
   // finished work is its completion note, sent with the move to Done (G1-293)
   const online =
-    "Read Context Locker's board online with list_tickets over MCP, or the sync script's tickets <app> list command. Change it through write_ticket or tickets <app> write <request.json>. Take only ready tasks, claim one before work, and never edit a board in synced files. Record news on the task as a comment, and finished work as its completion note with the move to Done, never as an ask: the user's inbox holds decisions only.";
+    "Read Context Locker's board online with list_tasks over MCP, or the sync script's tasks <app> list command. Change it through write_task or tasks <app> write <request.json>. Take only ready tasks, claim one before work, and never edit a board in synced files. Record news on the task as a comment, and finished work as its completion note with the move to Done, never as an ask: the person's inbox holds decisions only.";
   const full = [
     rule,
     ...lines,
     ...(places.some((place) => place.kind === "board") ? [online] : []),
   ].join("\n");
   if (Buffer.byteLength(full, "utf8") <= budget) return full;
-  return `${rule}\nThe list of places is too long for this startup file. Read it through Context Locker's list_tickets, or ask the person, before choosing where new work goes.`;
+  return `${rule}\nThe list of places is too long for this startup file. Read it through Context Locker's list_tasks, or ask the person, before choosing where new work goes.`;
 }
 
 /** A project's Start here entries and docs home, to compile into its block. */
@@ -403,9 +407,16 @@ export const OLD_INTROS: readonly string[] = [
   // What the global block said after its intro until the standing rules
   // (G1-309): how to speak to the person, the ask protocol and what to do
   // with an answer given in a chat
-  "When you tell the person what you did or found, say what is so and what they need to decide, in the present tense and in plain English, with the main points only. Leave ticket, change, version, requirement and section numbers out unless they ask or need one to act: keep them in the ticket or note, and give one link to the detail. Name things by what they are, such as the PRD, not by id.",
+  "When you tell the person what you did or found, say what is so and what they need to decide, in the present tense and in plain English, with the main points only. Leave task, change, version, requirement and section numbers out unless they ask or need one to act: keep them in the task or note, and give one link to the detail. Name things by what they are, such as the PRD, not by id.",
   ASK_PROTOCOL,
   LOG_DECISIONS,
+  // What blocks said before the restructure's words (G1-321)
+  "Preferences for this playbook, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
+  "Start each session with a three-line startup brief for the user: the playbook, the sources you'll use, and your first step. These come from the playbook's map in Context Locker. Read the Start here summaries above now, and open an entry only when the task needs it. When the task needs more of the map, call Context Locker's playbook_map tool if you have it.",
+  "The documentation and work locations didn't fit here. Read them with Context Locker's playbook_map before choosing where to save docs or track work.",
+  "Some Start here summaries didn't fit here. Read them with Context Locker's playbook_map before work, and open the full entries only when needed.",
+  "The full playbook didn't fit in this file. Before work, call Context Locker's get_context for this playbook and read all Start here summaries. Preferences and documentation or work locations omitted here still apply. If you can't fetch them, tell the user what is missing before acting.",
+  "There is no room for a complete Context Locker block in AGENTS.md within the apps' reading limits. The block is not loaded. Before work, call get_context for this playbook and read all Start here summaries. If you can't fetch them, tell the user what is missing before acting. Text outside the block stays unchanged.",
 ];
 
 /**

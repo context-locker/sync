@@ -361,10 +361,9 @@ describe("the notes folder's README", () => {
       readme,
       /Deleting a file doesn't delete its note: the file comes back at the next sync\./,
     );
-    assert.match(
-      readme,
-      /Follow current notes marked source-of-truth as standing guidance/,
-    );
+    // How to use a note is the standing rules' and the guide's, said once
+    // there (G1-321)
+    assert.doesNotMatch(readme, /Follow current notes marked source-of-truth/);
   });
 });
 
