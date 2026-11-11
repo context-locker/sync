@@ -149,6 +149,10 @@ Script 48, in setup 61, says in its help what each command does, its fields, the
 
 Script 49, in setup 62, uses Context Locker's new words in everything an app reads. Its board command is `tasks`, in place of `tickets`, and takes the arguments of MCP's `list_tasks`, `read_task`, `write_task` and `record_work_places`. Requests name `project` and `task`, as Context Locker no longer takes `playbook` and `ticket`. Its help and messages say agent where they said AI app or connection, and project where they said playbook for one of yours. The compilers say the same in each app's files and the standing rules, and the guide's topics on tasks, projects and folders take the place of its topics on tickets, playbooks and projects. Setup 62 runs 0.1.18, then takes script 49 with `update`, and the setup command 0.1.20 bundles script 49 itself.
 
+## Lessons and grooming
+
+The guide's version 9, and the files the compilers write, as Context Locker's main had them on 11 Nov 2026, with setup 62 and script 49 as they are. An app keeps what it works out on a project, such as a trap or a tested rule, as one line in the project's lessons note, with `remember` and kind lesson, without asking you: the guide's part on lessons says how, and the standing rules keep it to one line. A project's lessons note comes first in its Start here and counts for nothing against its 10. When you give a Tidy-up item about notes to an app to groom, the guide's part on grooming says what it does: the work in fixed words, changing no meaning, keeping every dated decision and deleting nothing, with every change waiting for you.
+
 ## Skill file transfers
 
 Script 27 in setup 32 transfers only changed skill files. It reads an
