@@ -476,7 +476,7 @@ describe("a project in the sync", () => {
             ),
             "utf8",
           );
-          assert.match(offlineCopy, /get_context/);
+          assert.match(offlineCopy, /`context <app>`/);
         });
 
         it("uses ancestor bytes, UTF-8, custom limits and round-down steps for both apps", async () => {

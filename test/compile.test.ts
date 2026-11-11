@@ -154,7 +154,8 @@ describe("the room a shared AGENTS.md leaves (G1-218)", () => {
         assert.ok(!block.text.includes("\ufffd"));
       } else {
         assert.match(projectText(codex), /block is not loaded/);
-        assert.match(projectText(codex), /get_context/);
+        // It names the command every app that reads it has (G1-335)
+        assert.match(projectText(codex), /`context <app>`/);
       }
     }
   });
@@ -381,12 +382,14 @@ describe("compiled output", () => {
       TEXT.leftOut(1),
       TEXT.leftOut(2),
       TEXT.startHereHeading,
-      TEXT.onboarding,
+      TEXT.onboarding("sync"),
+      TEXT.onboarding("mcp"),
       TEXT.startHereOverflow(1),
       TEXT.startHereOverflow(2),
       TEXT.startHereLeftOut(1),
       TEXT.startHereLeftOut(2),
-      TEXT.readNote,
+      TEXT.readNote("sync"),
+      TEXT.readNote("mcp"),
       TEXT.docsHomeHeading,
       TEXT.docsHomePlace("[docs/decisions](docs/decisions)"),
       TEXT.docsHomeNotes,
@@ -591,7 +594,7 @@ describe("a project's map in its block", () => {
             ),
             `${harness} ${layer}`,
           );
-          assert.ok(!output.text.includes(TEXT.readNote), harness);
+          assert.ok(!output.text.includes(TEXT.readNote("sync")), harness);
         }
       }
     }
@@ -607,7 +610,7 @@ describe("a project's map in its block", () => {
     assert.ok(listed.length <= START_HERE_MOST);
     const section = text.slice(
       text.indexOf(TEXT.startHereHeading),
-      text.indexOf(TEXT.onboarding),
+      text.indexOf(TEXT.onboarding("sync")),
     );
     assert.ok(Buffer.byteLength(section) <= BUDGETS.startHere);
     assert.match(text, /\d+ more Start here entries didn't fit here\./);
@@ -653,7 +656,10 @@ describe("a project's map in its block", () => {
       compile({ ...mapped("codex", "repo"), startHere: [...short, lessons] }),
     );
     const section = text
-      .slice(text.indexOf(TEXT.startHereHeading), text.indexOf(TEXT.onboarding))
+      .slice(
+        text.indexOf(TEXT.startHereHeading),
+        text.indexOf(TEXT.onboarding("sync")),
+      )
       .split("\n");
     assert.match(
       section[2] ?? "",
@@ -668,16 +674,18 @@ describe("a project's map in its block", () => {
 
   it("asks for the startup brief only when there are Start here entries", () => {
     assert.ok(
-      projectText(compile(mapped("codex", "repo"))).includes(TEXT.onboarding),
+      projectText(compile(mapped("codex", "repo"))).includes(
+        TEXT.onboarding("sync"),
+      ),
     );
     const none = projectText(
       compile({ ...mapped("codex", "repo"), startHere: [] }),
     );
-    assert.ok(!none.includes(TEXT.onboarding));
+    assert.ok(!none.includes(TEXT.onboarding("sync")));
     assert.ok(!none.includes(TEXT.startHereHeading));
     assert.ok(
       none.includes(
-        "Keep lasting docs in [docs/decisions](docs/decisions), this project's docs home, and add a link for each new one with write_note, if you have it.",
+        "Keep lasting docs in [docs/decisions](docs/decisions), this project's docs home, and add a link for each new one with the sync script's `notes <app> write`.",
       ),
     );
   });
@@ -764,7 +772,7 @@ describe("a project's map in its block", () => {
       }
     }
     assert.ok(
-      TEXT.onboarding.startsWith(
+      TEXT.onboarding("sync").startsWith(
         "Start each session with a three-line startup brief for the person: the project, the sources you'll use, and your first step.",
       ),
     );

@@ -84,12 +84,16 @@ export const TEXT = {
   startHereHeading: "### Start here",
   /**
    * After the Start here entries: what to do with them, and where the rest of
-   * the map is. An app that only reads its files may not have the tool
+   * the map is: the sync script's map command in an app's files, which only
+   * the sync writes, and the tool over MCP (G1-335)
    */
-  onboarding:
-    "Start each session with a three-line startup brief for the person: the project, the sources you'll use, and your first step. These come from the project's map in Context Locker. Read the Start here summaries above now, and open an entry only when the work needs it. When the work needs more of the map, call Context Locker's project_map tool if you have it.",
-  /** After a note that has no file here, which an app with the tools can open */
-  readNote: "Read it with read_note, if you have it.",
+  onboarding: (reach: Reach) =>
+    `Start each session with a three-line startup brief for the person: the project, the sources you'll use, and your first step. These come from the project's map in Context Locker. Read the Start here summaries above now, and open an entry only when the work needs it. When the work needs more of the map, ${reach === "sync" ? "run the sync script's `map <app>`" : "call Context Locker's project_map tool if you have it"}.`,
+  /** After a note that has no file here, which the reader can open */
+  readNote: (reach: Reach) =>
+    reach === "sync"
+      ? "Read it with the sync script's `notes <app> read`."
+      : "Read it with read_note, if you have it.",
   startHereOverflow: (count: number) =>
     count === 1
       ? "1 more Start here entry didn't fit here. It's in Context Locker."
@@ -107,7 +111,7 @@ export const TEXT = {
   docsLocationsHeading: "### Documentation locations",
   workPlacesHeading: "### Where work is tracked",
   docsHomePlace: (place: string) =>
-    `Keep lasting docs in ${place}, this project's docs home, and add a link for each new one with write_note, if you have it.`,
+    `Keep lasting docs in ${place}, this project's docs home, and add a link for each new one with the sync script's \`notes <app> write\`.`,
   docsHomeNotes:
     "Keep lasting docs in Context Locker Notes, this project's docs home.",
   /**
@@ -118,16 +122,21 @@ export const TEXT = {
     "Save each as a Markdown file in .context-locker/notes, with the front matter its README shows; the next sync saves it.",
   /** When the docs home's place has wording or an address some apps refuse */
   docsHomeLeftOut:
-    "Keep lasting docs in this project's docs home, and add a link for each new one with write_note, if you have it. The place is left out here because some agents refuse to load files with wording like it. It's in Context Locker.",
+    "Keep lasting docs in this project's docs home, and add a link for each new one with the sync script's `notes <app> write`. The place is left out here because some agents refuse to load files with wording like it. It's in Context Locker.",
+  // A file too full for all of a project names the sync script's commands,
+  // which every app that reads it has, as only the sync writes it (G1-335)
   mapNeedsReading:
-    "The documentation and work locations didn't fit here. Read them with Context Locker's project_map before choosing where to save docs or track work.",
+    "The documentation and work locations didn't fit here. Read them with the sync script's `context <app>` before choosing where to save docs or track work.",
   startHereNeedsReading:
-    "Some Start here summaries didn't fit here. Read them with Context Locker's project_map before work, and open the full entries only when needed.",
+    "Some Start here summaries didn't fit here. Read them with the sync script's `map <app>` before work, and open the full entries only when needed.",
   tightBlock:
-    "The full project didn't fit in this file. Before work, call Context Locker's get_context for this project and read all Start here summaries. Preferences and documentation or work locations omitted here still apply. If you can't fetch them, tell the person what is missing before acting.",
+    "The full project didn't fit in this file. Before work, run the sync script's `context <app>` in this project and read all Start here summaries. Preferences and documentation or work locations omitted here still apply. If you can't fetch them, tell the person what is missing before acting.",
   noRoom:
-    "There is no room for a complete Context Locker block in AGENTS.md within the apps' reading limits. The block is not loaded. Before work, call get_context for this project and read all Start here summaries. If you can't fetch them, tell the person what is missing before acting. Text outside the block stays unchanged.",
+    "There is no room for a complete Context Locker block in AGENTS.md within the apps' reading limits. The block is not loaded. Before work, run the sync script's `context <app>` in this project and read all Start here summaries. If you can't fetch them, tell the person what is missing before acting. Text outside the block stays unchanged.",
 } as const;
+
+/** How the reader reaches what a line names: an MCP tool, or the sync script's command (G1-335) */
+export type Reach = "mcp" | "sync";
 
 const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/;
 const WEB_ADDRESS = /^https?:\/\/[^/?#\s]+\S*$/i;
@@ -182,7 +191,7 @@ export function oneAppOnly(address: string): string | null {
  */
 export function startHereLine(
   entry: StartHereInput,
-  options: { notesFolder?: boolean; ids?: boolean } = {},
+  options: { notesFolder?: boolean; ids?: boolean; reach?: Reach } = {},
 ): string | null {
   const title = plainMarkdown(entry.title);
   const facts = `(${plainMarkdown(entry.kind)})`;
@@ -197,7 +206,7 @@ export function startHereLine(
     const file = `${NOTES_PATH}/${noteFileName(entry)}.md`;
     return `- [${title}](${file}) ${facts}: ${plainMarkdown(entry.summary)}${id}`;
   }
-  return `- ${title} ${facts}: ${sentence(entry.summary)} ${TEXT.readNote}${id}`;
+  return `- ${title} ${facts}: ${sentence(entry.summary)} ${TEXT.readNote(options.reach ?? "mcp")}${id}`;
 }
 
 /**
@@ -345,7 +354,10 @@ function renderMap(map: MapPlan | undefined): RenderedMap {
   const lines = new Map(
     listed.map((entry) => [
       entry,
-      startHereLine(entry, { notesFolder: map.notesFolder === true }),
+      startHereLine(entry, {
+        notesFolder: map.notesFolder === true,
+        reach: "sync",
+      }),
     ]),
   );
   const leftOut = listed.filter((entry) => {
@@ -393,7 +405,7 @@ function renderMap(map: MapPlan | undefined): RenderedMap {
   return {
     startHere:
       map.startHere.length > 0
-        ? [section(kept, overflow.length), TEXT.onboarding]
+        ? [section(kept, overflow.length), TEXT.onboarding("sync")]
         : [],
     docsHome: [
       ...(rule === null
@@ -432,6 +444,11 @@ export const OLD_INTROS: readonly string[] = [
   "Some Start here summaries didn't fit here. Read them with Context Locker's playbook_map before work, and open the full entries only when needed.",
   "The full playbook didn't fit in this file. Before work, call Context Locker's get_context for this playbook and read all Start here summaries. Preferences and documentation or work locations omitted here still apply. If you can't fetch them, tell the user what is missing before acting.",
   "There is no room for a complete Context Locker block in AGENTS.md within the apps' reading limits. The block is not loaded. Before work, call get_context for this playbook and read all Start here summaries. If you can't fetch them, tell the user what is missing before acting. Text outside the block stays unchanged.",
+  // What they said before they named the sync script's commands (G1-335)
+  "The documentation and work locations didn't fit here. Read them with Context Locker's project_map before choosing where to save docs or track work.",
+  "Some Start here summaries didn't fit here. Read them with Context Locker's project_map before work, and open the full entries only when needed.",
+  "The full project didn't fit in this file. Before work, call Context Locker's get_context for this project and read all Start here summaries. Preferences and documentation or work locations omitted here still apply. If you can't fetch them, tell the person what is missing before acting.",
+  "There is no room for a complete Context Locker block in AGENTS.md within the apps' reading limits. The block is not loaded. Before work, call get_context for this project and read all Start here summaries. If you can't fetch them, tell the person what is missing before acting. Text outside the block stays unchanged.",
 ];
 
 /**

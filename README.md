@@ -8,7 +8,7 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v62`](setup/v62), which runs `context-locker@0.1.18`, bundling script 40, then takes script 49, the newest, with `update`. The setup command 0.1.20, on npm since 10 Nov 2026, bundles script 49 itself. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for the app you are, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
+Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v63`](setup/v63), which runs `context-locker@0.1.18`, bundling script 40, then takes script 50, the newest, with `update`. The setup command 0.1.20, on npm since 10 Nov 2026, bundles script 49, and takes script 50 the same way. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for the app you are, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
 
 Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.20 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
 
@@ -152,6 +152,16 @@ Script 49, in setup 62, uses Context Locker's new words in everything an app rea
 ## Lessons and grooming
 
 The guide's version 9, and the files the compilers write, as Context Locker's main had them on 11 Nov 2026, with setup 62 and script 49 as they are. An app keeps what it works out on a project, such as a trap or a tested rule, as one line in the project's lessons note, with `remember` and kind lesson, without asking you: the guide's part on lessons says how, and the standing rules keep it to one line. A project's lessons note comes first in its Start here and counts for nothing against its 10. When you give a Tidy-up item about notes to an app to groom, the guide's part on grooming says what it does: the work in fixed words, changing no meaning, keeping every dated decision and deleting nothing, with every change waiting for you.
+
+## A command for every MCP tool
+
+Script 50, in setup 63, gives every one of Context Locker's MCP tools a twin in the sync script, so nothing an app can do over MCP is out of reach on a computer. One table, `TOOL_COMMANDS` in `src/tool-commands.ts`, pairs each tool with its command or says why it has none, and `test/tool-commands.test.ts` checks every command it names is in both scripts' help. Each command takes its tool's fields as a JSON file, as the app's own connection, and gives its reply:
+
+- `context <app> [request.json]`: get_context, for My playbook, or with a project, in the project's folder or named in the request. It gives the same parts in the same order, naming the script's commands where get_context names tools.
+- `notes <app> list|search|read|write`, `versions <app> list|read`, `projects <app> manage|docs-home`, `skills <app> source`, `requests <app> list|read|answer|decide` and `whoami <app>`, beside the `tasks`, `remember`, `suggest`, `message`, `map`, `fix` and `import-submit` commands from before.
+- get_skill needs none, as the sync puts every skill, the guide too, in the skills folder, and upload needs none, as the script sends a big import plan in parts itself.
+
+A file with too little room for its block, or none, names `context <app>` in place of get_context, and Start here and the docs home name the script's `map`, `notes <app> read` and `notes <app> write`, as every app that reads a synced file has the script. The guide's version 10 lists every command in its topic on the sync, and names them where an app on a computer uses them.
 
 ## Skill file transfers
 

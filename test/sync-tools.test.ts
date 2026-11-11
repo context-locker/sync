@@ -294,9 +294,14 @@ describe("the sync scripts' tools", () => {
           (url.pathname.startsWith("/v1/sync/tickets/") ||
             url.pathname.startsWith("/v1/sync/requests/") ||
             url.pathname.startsWith("/v1/sync/notes/") ||
+            url.pathname.startsWith("/v1/sync/versions/") ||
+            url.pathname.startsWith("/v1/sync/projects/") ||
+            url.pathname.startsWith("/v1/sync/skills/") ||
             url.pathname === "/v1/sync/suggest" ||
             url.pathname === "/v1/sync/remember" ||
-            url.pathname === "/v1/sync/message")
+            url.pathname === "/v1/sync/message" ||
+            url.pathname === "/v1/sync/context" ||
+            url.pathname === "/v1/sync/whoami")
         ) {
           fake.ticketCalls.push({
             command: url.pathname.split("/").at(-1)!,
@@ -763,11 +768,10 @@ describe("the sync scripts' tools", () => {
           fake.requests.includes(`POST /v1/sync/message?project=${PROJECT}`),
         );
         const sent = fake.ticketCalls.length;
-        // Each needs its request, and notes a command it knows
+        // Each needs its request, but a notes list, and notes a command it knows
         for (const [mode, args] of [
-          ["notes", []],
           ["notes", ["search"]],
-          ["notes", ["list", file]],
+          ["notes", ["lists", file]],
           ["notes", ["read", file, "--daily"]],
           ["suggest", []],
           ["remember", []],
@@ -788,6 +792,78 @@ describe("the sync scripts' tools", () => {
           before,
           "notes commands never write the notes folder",
         );
+        assert.equal(read(file), payload, "the request file is unchanged");
+      });
+
+      it("sends a command for every other MCP tool online, each to its own address, with a request or the ones that need none without (G1-335)", async () => {
+        const machine = computer(shell);
+        const cwd = project(machine.home);
+        const file = join(machine.home, "twin request.json");
+        const payload = JSON.stringify({
+          id: randomUUID(),
+          text: "Café. 世界",
+        });
+        writeFileSync(file, payload);
+        const before = readdirSync(cwd).sort();
+        const sent = (mode: string, args: string[], address: string) =>
+          [mode, args, address] as const;
+        for (const [mode, args, address] of [
+          sent("context", ["--json"], "context"),
+          sent("context", [file], "context"),
+          sent("notes", ["list"], "notes/list"),
+          sent("notes", ["list", file], "notes/list"),
+          sent("versions", ["list", file], "versions/list"),
+          sent("versions", ["read", file], "versions/read"),
+          sent("projects", ["manage", file], "projects/manage"),
+          sent("projects", ["docs-home", file], "projects/docs-home"),
+          sent("skills", ["source", file], "skills/source"),
+          sent("requests", ["decide", file], "requests/decide"),
+          sent("whoami", [], "whoami"),
+        ]) {
+          const result = await run(shell, machine, { mode, cwd, args });
+          assert.equal(result.status, 0, `${mode} ${args}: ${result.stderr}`);
+          assert.equal(result.stdout, fake.tickets.text);
+          const call = fake.ticketCalls.at(-1)!;
+          assert.equal(call.command, address.split("/").at(-1));
+          assert.deepEqual(
+            JSON.parse(call.body),
+            args.includes(file) ? JSON.parse(payload) : {},
+            `${mode} ${args}`,
+          );
+          assert.equal(
+            call.accept,
+            args.includes("--json") ? "application/json" : "text/plain",
+          );
+          assert.ok(
+            fake.requests.includes(
+              `POST /v1/sync/${address}?project=${PROJECT}`,
+            ),
+            `${mode} ${args}`,
+          );
+        }
+        const sentBefore = fake.ticketCalls.length;
+        // Each that needs a request is refused without it, as is a command
+        // it doesn't know and a request whoami doesn't take
+        for (const [mode, args] of [
+          ["versions", []],
+          ["versions", ["list"]],
+          ["versions", ["restore", file]],
+          ["projects", ["manage"]],
+          ["projects", ["remove", file]],
+          ["skills", ["source"]],
+          ["requests", ["decide"]],
+          ["context", [file, "--all"]],
+          ["whoami", [file]],
+        ] as const) {
+          const invalid = await run(shell, machine, {
+            mode,
+            cwd,
+            args: [...args],
+          });
+          assert.equal(invalid.status, 2, `${mode} ${args}: ${invalid.stderr}`);
+        }
+        assert.equal(fake.ticketCalls.length, sentBefore);
+        assert.deepEqual(readdirSync(cwd).sort(), before);
         assert.equal(read(file), payload, "the request file is unchanged");
       });
 
@@ -860,7 +936,7 @@ describe("the sync scripts' tools", () => {
           described++;
         }
         assert.equal(commands, 0, "the last command has no description");
-        assert.equal(described, 18);
+        assert.equal(described, 23);
       });
 
       it("prints Tidy-up with fix, for the project, and marks an item done or skipped", async () => {

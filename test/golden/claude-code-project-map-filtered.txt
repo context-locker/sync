@@ -11,7 +11,7 @@ Preferences for this project, kept in sync by Context Locker and edited here as 
 
 3 Start here entries were left out here because some agents refuse to load files with wording like theirs. They're in Context Locker.
 
-Start each session with a three-line startup brief for the person: the project, the sources you'll use, and your first step. These come from the project's map in Context Locker. Read the Start here summaries above now, and open an entry only when the work needs it. When the work needs more of the map, call Context Locker's project_map tool if you have it.
+Start each session with a three-line startup brief for the person: the project, the sources you'll use, and your first step. These come from the project's map in Context Locker. Read the Start here summaries above now, and open an entry only when the work needs it. When the work needs more of the map, run the sync script's `map <app>`.
 
 ### Preferences
 

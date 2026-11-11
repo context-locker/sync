@@ -114,6 +114,7 @@ export {
   preferenceLine,
   startHereLine,
 } from "./render.js";
+export type { Reach } from "./render.js";
 export {
   SKILL_NAME,
   allowedTargets,
@@ -204,6 +205,9 @@ export {
   standingRules,
 } from "./standing-rules.js";
 export type { RuleSlot, RulesEnvironment } from "./standing-rules.js";
+
+export { TOOL_COMMANDS, commandLine, toolCommand } from "./tool-commands.js";
+export type { ToolCommand } from "./tool-commands.js";
 
 export {
   GUIDE_SKILL_ID,

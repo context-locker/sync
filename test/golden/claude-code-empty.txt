@@ -36,7 +36,7 @@ No preferences saved yet.
 <!-- context-locker:end -->
 
 == skill {claude}/skills/context-locker
-item: c0de0000-6a7e-4e00-8000-000000000002@9
+item: c0de0000-6a7e-4e00-8000-000000000002@10
 files: SKILL.md, topics/asking.md, topics/tasks.md, topics/notes-and-links.md, topics/projects.md, topics/memory.md, topics/changes.md, topics/requests.md, topics/messages.md, topics/decisions-in-chat.md, topics/reporting.md, topics/import.md, topics/sync.md, topics/folders.md, topics/when-something-breaks.md
 
 == skill {claude}/skills/context-locker-import
