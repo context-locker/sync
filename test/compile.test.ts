@@ -9,6 +9,7 @@ import {
   BUDGETS,
   COMPILED_HARNESSES,
   START_HERE_MOST,
+  startHereShown,
   TEXT,
   guideTopics,
   standingRules,
@@ -624,6 +625,45 @@ describe("a project's map in its block", () => {
       10,
     );
     assert.match(ten, /^2 more Start here entries didn't fit here\./m);
+  });
+
+  it("lists the project's lessons note first, beside 10 others, which it counts for nothing against (G1-340)", () => {
+    const short = manyEntries(12).map((entry, index) => ({
+      ...entry,
+      address: `docs/${index + 1}.md`,
+    }));
+    const lessons = {
+      id: "c0de0000-6a7e-4e00-8000-0000000004e5",
+      version: 3,
+      name: "lessons",
+      title: "Lessons",
+      kind: "guide",
+      summary: "What agents worked out here.",
+      address: null,
+      lessons: true,
+    };
+    // Wherever the map lists it, it comes first and the others keep their 10
+    const shown = startHereShown([...short, lessons]);
+    assert.deepEqual(
+      shown.listed.map(({ title }) => title),
+      ["Lessons", ...short.slice(0, 10).map(({ title }) => title)],
+    );
+    assert.equal(shown.extra.length, 2);
+    const text = projectText(
+      compile({ ...mapped("codex", "repo"), startHere: [...short, lessons] }),
+    );
+    const section = text
+      .slice(text.indexOf(TEXT.startHereHeading), text.indexOf(TEXT.onboarding))
+      .split("\n");
+    assert.match(
+      section[2] ?? "",
+      /^- \[Lessons\]\(\.context-locker\/notes\/lessons\.md\) \(guide\): What agents worked out here\./,
+    );
+    assert.equal(
+      section.filter((line) => line.startsWith("- [Guide ")).length,
+      10,
+    );
+    assert.match(text, /^2 more Start here entries didn't fit here\./m);
   });
 
   it("asks for the startup brief only when there are Start here entries", () => {

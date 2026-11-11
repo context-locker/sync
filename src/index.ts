@@ -101,6 +101,7 @@ export {
   NO_DOCS_LOCATIONS,
   OLD_INTROS,
   START_HERE_MOST,
+  startHereShown,
   TEXT,
   docsHomeRule,
   docsLocationsRule,

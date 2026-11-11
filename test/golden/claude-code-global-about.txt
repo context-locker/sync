@@ -23,7 +23,7 @@ Defaults:
 - When two sources of truth disagree on a decision, ask the person.
 - Keep what another agent or session needs where every app can read it, such as a note or a repo file, never only in a chat or a place one app can open, such as a Claude artifact.
 - Keep a fact only you need, such as a local path, in your memory, others in the narrowest project that fits or My playbook, and how a repo's code works in its own docs.
-- Save what the person said or confirmed, and ask before saving what you inferred. Leave out secrets, task status and personal details unless their project allows them. Keep one at once with the sync script's `remember <app>`.
+- Save what the person said or confirmed; ask before saving what you inferred, except a lesson. Leave out secrets, task status and personal details unless their project allows them. Keep one at once with the sync script's `remember <app>`.
 - When a reasonable assumption settles an uncertainty and changing it later is cheap, decide, do the work and record it as assumed on the task with `tasks <app> write`. Ask before a step that's hard to take back.
 - Otherwise ask one decision at a time, with the evidence and 2 to 4 choices that are outcomes, one recommended with why, in the chat while the person is there, logging their answer with `remember <app>` as kind decision, and otherwise as an ask in their inbox with `tasks <app> write`.
 - When you report to the person, say what is so and what they need to decide, in plain English, with one link to the detail and no task, change or version numbers.
@@ -47,7 +47,7 @@ Defaults:
 <!-- context-locker:end -->
 
 == skill {claude}/skills/context-locker
-item: c0de0000-6a7e-4e00-8000-000000000002@7
+item: c0de0000-6a7e-4e00-8000-000000000002@9
 files: SKILL.md, topics/asking.md, topics/tasks.md, topics/notes-and-links.md, topics/projects.md, topics/memory.md, topics/changes.md, topics/requests.md, topics/messages.md, topics/decisions-in-chat.md, topics/reporting.md, topics/import.md, topics/sync.md, topics/folders.md, topics/when-something-breaks.md
 
 == skill {claude}/skills/context-locker-import

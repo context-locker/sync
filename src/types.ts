@@ -65,6 +65,11 @@ export interface StartHereInput extends ItemRef {
   address: string | null;
   /** A note's name, which its file in the notes folder is named after */
   name: string;
+  /**
+   * The project's lessons note, which every agent reads first and which
+   * counts for nothing against Start here's most (G1-340)
+   */
+  lessons?: boolean;
 }
 
 /**

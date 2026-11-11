@@ -318,6 +318,22 @@ const NO_MAP: RenderedMap = {
 };
 
 /**
+ * The Start here entries a file or get_context lists: the project's lessons
+ * note first, which counts for nothing against the most, then the rest in
+ * order, up to START_HERE_MOST, and those left over to count (G1-340)
+ */
+export function startHereShown<T extends Pick<StartHereInput, "lessons">>(
+  entries: readonly T[],
+): { listed: T[]; extra: T[] } {
+  const lessons = entries.filter((entry) => entry.lessons === true);
+  const others = entries.filter((entry) => entry.lessons !== true);
+  return {
+    listed: [...lessons, ...others.slice(0, START_HERE_MOST)],
+    extra: others.slice(START_HERE_MOST),
+  };
+}
+
+/**
  * The map's parts of a block. Every Start here line goes through the same
  * filter that keeps wording like prompt injection out of a shared AGENTS.md,
  * as an AI app may have written it. Entries that fit go in order, up to 10,
@@ -325,8 +341,7 @@ const NO_MAP: RenderedMap = {
  */
 function renderMap(map: MapPlan | undefined): RenderedMap {
   if (!map) return NO_MAP;
-  const listed = map.startHere.slice(0, START_HERE_MOST);
-  const extra = map.startHere.slice(START_HERE_MOST);
+  const { listed, extra } = startHereShown(map.startHere);
   const lines = new Map(
     listed.map((entry) => [
       entry,

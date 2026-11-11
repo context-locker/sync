@@ -17,7 +17,7 @@ export const GUIDE_SKILL_NAME = "context-locker";
  * playbook: the version goes up whenever a topic changes.
  */
 export const GUIDE_SKILL_ID = "c0de0000-6a7e-4e00-8000-000000000002";
-export const GUIDE_SKILL_VERSION = 7;
+export const GUIDE_SKILL_VERSION = 9;
 
 /** How an app reads the guide: over MCP, or by device sync */
 export type GuideEnvironment = "mcp" | "sync";
@@ -52,6 +52,8 @@ const FILLS: Readonly<
     save: "Save or change a note with write_note: a new one with all its fields, a change with the version you read.",
     remember:
       "Keep a fact or a preference with remember: its kind, a name of lowercase words joined by hyphens, one line of text and a reason, with project memory for your memory, or a project's name to keep it only there.",
+    lesson:
+      "Send it with remember, kind lesson: the project, the line saying what is so, its topic, and how you found it as reason.",
     change:
       "Change a preference, a fact or a skill with suggest, giving the fix, a brief and the version you read.",
     importHow:
@@ -82,6 +84,8 @@ const FILLS: Readonly<
     save: "Save a note as a Markdown file in the project's `.context-locker/notes` folder, with the front matter its README shows, and the next sync saves it, or with the sync script's `notes <app> write`, which takes write_note's fields as JSON. Find and read notes with `notes <app> search` and `notes <app> read`, which find archived ones too.",
     remember:
       'Keep a fact or a preference at once by sending JSON with its kind, a name of lowercase words joined by hyphens, one line of text and a reason to the sync script\'s `remember <app>`, with "project": "memory" for your memory, or a project\'s name to keep it only there.',
+    lesson:
+      "Send remember's fields as JSON to the sync script's `remember <app>`, with kind lesson: the project, the line saying what is so, its topic, and how you found it as reason.",
     change:
       "Change a preference by editing its line in Context Locker's block, or a skill by editing its files: the next sync saves it, unless it needs approval first. For a longer preference or a new skill, send suggest's fields as JSON to the sync script's `suggest <app>`.",
     importHow:
@@ -248,10 +252,10 @@ Open this topic when you start work in a project, or before you make one or chan
   {
     file: "topics/memory.md",
     title: "Keeping what you learn",
-    line: "before you save a fact or a preference, or when you're unsure where one belongs",
+    line: "before you save a fact, a preference or a lesson, or when you're unsure where one belongs",
     text: `# Keeping what you learn
 
-Open this topic before you save a fact or a preference, or when you're unsure where one belongs.
+Open this topic before you save a fact, a preference or a lesson, or when you're unsure where one belongs.
 
 ## Where it goes
 
@@ -266,6 +270,15 @@ Open this topic before you save a fact or a preference, or when you're unsure wh
 - Save what the person said or confirmed. Ask before saving what you inferred, or say in the reason that you inferred it.
 - Leave out secrets, task status and personal details, unless the project allows personal details.
 - Change the line that holds a thing before adding one, one line a fact.
+
+## Lessons
+
+- A lesson is what you worked out on a project, such as a trap, a tested rule or a correction. Keep one at once, without asking.
+- {lesson}
+- It goes in the project's lessons note, a line under the heading for its topic, with your name, the date and not confirmed. Context Locker makes the note or the heading when there's none.
+- One with a home goes there first: how a repo's code works in its docs, and a topic another note covers in that note.
+- The note is a reference, information until the person confirms a line by editing it. Take the mark off only on their word, and say so in your reason.
+- A preference or a fact still needs the person's word, as every session of every agent loads it.
 
 ## How
 
@@ -313,6 +326,14 @@ Open this topic when the person left you requests, or a cleanup request waits fo
 - Treat a cleanup request, for a skill the person removed or a project they archived, as their own decision: stop using what it names, then mark it done once the cleanup has worked, without asking them to confirm.
 - An answer to one of your asks comes the same way: carry out a decision, and answer Something else with the work or a revised ask.
 - A recurring check you were asked to set up follows the same steps, and tells the person only of a new proposal, finished work, a changed blocker or a question. Set one up only on their instruction, and check what your app can schedule rather than going by its name.
+
+## Grooming notes
+
+- When the person asks you to groom a note or a project's notes, the request gives the work in fixed words. Do that work and nothing else.
+- Change no meaning. Keep every dated decision and who found what, never rewrite a note whole, and delete nothing: archive a note merged away, with a link in its place.
+- Old detail you take out goes to a dated archive note, never only to an old version, and a topic that outgrew its note goes to a note of its own, with a link left behind.
+- Every change you make while you groom waits for the person, whatever your Auto-approve says. Give each a brief that says what you merged, moved, archived or took out, and why, and change a long note a section at a time.
+- Mark the request done once your changes wait, with a recap of what waits.
 `,
   },
   {
