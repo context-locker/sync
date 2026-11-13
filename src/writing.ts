@@ -173,11 +173,16 @@ const SPELLING = new RegExp(`\\b(?:${AMERICAN.join("|")})\\b`, "gi");
 export const RETIRED_WORDS = Object.freeze([
   { word: "user", say: "the person" },
   { word: "owner", say: "the person, apart from a team's owner" },
-  { word: "Everywhere", say: "My playbook" },
-  { word: "playbook", say: "a project, apart from My playbook and a team's" },
+  { word: "Everywhere", say: "All projects" },
+  {
+    word: "playbook",
+    say: "All projects, a project, or your context for preferences, skills and notes together",
+  },
   { word: "ticket", say: "a task" },
   { word: "AI app", say: "an agent" },
   { word: "AI inbox", say: "an agent's inbox" },
+  { word: "Inboxes", say: "Inbox, the page's name" },
+  { word: "Agents' inboxes", say: "Agent inboxes" },
   { word: "connection", say: "an agent" },
   { word: "workspace", say: "a team, or nothing" },
   { word: "suggestion", say: "a change" },
@@ -190,14 +195,14 @@ const TEAM_OWNER = [
   /\bowners?(?:,\s*|\s+(?:and|or)\s+)(?:the\s+|an?\s+)?admins?\b/gi,
   /\badmins?(?:,\s*|\s+(?:and|or)\s+)(?:the\s+|an?\s+)?owners?\b/gi,
 ];
-/** What a playbook stays after: My playbook, yours, and a team's */
-const KEPT_PLAYBOOK = /(?:\bmy|\byour|\bteam|\bteam's|\bteams')\s+$/i;
 
 /**
  * How often prose uses each retired word. Owner counts only where it isn't a
- * team's role, and playbook wherever it means one body of work, as a tool's
- * name such as playbook_map does. Everywhere counts as the place, with its
- * capital; everywhere as a plain word stays.
+ * team's role. Playbook counts wherever it's said, My playbook, a team's and
+ * a tool's or field's name such as include_my_playbook included (CLK-360).
+ * Everywhere counts as the place, with its capital; everywhere as a plain
+ * word stays. Inboxes counts as the inbox page's old name, with its capital;
+ * inboxes as a plain word stays (CLK-362).
  */
 export function retiredWords(prose: string): Map<string, number> {
   const counts = new Map<string, number>();
@@ -212,20 +217,13 @@ export function retiredWords(prose: string): Map<string, number> {
     TEAM_OWNER.reduce((text, role) => text.replace(role, " "), prose),
   );
   count("Everywhere", /\bEverywhere\b/g);
-  for (const found of prose.matchAll(/\b\w*playbooks?\w*\b/gi))
-    if (
-      // A name in code that holds my_playbook, such as a field's, is My
-      // playbook's (G1-321)
-      !/my_playbooks?(?![a-z])/i.test(found[0]) &&
-      (!/^playbook$/i.test(found[0]) ||
-        !KEPT_PLAYBOOK.test(
-          prose.slice(Math.max(0, found.index - 12), found.index),
-        ))
-    )
-      counts.set("playbook", (counts.get("playbook") ?? 0) + 1);
+  // Playbook is retired everywhere people and agents read it (CLK-360)
+  count("playbook", /\b\w*playbooks?\w*\b/gi);
   count("ticket", /\b\w*tickets?\w*\b/gi);
   count("AI app", /\bAI\s+apps?(?:'s|s')?\b/gi);
   count("AI inbox", /\bAI\s+inbox(?:es|'s)?\b/gi);
+  count("Inboxes", /\bInboxes\b/g);
+  count("Agents' inboxes", /\bagents['’]\s+inbox(?:es)?\b/gi);
   count("connection", /\bconnections?(?:'s|s')?\b/gi);
   count("workspace", /\bworkspaces?(?:'s|s')?\b/gi);
   count("suggestion", /\bsuggestions?\b/gi);

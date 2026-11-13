@@ -39,6 +39,11 @@ export interface PreferenceInput extends ItemRef {
   text: string;
   /** In About: a fact about the person or their work, which goes first */
   about?: boolean;
+  /**
+   * The team's, from its playbook, which a team project's block lists first,
+   * read only, under the team's name (G1-329)
+   */
+  team?: boolean;
 }
 
 export interface SkillInput extends ItemRef {
@@ -153,6 +158,8 @@ export interface CompileInput {
     name: string;
     layer: ProjectLayer;
     personal?: boolean;
+    /** The team's name, for a team's project, whose playbook comes with it (G1-329) */
+    team?: string;
   } | null;
   /**
    * The preferences for this sync only: the ones that apply everywhere for the
@@ -240,8 +247,21 @@ export type Output =
       item: ItemRef;
     };
 
+/**
+ * A file with no room for every preference whole (G1-336): how many it shows
+ * shortened or leaves out, and whether it has no room for its block at all
+ */
+export interface FileRoom {
+  /** The file, as its output names it, or the session-start output */
+  target: string;
+  shortened: number;
+  noRoom: boolean;
+}
+
 export interface Compiled {
   outputs: Output[];
   /** Plain sentences about anything a cap or a rule left out. */
   notes: string[];
+  /** Each file a cap left short of room, for Tidy-up and the agent's page (G1-336) */
+  room?: FileRoom[];
 }

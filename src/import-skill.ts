@@ -34,7 +34,7 @@ export const RESERVED_SKILL_PREFIX = "context-locker-";
  * playbook: the version goes up whenever the steps change.
  */
 export const IMPORT_SKILL_ID = "c0de0000-6a7e-4e00-8000-000000000001";
-export const IMPORT_SKILL_VERSION = 22;
+export const IMPORT_SKILL_VERSION = 24;
 
 /**
  * What the skill may take. The Agent Skills format and Hermes allow a
@@ -77,7 +77,7 @@ export const IMPORT_PLAN_EXAMPLE = Object.freeze({
       type: "about",
       name: "role",
       text: "Nova runs Scrollport, a design studio, and decides on design.",
-      applies_to: "my playbook",
+      applies_to: "all projects",
       sources: [
         {
           app: "claude-code",
@@ -95,7 +95,7 @@ export const IMPORT_PLAN_EXAMPLE = Object.freeze({
       type: "preference",
       name: "dates-with-year",
       text: "Write dates with the year, such as 21 Oct 2026.",
-      applies_to: "my playbook",
+      applies_to: "all projects",
       sources: [
         {
           app: "claude-code",
@@ -117,7 +117,7 @@ export const IMPORT_PLAN_EXAMPLE = Object.freeze({
       type: "preference",
       name: "python-indent",
       text: "Indent Python with 4 spaces.",
-      applies_to: "my playbook",
+      applies_to: "all projects",
       sources: [
         {
           app: "claude-code",
@@ -157,7 +157,7 @@ export const IMPORT_PLAN_EXAMPLE = Object.freeze({
       ],
       brief:
         "Adds the skill that writes release notes from merged changes. The docs site uses it for every release.",
-      could_apply_to: ["my playbook"],
+      could_apply_to: ["all projects"],
     },
     {
       type: "pointer",
@@ -188,7 +188,7 @@ export const IMPORT_PLAN_EXAMPLE = Object.freeze({
         "Acme Corp, the studio's biggest customer, and who to talk to there.",
       text: "# Acme Corp\n\nBuys the Pro plan. Sam Lee runs design there.",
       tags: ["customers"],
-      applies_to: "my playbook",
+      applies_to: "all projects",
       sources: [
         {
           app: "claude-code",
@@ -392,7 +392,7 @@ function skillMd(harness: CompiledHarness | "mcp"): string {
     "| A secret, a token or a raw transcript | Left out as `secret` or `transcript` |",
     "| A one-off or out-of-date note | Left out as `stale` |",
     "",
-    `Something that only matters in one project goes in that project, and the rest in My playbook. Use the projects ${map}. When items need a new project, add it to \`new_projects\` with one line on what it's for: it's made only when the person brings something into it. When you can't tell where something belongs, put it in the likelier place and name the others in \`could_apply_to\`, for the person to pick.`,
+    `Something that only matters in one project goes in that project, and the rest in All projects. Use the projects ${map}. When items need a new project, add it to \`new_projects\` with one line on what it's for: it's made only when the person brings something into it. When you can't tell where something belongs, put it in the likelier place and name the others in \`could_apply_to\`, for the person to pick.`,
     "",
     "## 3. Merge and settle",
     "",
@@ -434,8 +434,8 @@ function planMd(): string {
     "",
     "- `plan_id`: keep the one the sync script wrote. Send the same one if you send the plan again, so nothing comes in twice. A chat app makes a random UUID once.",
     "- `new_projects`: projects to make, each with a `name` and `why`, one line on what it's for. One is made only when the person brings something into it. Leave it out when there are none.",
-    "- `items`: up to 300. Each has a `type`, `applies_to` (`my playbook`, or a project's name or id, a new one's included) and `sources`: every source it came from, each with `app`, `path` and `date` as `sources.tsv` gives them, and `kind` if you like (`session` for work written in the conversation). A source that's one of your files has `lines` too: the exact lines the item came from there, with line breaks between them, as its copy holds them. Once the person picks the item, your next sync takes them out of the file, if they're still exactly as given. A required `brief` says what it brings in and why, in two or three sentences of at most 280 characters, and the inbox shows it. When you can't tell where it belongs, `could_apply_to` names up to 5 other places it could go, for the person to pick.",
-    "  - `preference` and `about`: `name` (lowercase words joined by hyphens) and `text`, up to 800 characters, with no empty lines.",
+    "- `items`: up to 300. Each has a `type`, `applies_to` (`all projects`, or a project's name or id, a new one's included) and `sources`: every source it came from, each with `app`, `path` and `date` as `sources.tsv` gives them, and `kind` if you like (`session` for work written in the conversation). A source that's one of your files has `lines` too: the exact lines the item came from there, with line breaks between them, as its copy holds them. Once the person picks the item, your next sync takes them out of the file, if they're still exactly as given. A required `brief` says what it brings in and why, in two or three sentences of at most 280 characters, and the inbox shows it. When you can't tell where it belongs, `could_apply_to` names up to 5 other places it could go, for the person to pick.",
+    "  - `preference` and `about`: `name` (lowercase words joined by hyphens) and `text`, up to 800 characters, with no empty lines, opening with its rule in a first sentence of at most 200 characters, as a plan with a longer one is refused.",
     "  - `skill`: `name` and `files`, each with `path`, `content` and optional `encoding` (`utf8` by default, or `base64` for binary bytes). Preserve file bytes and paths, including empty files. A new skill needs SKILL.md, with front matter whose name matches. For a skill the project already has, send only the files to add or replace. Its sources have no `lines`, as the sync replaces a skill whole.",
     "  - A `preference`, `about` or `skill` the rules couldn't settle has an `ask`: one question of up to 200 characters that picking it answers yes to. The inbox shows it.",
     "  - For a `preference`, `about` or `skill` the project already has: `base_version`, the version you read.",

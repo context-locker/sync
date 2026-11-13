@@ -430,7 +430,8 @@ describe("a project in the sync", () => {
             assert.ok(text.startsWith(original + "\n"));
             const block = text.slice(original.length + 1);
             assert.ok(Buffer.byteLength(block) <= 4000);
-            assert.match(block, /didn't fit/);
+            // Every preference keeps its name, shortened where there's no room (G1-336)
+            assert.match(block, /shortened here, /);
             if (first) assert.equal(text, first);
             first = text;
           }

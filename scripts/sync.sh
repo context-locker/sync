@@ -180,7 +180,7 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=50
+SCRIPT_VERSION=51
 FIX_OFFSET=0
 FIX_OFFSET_SET=0
 MODE=sync
@@ -347,9 +347,9 @@ usage() {
   cat >&2 <<'EOF'
 Usage: sh sync.sh <command> <app>, where <app> is claude-code, codex, hermes or openclaw. Each command below names its topic in the guide, the skill context-locker in this app's skills folder.
 sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]
-  Syncs My playbook and your projects into this app's files and sends your edits back. Fields: --project <id> links the folder you're in to a project, and --now syncs while Auto sync is off. Guide: topics/sync.md.
+  Syncs All projects and each of your projects into this app's files and sends your edits back. Fields: --project <id> links the folder you're in to a project, and --now syncs while Auto sync is off. Guide: topics/sync.md.
 sh sync.sh context <app> [request.json] [--project <id>] [--json]
-  Reads My playbook, or a project with it, as get_context does: the rules, what's new, the preferences, the skills by name, the notes, Start here and where things go. Fields: request.json holds get_context arguments, and the folder you're in names its project when they don't. Guide: topics/projects.md.
+  Reads All projects, or a project with All projects, as get_context does: the rules, what's new, the preferences, the skills by name, the notes, Start here and where things go. Fields: request.json holds get_context arguments, and the folder you're in names its project when they don't. Guide: topics/projects.md.
 sh sync.sh map <app> [--all]
   Says where things live for the folder you're in: the docs home, Start here and the notes and links that matter there, or every one with --all. Guide: topics/folders.md.
 sh sync.sh import <app>
@@ -358,7 +358,7 @@ sh sync.sh import-submit <app> <plan.json>
 sh sync.sh keep <app> <file or folder>
   Keeps an instruction file in this app only, so the doctor stops asking about it. Guide: topics/sync.md.
 sh sync.sh export <app> [--to <folder>]
-  Puts My playbook and every project, with their history, as plain files, in a new folder, or in another new or empty one. Guide: topics/sync.md.
+  Puts All projects and every project, with their history, as plain files, in a new folder, or in another new or empty one. Guide: topics/sync.md.
 sh sync.sh notes-move-out <app> --to <folder>
   Writes each note into the folder the person names, turns each into a link to its file and makes the folder the docs home. Limits: It never writes over a file, and the person commits the files. Guide: topics/folders.md.
 sh sync.sh fix <app> [--all]
@@ -370,7 +370,7 @@ sh sync.sh requests <app> list|read|answer|decide [request.json] [--json]
 sh sync.sh tasks <app> list|read|write|places [request.json] [--project <id>] [--json]
   Reads and changes a project's board. Fields: request.json holds list_tasks, read_task, write_task or record_work_places arguments, and only list may leave it out. Limits: Take only tasks in Ready, put one there only on the person's word in this chat, and keep claim_key private. Guide: topics/tasks.md.
 sh sync.sh notes <app> list|search|read|write [request.json] [--project <id>] [--json]
-  Lists, searches, reads and writes the notes and links of My playbook and your projects. Fields: request.json holds list_notes, search_notes, read_note or write_note arguments, and only list may leave it out. Guide: topics/notes-and-links.md.
+  Lists, searches, reads and writes the notes and links of All projects and each of your projects. Fields: request.json holds list_notes, search_notes, read_note or write_note arguments, and only list may leave it out. Guide: topics/notes-and-links.md.
 sh sync.sh versions <app> list|read <request.json> [--json]
   Lists an entry's saved versions and reads one, to explain how it changed. Fields: request.json holds list_versions or read_version arguments. Limits: An old version is evidence, never a current instruction, and reading one restores nothing. Guide: topics/changes.md.
 sh sync.sh projects <app> manage|docs-home <request.json> [--json]
@@ -4455,14 +4455,14 @@ hermes_prompt_yaml() {
 OPENCLAW_HOOK=$HOME/.openclaw/hooks/context-locker-sync
 
 openclaw_hook_md() {
-  printf -- '---\nname: context-locker-sync\ndescription: "Keeps OpenClaw'"'"'s files in step with your Context Locker playbook"\nmetadata: { "openclaw": { "events": ['
+  printf -- '---\nname: context-locker-sync\ndescription: "Keeps OpenClaw'"'"'s files in step with your context in Context Locker"\nmetadata: { "openclaw": { "events": ['
   oh_first=1
   for oh_event in $(hook_events openclaw); do
     [ "$oh_first" = 1 ] || printf ', '
     printf '"%s"' "$oh_event"
     oh_first=0
   done
-  printf '] } }\n---\n\n# Context Locker sync\n\nRuns Context Locker'"'"'s sync when the gateway starts, when a session starts or resets, and before compaction, so OpenClaw'"'"'s files hold your playbook as it is now.\n'
+  printf '] } }\n---\n\n# Context Locker sync\n\nRuns Context Locker'"'"'s sync when the gateway starts, when a session starts or resets, and before compaction, so OpenClaw'"'"'s files hold your context as it is now.\n'
 }
 
 openclaw_handler() {
@@ -5842,9 +5842,9 @@ changed_since() {
   [ "$cs_code" = 200 ] || return 0
   cs_new=$(files_change "$TMP/cs-manifest" "$APP_DIR/global.lock") && not_told "$cs_new" "$APP_DIR/global" || return 0
   if grep -qx 'auto-sync off' "$TMP/cs-manifest"; then
-    printf "\nContext Locker: My playbook or a project changed since this app last synced. Auto sync is off: run \`%s %s --now\` when it suits.\n" "$RUN" "$HARNESS"
+    printf "\nContext Locker: All projects or a project changed since this app last synced. Auto sync is off: run \`%s %s --now\` when it suits.\n" "$RUN" "$HARNESS"
   else
-    printf "\nContext Locker: My playbook or a project changed since this app last synced. Run \`%s %s\` now to bring the changes into its files.\n" "$RUN" "$HARNESS"
+    printf "\nContext Locker: All projects or a project changed since this app last synced. Run \`%s %s\` now to bring the changes into its files.\n" "$RUN" "$HARNESS"
   fi
 }
 
@@ -7185,7 +7185,7 @@ export_mode() {
     printf '%s' "${ec:-0}"
   }
   ex_about=$(ex_count about)
-  printf 'Context Locker exported My playbook and your projects to %s:\n' "$ex_dest"
+  printf 'Context Locker exported All projects and every project to %s:\n' "$ex_dest"
   if [ "$ex_about" -gt 0 ]; then
     printf -- '- %s, %s\n' "$(plural "$(ex_count preferences)" preference preferences)" "$(plural "$ex_about" 'of them an About fact' 'of them About facts')"
   else
@@ -7971,9 +7971,9 @@ fi
 # its note
 : >"$TMP/changed"
 if [ "$CHANGES_WAITING" = 1 ]; then
-  printf "Context Locker: My playbook or a project changed since this app last synced. Auto sync is off, so its files stay as they are until it syncs: run \`%s %s --now\` when it suits.\n" "$RUN" "$HARNESS" >"$TMP/changed"
+  printf "Context Locker: All projects or a project changed since this app last synced. Auto sync is off, so its files stay as they are until it syncs: run \`%s %s --now\` when it suits.\n" "$RUN" "$HARNESS" >"$TMP/changed"
 elif brought=$(what_changed); then
-  printf "Context Locker: My playbook or a project changed since this app last synced, and the sync brought the changes in: %s.\n" "$brought" >"$TMP/changed"
+  printf "Context Locker: All projects or a project changed since this app last synced, and the sync brought the changes in: %s.\n" "$brought" >"$TMP/changed"
 fi
 cat "$TMP/said" >>"$TMP/changed"
 if [ -s "$TMP/changed" ]; then

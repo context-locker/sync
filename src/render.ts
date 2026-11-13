@@ -1,6 +1,7 @@
 // The words compiled into every AI app's files. Agents read these, so they
 // stay short and plain, and none of them may look like prompt injection.
 import { BLOCK_END, BLOCK_START } from "./blocks.js";
+import { firstSentence } from "./first-sentence.js";
 import { plainMarkdown } from "./markdown.js";
 import { NOTES_PATH, noteFileName } from "./notes.js";
 import { oneAppPlace } from "./one-app-places.js";
@@ -44,7 +45,7 @@ export const ASK_PROTOCOL =
  * the sync script's tickets help.
  */
 export const LOG_DECISIONS =
-  "In a chat, ask the user there, not in the inbox, and log their answer with remember, kind decision: your question and their words, on the task, entry or playbook it's about, or on this connection for setup, the doctor or an import. Log only what concerns Context Locker, never the rest of the chat. It never waits, and they can correct it.";
+  "In a chat, ask the user there, not in the inbox, and log their answer with remember, kind decision: your question and their words, on the task, entry or project it's about, or on this connection for setup, the doctor or an import. Log only what concerns Context Locker, never the rest of the chat. It never waits, and they can correct it.";
 
 export const TEXT = {
   personalDetails: PERSONAL_DETAILS,
@@ -66,6 +67,13 @@ export const TEXT = {
   /** Headings, used only when some preferences are in About */
   aboutUser: "### About the person",
   aboutProject: "### About this project",
+  /**
+   * The heading over a team's preferences in its project's block, read only
+   * there (G1-329), and what it says under it
+   */
+  teamHeading: (team: string) => `### All projects in ${team}`,
+  teamIntro:
+    "The team's own, which its owners and admins change in Context Locker. These lines aren't read back, so editing one here changes nothing. Where this project, or the person's own All projects, has one of the same name, that one applies instead.",
   preferencesHeading: "### Preferences",
   projectTitle: (name: string) => `## Context Locker: ${name}`,
   projectIntro:
@@ -80,6 +88,20 @@ export const TEXT = {
     count === 1
       ? "1 preference was left out of this file because some agents refuse to load files with wording like it. It's in Context Locker."
       : `${count} preferences were left out of this file because some agents refuse to load files with wording like theirs. They're in Context Locker.`,
+  /** Ends a preference's line that shows it shortened, to its first sentence or its name (G1-336) */
+  shortenedMark: "(shortened)",
+  /** How many a file too small for all of them whole shows shortened, and how to read them */
+  shortened: (sentences: number, names: number) => {
+    const count = sentences + names;
+    const them = count === 1 ? "it" : "them";
+    const how =
+      names === 0
+        ? `to ${count === 1 ? "its" : "their"} first sentence`
+        : sentences === 0
+          ? `to ${count === 1 ? "its" : "their"} name`
+          : `${sentences} to their first sentence and ${names} to their name`;
+    return `${count === 1 ? "1 preference is" : `${count} preferences are`} shortened here, ${how}, marked (shortened), as this file has no room for ${them} whole. Read ${them} whole with the sync script's \`context <app>\` before work.`;
+  },
   /** A project's map: the notes and pointers whose summaries a new agent reads first */
   startHereHeading: "### Start here",
   /**
@@ -437,6 +459,8 @@ export const OLD_INTROS: readonly string[] = [
   "When you tell the person what you did or found, say what is so and what they need to decide, in the present tense and in plain English, with the main points only. Leave task, change, version, requirement and section numbers out unless they ask or need one to act: keep them in the task or note, and give one link to the detail. Name things by what they are, such as the PRD, not by id.",
   ASK_PROTOCOL,
   LOG_DECISIONS,
+  // What it said before the word playbook was retired (CLK-360)
+  "In a chat, ask the user there, not in the inbox, and log their answer with remember, kind decision: your question and their words, on the task, entry or playbook it's about, or on this connection for setup, the doctor or an import. Log only what concerns Context Locker, never the rest of the chat. It never waits, and they can correct it.",
   // What blocks said before the restructure's words (G1-321)
   "Preferences for this playbook, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
   "Start each session with a three-line startup brief for the user: the playbook, the sources you'll use, and your first step. These come from the playbook's map in Context Locker. Read the Start here summaries above now, and open an entry only when the task needs it. When the task needs more of the map, call Context Locker's playbook_map tool if you have it.",
@@ -459,12 +483,84 @@ export function preferenceLine(preference: PreferenceInput): string {
   return `- ${preference.name}: ${preference.text.replace(/\n/g, "\n  ")}`;
 }
 
+/**
+ * How a preference shows in a file with no room for it whole (G1-336): its
+ * first sentence, or its name alone when even those don't all fit
+ */
+export type Shortened = "sentence" | "name";
+
+/** A preference's line: whole, or shortened to its first sentence or its name, and marked */
+function shownLine(
+  preference: PreferenceInput,
+  shortened: Shortened | undefined,
+): string {
+  if (shortened === undefined) return preferenceLine(preference);
+  if (shortened === "name")
+    return `- ${preference.name}: ${TEXT.shortenedMark}`;
+  return `- ${preference.name}: ${firstSentence(preference.text).first} ${TEXT.shortenedMark}`;
+}
+
+/** Whether a preference is longer than its first sentence, so showing that shortens it */
+function longerThanFirst(preference: PreferenceInput): boolean {
+  return firstSentence(preference.text).rest.trim() !== "";
+}
+
+/**
+ * Which preferences show shortened: from the first given on, those longer
+ * than their first sentence show that, and from the second on, every one
+ * shows its name alone
+ */
+function shortenedFrom(
+  list: readonly PreferenceInput[],
+  sentencesFrom: number,
+  namesFrom = list.length,
+): Map<PreferenceInput, Shortened> {
+  const shortened = new Map<PreferenceInput, Shortened>();
+  for (const [index, preference] of list.entries()) {
+    if (index >= namesFrom) shortened.set(preference, "name");
+    else if (index >= sentencesFrom && longerThanFirst(preference))
+      shortened.set(preference, "sentence");
+  }
+  return shortened;
+}
+
+/** The line saying how many show shortened, or none when none do */
+function shortenedNote(
+  shortened: ReadonlyMap<PreferenceInput, Shortened>,
+): string[] {
+  if (shortened.size === 0) return [];
+  const names = [...shortened.values()].filter((how) => how === "name").length;
+  return [TEXT.shortened(shortened.size - names, names)];
+}
+
 /** About first, then the rest, each in the order given. */
 function aboutFirst(preferences: PreferenceInput[]): PreferenceInput[] {
+  // A team's come first, About first among them too (G1-329)
+  const theirs = preferences.filter((preference) => preference.team);
+  const own = preferences.filter((preference) => !preference.team);
   return [
-    ...preferences.filter((preference) => preference.about),
-    ...preferences.filter((preference) => !preference.about),
+    ...theirs.filter((preference) => preference.about),
+    ...theirs.filter((preference) => !preference.about),
+    ...own.filter((preference) => preference.about),
+    ...own.filter((preference) => !preference.about),
   ];
+}
+
+/** Whether a line is the heading over a team's preferences, which nothing reads back (G1-329) */
+export function isTeamHeading(line: string): boolean {
+  // As it was before the word playbook was retired too, until the next sync
+  // writes the block again (CLK-360)
+  return (
+    /^### All projects in .+$/.test(line) ||
+    /^### .+'s team playbook$/.test(line)
+  );
+}
+
+/** The preferences a block holds that an edit to it can change: not a team's (G1-329) */
+function editable(list: readonly PreferenceInput[]): ItemRef[] {
+  return list
+    .filter((preference) => !preference.team)
+    .map(({ id, version }) => ({ id, version }));
 }
 
 /**
@@ -476,19 +572,37 @@ function preferenceSections(
   preferences: PreferenceInput[],
   aboutHeading: string,
   headed = false,
+  shortened: ReadonlyMap<PreferenceInput, Shortened> = new Map(),
+  /** The team's name, for a team's project (G1-329) */
+  team?: string,
 ): string[] {
-  const about = preferences.filter((preference) => preference.about);
-  const rest = preferences.filter((preference) => !preference.about);
-  if (about.length === 0 && !headed) {
-    return rest.length > 0 ? [rest.map(preferenceLine).join("\n")] : [];
+  const line = (preference: PreferenceInput) =>
+    shownLine(preference, shortened.get(preference));
+  // A team's come first, under its name, read only (G1-329), and the
+  // project's own are headed after them, so a line added there reads back
+  const theirs = preferences.filter((preference) => preference.team);
+  const own = preferences.filter((preference) => !preference.team);
+  const teamSection =
+    theirs.length > 0
+      ? [
+          `${TEXT.teamHeading(team ?? "The team")}\n\n${TEXT.teamIntro}\n\n${theirs.map(line).join("\n")}`,
+        ]
+      : [];
+  const about = own.filter((preference) => preference.about);
+  const rest = own.filter((preference) => !preference.about);
+  if (about.length === 0 && !headed && theirs.length === 0) {
+    return rest.length > 0 ? [rest.map(line).join("\n")] : [];
   }
   return [
+    ...teamSection,
     ...(about.length > 0
-      ? [`${aboutHeading}\n\n${about.map(preferenceLine).join("\n")}`]
+      ? [`${aboutHeading}\n\n${about.map(line).join("\n")}`]
       : []),
     ...(rest.length > 0
-      ? [`${TEXT.preferencesHeading}\n\n${rest.map(preferenceLine).join("\n")}`]
-      : []),
+      ? [`${TEXT.preferencesHeading}\n\n${rest.map(line).join("\n")}`]
+      : theirs.length > 0
+        ? [TEXT.preferencesHeading]
+        : []),
   ];
 }
 
@@ -511,6 +625,8 @@ export interface BlockPlan {
   map?: MapPlan;
   /** Always put the preferences under their headings, as after the standing rules (G1-309) */
   headed?: boolean;
+  /** The team's name, for a team's project, whose preferences come first (G1-329) */
+  team?: string;
   /**
    * This connection's own preferences, from its memory, under their own
    * heading after the person's, fitted after them (G1-299)
@@ -523,6 +639,8 @@ export interface RenderedBlock {
   items: ItemRef[];
   /** Preferences that didn't fit, in order. */
   overflow: PreferenceInput[];
+  /** Preferences the file shows shortened, to their first sentence or name, in order (G1-336) */
+  shortened: PreferenceInput[];
   leftOut: PreferenceInput[];
   /** Start here entries that didn't fit or were left out, and a docs-home place left out */
   map: {
@@ -542,6 +660,8 @@ function assemble(
   map: RenderedMap,
   /** This connection's own preferences that fit (G1-299) */
   keptMemory: PreferenceInput[] = [],
+  /** The ones that show shortened (G1-336) */
+  shortened: ReadonlyMap<PreferenceInput, Shortened> = new Map(),
 ): string {
   const sections: string[] = [
     `${plan.title}\n\n${plan.intro}`,
@@ -553,6 +673,8 @@ function assemble(
         kept,
         plan.aboutHeading ?? TEXT.aboutUser,
         plan.headed === true || map.startHere.length > 0,
+        shortened,
+        plan.team,
       ),
     );
   } else {
@@ -573,10 +695,10 @@ function assemble(
   }
   if (keptMemory.length > 0) {
     sections.push(
-      `${TEXT.memoryHeading}\n\n${keptMemory.map(preferenceLine).join("\n")}`,
+      `${TEXT.memoryHeading}\n\n${keptMemory.map((preference) => shownLine(preference, shortened.get(preference))).join("\n")}`,
     );
   }
-  const notes: string[] = [];
+  const notes: string[] = [...shortenedNote(shortened)];
   if (overflowCount > 0) {
     notes.push(TEXT.overflow(overflowCount, plan.overflowTo ?? null));
   }
@@ -585,6 +707,48 @@ function assemble(
   sections.push(...map.docsHome);
   if (plan.footer) sections.push(plan.footer);
   return `${BLOCK_START}\n${sections.join("\n\n")}\n${BLOCK_END}\n`;
+}
+
+/**
+ * How many of a list a file holds, and which show shortened (G1-336). Every
+ * one whole when they fit, as always. Otherwise every one keeps its first
+ * sentence, and as many as fit, in order, their whole text too; then every
+ * one keeps its name, and as many as fit, in order, their first sentence; and
+ * only when even the names don't all fit, as many as fit by name, with the
+ * rest counted, as before. A sentence is never cut part way.
+ */
+function chooseShown(
+  list: readonly PreferenceInput[],
+  fits: (
+    count: number,
+    shortened: ReadonlyMap<PreferenceInput, Shortened>,
+  ) => boolean,
+): { count: number; shortened: Map<PreferenceInput, Shortened> } {
+  const whole = new Map<PreferenceInput, Shortened>();
+  if (fits(list.length, whole)) return { count: list.length, shortened: whole };
+  // The most that fit, trying more each time, as each more is longer
+  const most = (
+    shortenedWith: (more: number) => Map<PreferenceInput, Shortened>,
+  ) => {
+    let found: Map<PreferenceInput, Shortened> | null = null;
+    for (let more = 0; more < list.length; more++) {
+      const shortened = shortenedWith(more);
+      if (!fits(list.length, shortened)) break;
+      found = shortened;
+    }
+    return found;
+  };
+  const sentences =
+    most((wholeOnes) => shortenedFrom(list, wholeOnes)) ??
+    most((sentenceOnes) => shortenedFrom(list, 0, sentenceOnes));
+  if (sentences) return { count: list.length, shortened: sentences };
+  let count = 0;
+  while (
+    count < list.length &&
+    fits(count + 1, shortenedFrom(list.slice(0, count + 1), 0, 0))
+  )
+    count++;
+  return { count, shortened: shortenedFrom(list.slice(0, count), 0, 0) };
 }
 
 /**
@@ -608,40 +772,38 @@ export function renderBlock(plan: BlockPlan): RenderedBlock {
   const all = [...candidates, ...memory];
 
   const fit = (map: RenderedMap): RenderedBlock => {
-    const kept: PreferenceInput[] = [];
-    const split = (list: PreferenceInput[]) => [
+    const split = (list: readonly PreferenceInput[]) => [
       list.filter((preference) => !memory.includes(preference)),
       list.filter((preference) => memory.includes(preference)),
     ];
-    for (const [index, preference] of all.entries()) {
-      const remaining = all.length - index - 1;
-      const [own, mine] = split([...kept, preference]);
-      if (
-        bytes(assemble(plan, own!, remaining, leftOut.length, map, mine!)) >
-        plan.budget
-      )
-        break;
-      kept.push(preference);
-    }
-    const [own, mine] = split(kept);
-    const overflow = candidates.filter(
-      (preference) => !own!.includes(preference),
-    );
-    const memoryOverflow = memory.length - mine!.length;
-    return {
-      text: assemble(
+    // The block with the first count of them, shown as shortened says, and
+    // the rest counted
+    const text = (
+      count: number,
+      shortened: ReadonlyMap<PreferenceInput, Shortened>,
+    ) => {
+      const [own, mine] = split(all.slice(0, count));
+      return assemble(
         plan,
         own!,
-        overflow.length + memoryOverflow,
+        all.length - count,
         leftOut.length,
         map,
         mine!,
-      ),
-      items: [
-        ...map.items,
-        ...kept.map(({ id, version }) => ({ id, version })),
-      ],
-      overflow,
+        shortened,
+      );
+    };
+    const { count, shortened } = chooseShown(
+      all,
+      (count, shortened) => bytes(text(count, shortened)) <= plan.budget,
+    );
+    const kept = all.slice(0, count);
+    const [own] = split(kept);
+    return {
+      text: text(count, shortened),
+      items: [...map.items, ...editable(kept)],
+      overflow: candidates.filter((preference) => !own!.includes(preference)),
+      shortened: kept.filter((preference) => shortened.has(preference)),
       leftOut,
       map: map.map,
     };
@@ -672,6 +834,7 @@ export function renderBlock(plan: BlockPlan): RenderedBlock {
     text: bytes(compact) <= plan.budget ? compact : "",
     items: [],
     overflow: candidates,
+    shortened: [],
     leftOut,
     map: {
       ...fullMap.map,
@@ -690,9 +853,10 @@ export function renderContext(
   plan?: MapPlan,
   /** Whether its owner allows personal details in it (G1-246) */
   personal = false,
+  /** The team's name, for a team's project (G1-329) */
+  team?: string,
 ): RenderedBlock {
   const map = renderMap(plan);
-  const kept: PreferenceInput[] = [];
   const intro = personal
     ? `${TEXT.personalIntro(projectName)} ${TEXT.personalDetails}`
     : TEXT.personalIntro(projectName);
@@ -701,33 +865,41 @@ export function renderContext(
   const mapped = headed || map.docsHome.length > 0;
   // Sections under headings get a blank line between them; a plain list
   // with nothing else stays as compact as it always was
-  const build = (list: PreferenceInput[], overflowCount: number) => {
+  const build = (
+    list: PreferenceInput[],
+    overflowCount: number,
+    shortened: ReadonlyMap<PreferenceInput, Shortened> = new Map(),
+  ) => {
     const spaced = mapped || list.some((preference) => preference.about);
     return (
       [
         intro,
         ...map.startHere,
         ...(list.length > 0
-          ? preferenceSections(list, TEXT.aboutProject, headed)
+          ? preferenceSections(list, TEXT.aboutProject, headed, shortened, team)
           : mapped && overflowCount === 0
             ? [TEXT.noPreferences]
             : []),
+        ...shortenedNote(shortened),
         ...(overflowCount > 0 ? [TEXT.overflow(overflowCount, null)] : []),
         ...map.docsHome,
       ].join(spaced ? "\n\n" : "\n") + "\n"
     );
   };
 
-  for (const [index, preference] of ordered.entries()) {
-    const remaining = ordered.length - index - 1;
-    if (bytes(build([...kept, preference], remaining)) > budget) break;
-    kept.push(preference);
-  }
-  const overflow = ordered.slice(kept.length);
+  const { count, shortened } = chooseShown(
+    ordered,
+    (count, shortened) =>
+      bytes(
+        build(ordered.slice(0, count), ordered.length - count, shortened),
+      ) <= budget,
+  );
+  const kept = ordered.slice(0, count);
   return {
-    text: build(kept, overflow.length),
-    items: [...map.items, ...kept.map(({ id, version }) => ({ id, version }))],
-    overflow,
+    text: build(kept, ordered.length - count, shortened),
+    items: [...map.items, ...editable(kept)],
+    overflow: ordered.slice(count),
+    shortened: kept.filter((preference) => shortened.has(preference)),
     leftOut: [],
     map: map.map,
   };
