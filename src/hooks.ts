@@ -228,13 +228,13 @@ export function openclawHookMd(): string {
   return [
     "---",
     `name: ${OPENCLAW_HOOK_NAME}`,
-    `description: "Keeps OpenClaw's files in step with your Context Locker playbook"`,
+    `description: "Keeps OpenClaw's files in step with your context in Context Locker"`,
     `metadata: { "openclaw": { "events": [${events}] } }`,
     "---",
     "",
     "# Context Locker sync",
     "",
-    "Runs Context Locker's sync when the gateway starts, when a session starts or resets, and before compaction, so OpenClaw's files hold your playbook as it is now.",
+    "Runs Context Locker's sync when the gateway starts, when a session starts or resets, and before compaction, so OpenClaw's files hold your context as it is now.",
     "",
   ].join("\n");
 }

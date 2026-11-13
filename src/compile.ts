@@ -30,6 +30,7 @@ import type {
   SkillInput,
   StartHereInput,
   WorkPlace,
+  FileRoom,
 } from "./types.js";
 
 /** Most bytes each compiled block may take, markers included. */
@@ -131,11 +132,30 @@ function plural(count: number, one: string, many: string): string {
   return count === 1 ? `1 ${one}` : `${count} ${many}`;
 }
 
+/** How the room of a project's session-start output is named (G1-336) */
+export const SESSION_START = "the session-start output";
+
+/** What a rendered file had no room for (G1-336), or nothing when it holds every preference whole */
+function roomOf(
+  rendered: RenderedBlock,
+  target: string,
+  noRoom = rendered.text === "" || rendered.text.includes(TEXT.tightBlock),
+): FileRoom[] {
+  const shortened = rendered.shortened.length + rendered.overflow.length;
+  return shortened > 0 || noRoom ? [{ target, shortened, noRoom }] : [];
+}
+
 function capNotes(rendered: RenderedBlock, where: string): string[] {
   const notes: string[] = [];
   if (rendered.overflow.length > 0) {
     notes.push(
       `${plural(rendered.overflow.length, "preference didn't", "preferences didn't")} fit in ${where}: ${rendered.overflow.map((p) => p.name).join(", ")}.`,
+    );
+  }
+  // A file with no room for all of them whole shows some shortened (G1-336)
+  if (rendered.shortened.length > 0) {
+    notes.push(
+      `${plural(rendered.shortened.length, "preference is", "preferences are")} shortened in ${where}, as it has no room for all of them whole: ${rendered.shortened.map((p) => p.name).join(", ")}.`,
     );
   }
   if (rendered.leftOut.length > 0) {
@@ -237,6 +257,7 @@ function compileGlobal(
       ...skills(targets.skills, skillList),
     ],
     notes: [...capNotes(rendered, targets.global), ...skillNotes],
+    room: roomOf(rendered, targets.global),
   };
 }
 
@@ -278,6 +299,7 @@ function compileProject(
   const targets = TARGETS[harness];
   const outputs: Output[] = [];
   const notes: string[] = [];
+  const room: FileRoom[] = [];
   const mapPlan: MapPlan = {
     ...map,
     startHereBudget: BUDGETS.startHere,
@@ -325,6 +347,7 @@ function compileProject(
         BUDGETS.context,
         mapPlan,
         project.personal === true,
+        project.team,
       );
       outputs.push({
         kind: "context",
@@ -332,6 +355,7 @@ function compileProject(
         items: rendered.items,
       });
       notes.push(...capNotes(rendered, "the session-start output"));
+      room.push(...roomOf(rendered, SESSION_START, false));
     }
     if (skillList.length > 0) {
       notes.push(
@@ -342,6 +366,7 @@ function compileProject(
     return {
       outputs: [...outputs, ...mirrored.outputs],
       notes: [...notes, ...mirrored.notes],
+      room,
     };
   }
 
@@ -356,6 +381,8 @@ function compileProject(
         ? `${TEXT.projectIntro} ${TEXT.personalDetails}`
         : TEXT.projectIntro,
       aboutHeading: TEXT.aboutProject,
+      // A team's project lists the team's preferences first (G1-329)
+      team: project.team,
       preferences,
       empty: TEXT.noPreferences,
       budget: shared
@@ -382,6 +409,7 @@ function compileProject(
       notes.push(TEXT.noRoom);
     }
     notes.push(...capNotes(rendered, targets.projectBlock));
+    room.push(...roomOf(rendered, targets.projectBlock));
   }
 
   if (skillList.length > 0) {
@@ -397,6 +425,7 @@ function compileProject(
   return {
     outputs: [...outputs, ...mirrored.outputs],
     notes: [...notes, ...mirrored.notes],
+    room,
   };
 }
 

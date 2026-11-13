@@ -95,7 +95,7 @@ describe("the checks of Writing for AI apps (G1-310)", () => {
     assert.deepEqual(rulesOf("Organise the colour of the person's notes."), []);
   });
 
-  it("finds every word the glossary retires, keeping a team's owner and My playbook (G1-319)", () => {
+  it("finds every word the glossary retires, keeping a team's owner (G1-319), and playbook wherever it's said (CLK-360)", () => {
     const found = (text: string) =>
       [...retiredWords(text)].map(([word, count]) => `${word}:${count}`).sort();
     assert.deepEqual(
@@ -121,15 +121,36 @@ describe("the checks of Writing for AI apps (G1-310)", () => {
     ]);
     assert.deepEqual(
       found(
-        "My playbook and the team's playbook apply everywhere, as your playbook does. The team's owner decides with admins: an owner, admins and members. Tasks, agents, projects and changes, by workspace_id and owner_id.",
+        "All projects applies everywhere, as your context does. The team's owner decides with admins: an owner, admins and members. Tasks, agents, projects and changes, by workspace_id and owner_id.",
       ),
       [],
+    );
+    // My playbook, a team's and yours are retired too, as is a field's name
+    // that holds the word (CLK-360)
+    assert.deepEqual(
+      found(
+        "My playbook and the team's playbook apply everywhere, as your playbook does, and include_my_playbook says so.",
+      ),
+      ["playbook:4"],
     );
     // Anywhere else, owner means the person
     assert.deepEqual(found("The owner decides, as the user said."), [
       "owner:1",
       "user:1",
     ]);
+    // The inbox's old names, its page's and its part for agents (CLK-362)
+    assert.deepEqual(
+      found(
+        "Open Inboxes, then Agents' inboxes; your agents’ inboxes and All Agents' inboxes too.",
+      ),
+      ["Agents' inboxes:3", "Inboxes:1"],
+    );
+    assert.deepEqual(
+      found(
+        "Open Inbox, then Agent inboxes. Both inboxes, the person's and each agent's inbox, stay.",
+      ),
+      [],
+    );
   });
 
   it("holds a text to its budget", () => {

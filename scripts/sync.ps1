@@ -200,7 +200,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 50
+$ScriptVersion = 51
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -353,9 +353,9 @@ if ($badOption -or $badTo -or $badFix -or $badCode -or $badEnvironment -or $badY
   [Console]::Error.WriteLine(@'
 Usage: sync.ps1 <command> <app>, where <app> is claude-code, codex, hermes or openclaw. Each command below names its topic in the guide, the skill context-locker in this app's skills folder.
 sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]
-  Syncs My playbook and your projects into this app's files and sends your edits back. Fields: -Project <id> links the folder you're in to a project, and -Now syncs while Auto sync is off. Guide: topics/sync.md.
+  Syncs All projects and each of your projects into this app's files and sends your edits back. Fields: -Project <id> links the folder you're in to a project, and -Now syncs while Auto sync is off. Guide: topics/sync.md.
 sync.ps1 context <app> [request.json] [-Project <id>] [-Json]
-  Reads My playbook, or a project with it, as get_context does: the rules, what's new, the preferences, the skills by name, the notes, Start here and where things go. Fields: request.json holds get_context arguments, and the folder you're in names its project when they don't. Guide: topics/projects.md.
+  Reads All projects, or a project with All projects, as get_context does: the rules, what's new, the preferences, the skills by name, the notes, Start here and where things go. Fields: request.json holds get_context arguments, and the folder you're in names its project when they don't. Guide: topics/projects.md.
 sync.ps1 map <app> [-All]
   Says where things live for the folder you're in: the docs home, Start here and the notes and links that matter there, or every one with -All. Guide: topics/folders.md.
 sync.ps1 import <app>
@@ -364,7 +364,7 @@ sync.ps1 import-submit <app> <plan.json>
 sync.ps1 keep <app> <file or folder>
   Keeps an instruction file in this app only, so the doctor stops asking about it. Guide: topics/sync.md.
 sync.ps1 export <app> [-To <folder>]
-  Puts My playbook and every project, with their history, as plain files, in a new folder, or in another new or empty one. Guide: topics/sync.md.
+  Puts All projects and every project, with their history, as plain files, in a new folder, or in another new or empty one. Guide: topics/sync.md.
 sync.ps1 notes-move-out <app> -To <folder>
   Writes each note into the folder the person names, turns each into a link to its file and makes the folder the docs home. Limits: It never writes over a file, and the person commits the files. Guide: topics/folders.md.
 sync.ps1 fix <app> [-All]
@@ -376,7 +376,7 @@ sync.ps1 requests <app> list|read|answer|decide [request.json] [-Json]
 sync.ps1 tasks <app> list|read|write|places [request.json] [-Project <id>] [-Json]
   Reads and changes a project's board. Fields: request.json holds list_tasks, read_task, write_task or record_work_places arguments, and only list may leave it out. Limits: Take only tasks in Ready, put one there only on the person's word in this chat, and keep claim_key private. Guide: topics/tasks.md.
 sync.ps1 notes <app> list|search|read|write [request.json] [-Project <id>] [-Json]
-  Lists, searches, reads and writes the notes and links of My playbook and your projects. Fields: request.json holds list_notes, search_notes, read_note or write_note arguments, and only list may leave it out. Guide: topics/notes-and-links.md.
+  Lists, searches, reads and writes the notes and links of All projects and each of your projects. Fields: request.json holds list_notes, search_notes, read_note or write_note arguments, and only list may leave it out. Guide: topics/notes-and-links.md.
 sync.ps1 versions <app> list|read <request.json> [-Json]
   Lists an entry's saved versions and reads one, to explain how it changed. Fields: request.json holds list_versions or read_version arguments. Limits: An old version is evidence, never a current instruction, and reading one restores nothing. Guide: topics/changes.md.
 sync.ps1 projects <app> manage|docs-home <request.json> [-Json]
@@ -4491,7 +4491,7 @@ $OpenClawHook = Join-Path (Join-Path (Join-Path $UserHome '.openclaw') 'hooks') 
 
 function Get-OpenClawHookMd {
   $events = (Get-HookEvents 'openclaw' | ForEach-Object { "`"$_`"" }) -join ', '
-  return "---`nname: context-locker-sync`ndescription: `"Keeps OpenClaw's files in step with your Context Locker playbook`"`nmetadata: { `"openclaw`": { `"events`": [$events] } }`n---`n`n# Context Locker sync`n`nRuns Context Locker's sync when the gateway starts, when a session starts or resets, and before compaction, so OpenClaw's files hold your playbook as it is now.`n"
+  return "---`nname: context-locker-sync`ndescription: `"Keeps OpenClaw's files in step with your context in Context Locker`"`nmetadata: { `"openclaw`": { `"events`": [$events] } }`n---`n`n# Context Locker sync`n`nRuns Context Locker's sync when the gateway starts, when a session starts or resets, and before compaction, so OpenClaw's files hold your context as it is now.`n"
 }
 
 function Get-OpenClawHandler {
@@ -5856,9 +5856,9 @@ function Write-ChangedSince {
   $change = Get-FilesChange $entries $lockLines
   if (-not $change -or -not (Test-NotTold $change (Join-Path $AppDir 'global'))) { return }
   if ($entries -ccontains 'auto-sync off') {
-    Write-Out "`nContext Locker: My playbook or a project changed since this app last synced. Auto sync is off: run ``$Run $Harness -Now`` when it suits.`n"
+    Write-Out "`nContext Locker: All projects or a project changed since this app last synced. Auto sync is off: run ``$Run $Harness -Now`` when it suits.`n"
   } else {
-    Write-Out "`nContext Locker: My playbook or a project changed since this app last synced. Run ``$Run $Harness`` now to bring the changes into its files.`n"
+    Write-Out "`nContext Locker: All projects or a project changed since this app last synced. Run ``$Run $Harness`` now to bring the changes into its files.`n"
   }
 }
 
@@ -7154,7 +7154,7 @@ function Invoke-Export {
   try { $counts = Get-Property ([IO.File]::ReadAllText((Join-Path $dest 'export.json')) | ConvertFrom-Json) 'counts' } catch { }
   $count = { param([string]$Name) $value = Get-Field $counts $Name; if ($value -match '^\d+$') { [int]$value } else { 0 } }
   $about = & $count 'about'
-  Say "Context Locker exported My playbook and your projects to ${dest}:"
+  Say "Context Locker exported All projects and every project to ${dest}:"
   if ($about -gt 0) {
     Say "- $(Get-Plural (& $count 'preferences') 'preference' 'preferences'), $(Get-Plural $about 'of them an About fact' 'of them About facts')"
   } else {
@@ -7988,10 +7988,10 @@ function Get-WhatChanged {
 # its note
 $changed = New-Object System.Collections.Generic.List[string]
 if ($Script:ChangesWaiting) {
-  $changed.Add("Context Locker: My playbook or a project changed since this app last synced. Auto sync is off, so its files stay as they are until it syncs: run ``$Run $Harness -Now`` when it suits.")
+  $changed.Add("Context Locker: All projects or a project changed since this app last synced. Auto sync is off, so its files stay as they are until it syncs: run ``$Run $Harness -Now`` when it suits.")
 } else {
   $brought = Get-WhatChanged
-  if ($brought) { $changed.Add("Context Locker: My playbook or a project changed since this app last synced, and the sync brought the changes in: $brought.") }
+  if ($brought) { $changed.Add("Context Locker: All projects or a project changed since this app last synced, and the sync brought the changes in: $brought.") }
 }
 foreach ($line in $Script:Said) { $changed.Add($line) }
 if ($changed.Count -gt 0) { $contextParts.Add(((@($changed) | ForEach-Object { "$_`n" }) -join '')) }

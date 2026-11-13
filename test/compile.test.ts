@@ -15,11 +15,13 @@ import {
   standingRules,
   compile,
   injectionMatches,
+  isTeamHeading,
   linkDestination,
   parseTarget,
   startHereLine,
   type CompileInput,
   type Compiled,
+  type PreferenceInput,
 } from "../src/index.js";
 import {
   docsPlace,
@@ -968,7 +970,7 @@ describe("a connection's own memory in its global block (G1-299)", () => {
       );
   });
 
-  it("fits the person's preferences first, and counts its own that don't fit", () => {
+  it("fits the person's preferences first, and shortens its own after them (G1-336)", () => {
     const compiled = compile({
       harness: "hermes",
       project: null,
@@ -978,8 +980,92 @@ describe("a connection's own memory in its global block (G1-299)", () => {
     });
     const block = globalBlock(compiled);
     assert.ok(Buffer.byteLength(block.text, "utf8") <= BUDGETS.hermesSoul);
-    // The person's fill the room, so its own are counted, not shown
-    assert.doesNotMatch(block.text, /This connection's memory/);
-    assert.ok(!block.items.some(({ id }) => id === memory[0]!.id));
+    // The person's fill the room, so its own show shortened, after them
+    const mine = block.text.slice(block.text.indexOf(TEXT.memoryHeading));
+    assert.ok(block.text.includes(TEXT.memoryHeading));
+    for (const preference of memory)
+      assert.ok(
+        mine.includes(`- ${preference.name}: `) &&
+          mine
+            .split("\n")
+            .find((line) => line.startsWith(`- ${preference.name}: `))!
+            .endsWith(TEXT.shortenedMark),
+        preference.name,
+      );
+    assert.ok(block.items.some(({ id }) => id === memory[0]!.id));
+  });
+});
+
+describe("a team's project (G1-329)", () => {
+  const site = {
+    id: "33333333-3333-4333-8333-333333333333",
+    name: "Acme site",
+    layer: "repo" as const,
+    team: "Acme",
+  };
+  const blockOf = (preferences: PreferenceInput[]) => {
+    const compiled = compile({
+      harness: "codex",
+      project: site,
+      preferences,
+      skills: [],
+    });
+    const found = compiled.outputs.find((output) => output.kind === "block");
+    assert.ok(found && found.kind === "block");
+    return found;
+  };
+
+  it("lists the team's preferences first, About first, read only under the team's name, and gives only the project's own for edits", () => {
+    const block = blockOf([
+      {
+        id: "t1",
+        version: 1,
+        name: "team-voice",
+        text: "Write as Acme.",
+        team: true,
+      },
+      {
+        id: "s1",
+        version: 2,
+        name: "site-dates",
+        text: "Give dates with the year.",
+      },
+      {
+        id: "t2",
+        version: 1,
+        name: "acme-is",
+        text: "Acme makes sites.",
+        team: true,
+        about: true,
+      },
+    ]);
+    assert.match(
+      block.text,
+      /### All projects in Acme\n\nThe team's own, which its owners and admins change in Context Locker\. These lines aren't read back, so editing one here changes nothing\. [^\n]+\n\n- acme-is: Acme makes sites\.\n- team-voice: Write as Acme\.\n\n### Preferences\n\n- site-dates: Give dates with the year\.\n/,
+    );
+    assert.deepEqual(block.items, [{ id: "s1", version: 2 }]);
+  });
+
+  it("knows the team's heading, and the one it had before the word playbook was retired, so an old block's team lines still aren't read back (CLK-360)", () => {
+    assert.equal(isTeamHeading("### All projects in Acme"), true);
+    assert.equal(isTeamHeading("### Acme's team playbook"), true);
+    assert.equal(isTeamHeading("### Preferences"), false);
+  });
+
+  it("heads the project's own after the team's even with none yet, so a line added there reads back as the project's", () => {
+    const block = blockOf([
+      {
+        id: "t1",
+        version: 1,
+        name: "team-voice",
+        text: "Write as Acme.",
+        team: true,
+      },
+    ]);
+    assert.match(
+      block.text,
+      /- team-voice: Write as Acme\.\n\n### Preferences\n/,
+    );
+    assert.deepEqual(block.items, []);
   });
 });

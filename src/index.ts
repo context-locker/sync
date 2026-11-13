@@ -105,6 +105,7 @@ export {
   TEXT,
   docsHomeRule,
   docsLocationsRule,
+  isTeamHeading,
   oneAppOnly,
   workPlacesRule,
   linkDestination,
@@ -114,7 +115,7 @@ export {
   preferenceLine,
   startHereLine,
 } from "./render.js";
-export type { Reach } from "./render.js";
+export type { Reach, Shortened } from "./render.js";
 export {
   SKILL_NAME,
   allowedTargets,
@@ -171,6 +172,7 @@ export type {
   SkillFile,
   SkillInput,
   StartHereInput,
+  FileRoom,
 } from "./types.js";
 
 export type { DocsLocation, WorkPlace } from "./types.js";
@@ -206,6 +208,11 @@ export {
 } from "./standing-rules.js";
 export type { RuleSlot, RulesEnvironment } from "./standing-rules.js";
 
+export {
+  FIRST_SENTENCE_MAX,
+  firstSentence,
+  sentenceLength,
+} from "./first-sentence.js";
 export { TOOL_COMMANDS, commandLine, toolCommand } from "./tool-commands.js";
 export type { ToolCommand } from "./tool-commands.js";
 

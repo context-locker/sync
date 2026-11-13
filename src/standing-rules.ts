@@ -28,7 +28,7 @@ Defaults:
 - {read}
 - When two sources of truth disagree on a decision, ask the person.
 - Keep what another agent or session needs where every app can read it, such as a note or a repo file, never only in a chat or a place one app can open, such as a Claude artifact.
-- Keep a fact only you need, such as a local path, in your memory, others in the narrowest project that fits or My playbook, and how a repo's code works in its own docs.
+- Keep a fact only you need, such as a local path, in your memory, others in the narrowest project that fits or All projects, and how a repo's code works in its own docs.
 - Save what the person said or confirmed; ask before saving what you inferred, except a lesson. Leave out secrets, task status and personal details unless their project allows them. {keep}
 - When a reasonable assumption settles an uncertainty and changing it later is cheap, decide, do the work and {assume}. Ask before a step that's hard to take back.
 - Otherwise ask one decision at a time, with the evidence and 2 to 4 choices that are outcomes, one recommended with why, {where}.
@@ -52,7 +52,7 @@ export const RULE_FILLS: Readonly<
   Record<RulesEnvironment, Readonly<Record<RuleSlot, string>>>
 > = Object.freeze({
   mcp: Object.freeze({
-    read: "At the start of every conversation or piece of work, and once earlier messages were summarised, read My playbook with get_context, and the project you work in when there is one, unless your own instruction files hold them.",
+    read: "At the start of every conversation or piece of work, and once earlier messages were summarised, read All projects with get_context, and the project you work in, if any, unless your own instruction files hold them.",
     keep: "Keep one with remember.",
     assume: "record it with write_task's assumed",
     where:
@@ -61,7 +61,7 @@ export const RULE_FILLS: Readonly<
     guide: "the skill context-locker, with get_skill",
   }),
   sync: Object.freeze({
-    read: "Read My playbook here, and the project for the folder you work in from its block or session start.",
+    read: "Read All projects here, and the project for the folder you work in from its block or session start.",
     keep: "Keep one at once with the sync script's `remember <app>`.",
     assume: "record it as assumed on the task with `tasks <app> write`",
     where:
@@ -70,7 +70,7 @@ export const RULE_FILLS: Readonly<
     guide: "the skill context-locker in your skills folder",
   }),
   brief: Object.freeze({
-    read: "Read My playbook and its projects in this brief, as they were when the person made it.",
+    read: "Read All projects and each project in this brief, as they were when the person made it.",
     keep: "Tell the person what to keep, and they keep it in Context Locker.",
     assume: "say the assumption in your reply",
     where: "in the conversation",

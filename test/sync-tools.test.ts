@@ -1805,7 +1805,7 @@ describe("the sync scripts' tools", () => {
         assert.equal(
           exported.stdout,
           [
-            `Context Locker exported My playbook and your projects to ${folder}:`,
+            `Context Locker exported All projects and every project to ${folder}:`,
             "- 4 preferences, 2 of them About facts",
             "- 1 skill",
             "- 3 notes and 2 pointers",
