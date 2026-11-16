@@ -35,6 +35,19 @@ describe("Context Locker's guide (G1-309)", () => {
     }
   });
 
+  it("tells an agent how to keep a link up when it doesn't open, in every app (CLK-422)", () => {
+    for (const environment of ENVIRONMENTS) {
+      const topic = guideTopics(environment).find(
+        (candidate) => candidate.file === "topics/notes-and-links.md",
+      )!;
+      assert.match(
+        topic.text,
+        /\n- When a link's page is gone, change its address to where it moved, or archive it, saying why\. When you can't sign in or have no access, leave it and say so\.\n/,
+        environment,
+      );
+    }
+  });
+
   it("lists each topic in its index, in one line, and nothing else", () => {
     for (const environment of ENVIRONMENTS) {
       const files = guideSkillFiles(environment);

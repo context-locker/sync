@@ -20,7 +20,7 @@ export function bundledScripts(): string {
 }
 
 /** The version a sync script says it is */
-export function scriptVersion(text: string): number | null {
+function scriptVersion(text: string): number | null {
   const found =
     /^SCRIPT_VERSION=(\d+)\r?$/m.exec(text) ??
     /^\$ScriptVersion = (\d+)\r?$/m.exec(text);

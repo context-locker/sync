@@ -214,11 +214,12 @@ export const unsafeStartHere: StartHereInput[] = [
 export const docsPlace = "docs/decisions";
 
 /**
- * A project's notes and one that applies everywhere: a plan, a historic
- * decision whose title and summary hold colons, quotes and a backslash, and
- * a note whose name Windows keeps for a device.
+ * A project's notes and one that applies everywhere, with their names, as an
+ * export writes their files: a plan, a historic decision whose title and
+ * summary hold colons, quotes and a backslash, and a note whose name Windows
+ * keeps for a device.
  */
-export const projectNotes: NoteInput[] = [
+export const projectNotes: Array<NoteInput & { name: string }> = [
   {
     id: "d1111111-1111-4111-8111-111111111111",
     version: 3,
@@ -229,7 +230,6 @@ export const projectNotes: NoteInput[] = [
     summary: "What ships in the Q4 release of the docs site, and when.",
     tags: ["release", "q4"],
     text: "# Release plan\n\n- Search ships on 4 Nov 2026.\n- The new theme follows on 18 Nov 2026.",
-    everywhere: false,
   },
   {
     id: "d2222222-2222-4222-8222-222222222222",
@@ -242,7 +242,6 @@ export const projectNotes: NoteInput[] = [
       "Why we picked Vercel: previews per branch, and C:\\ paths in builds.",
     tags: ["hosting"],
     text: "We picked Vercel for previews.\n\n---\n\nSee the newer decision for what changed.",
-    everywhere: false,
   },
   {
     id: "d3333333-3333-4333-8333-333333333333",
@@ -255,7 +254,6 @@ export const projectNotes: NoteInput[] = [
       "How Nova writes: plain words, short sentences, dates with the year.",
     tags: ["writing"],
     text: "Plain words. Short sentences. Dates such as 21 Oct 2026.",
-    everywhere: true,
   },
   {
     id: "d4444444-4444-4444-8444-444444444444",
@@ -267,12 +265,8 @@ export const projectNotes: NoteInput[] = [
     summary: "What a conference talk taught us.",
     tags: ["research"],
     text: "Notes from the talk.",
-    everywhere: false,
   },
 ];
-
-/** The workspace's tag list, as the README gives it. */
-export const tagList = ["hosting", "q4", "release", "research", "writing"];
 
 /** Numbered Start here pointers with long addresses, for testing the cap. */
 export function manyEntries(count: number): StartHereInput[] {

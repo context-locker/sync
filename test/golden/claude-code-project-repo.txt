@@ -11,5 +11,3 @@ Preferences for this project, kept in sync by Context Locker and edited here as 
 == skill {project}/.claude/skills/docs-style
 item: 77777777-7777-4777-8777-777777777777@1
 files: SKILL.md
-
-== file {project}/.context-locker/notes/README.md

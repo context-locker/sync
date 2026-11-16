@@ -8,12 +8,13 @@ import {
   LEGACY_IMPORT_SKILL_NAME,
   importSkill,
 } from "./import-skill.js";
-import { notesFolderOutputs } from "./notes.js";
 import { standingRules } from "./standing-rules.js";
 import {
+  preferenceLine,
   renderBlock,
   renderContext,
   TEXT,
+  type BlockPlan,
   type MapPlan,
   type RenderedBlock,
 } from "./render.js";
@@ -23,10 +24,8 @@ import type {
   CompiledHarness,
   DocsHome,
   DocsLocation,
-  NoteInput,
   Output,
   PreferenceInput,
-  ProjectLayer,
   SkillInput,
   StartHereInput,
   WorkPlace,
@@ -97,21 +96,6 @@ export const OPENCLAW_AGENTS_MD = "{openclaw}/AGENTS.md";
  */
 export const OPENCLAW_USER_MD = "{openclaw}/USER.md";
 
-/**
- * Whether an app's project sync mirrors the project's notes into its notes
- * folder. Every app that works in project folders gets it, in a repo linked
- * to the workspace and in a folder linked on one computer, as the folder is
- * kept out of git and the repo's own files stay as they are. Hermes syncs a
- * project only in a linked repo, and OpenClaw works in no project folders.
- */
-export function notesSynced(
-  harness: CompiledHarness,
-  layer: ProjectLayer,
-): boolean {
-  if (TARGETS[harness].projectBlock === null) return false;
-  return !(harness === "hermes" && layer === "personal");
-}
-
 const NAMES = byApp((app) => app.name);
 
 function block(target: string, rendered: RenderedBlock): Output {
@@ -133,7 +117,7 @@ function plural(count: number, one: string, many: string): string {
 }
 
 /** How the room of a project's session-start output is named (G1-336) */
-export const SESSION_START = "the session-start output";
+const SESSION_START = "the session-start output";
 
 /** What a rendered file had no room for (G1-336), or nothing when it holds every preference whole */
 function roomOf(
@@ -214,6 +198,36 @@ function globalSkills(
   };
 }
 
+/** The map a global block carries: the documentation locations, when recorded */
+function globalMap(docsLocations?: DocsLocation[]): MapPlan | undefined {
+  return docsLocations?.length
+    ? { startHere: [], docsHome: null, docsLocations, startHereBudget: 0 }
+    : undefined;
+}
+
+/**
+ * The global block: the standing rules, then the person's preferences,
+ * always under their headings, so reading an edit back knows where the
+ * rules end (G1-309), then this connection's own (G1-299)
+ */
+function globalPlan(
+  preferences: PreferenceInput[],
+  budget: number,
+  docsLocations?: DocsLocation[],
+  memory: PreferenceInput[] = [],
+): BlockPlan {
+  return {
+    title: TEXT.globalTitle,
+    intro: `${TEXT.globalIntro}\n\n${TEXT.rulesHeading}\n\n${standingRules("sync")}`,
+    headed: true,
+    preferences,
+    memory,
+    empty: TEXT.noPreferences,
+    budget,
+    map: globalMap(docsLocations),
+  };
+}
+
 function compileGlobal(
   harness: CompiledHarness,
   preferences: PreferenceInput[],
@@ -225,9 +239,6 @@ function compileGlobal(
   globalBytes?: number,
 ): Compiled {
   const targets = TARGETS[harness];
-  const map = docsLocations?.length
-    ? { startHere: [], docsHome: null, docsLocations, startHereBudget: 0 }
-    : undefined;
   const { skills: skillList, notes: skillNotes } = globalSkills(
     harness,
     personal,
@@ -239,18 +250,9 @@ function compileGlobal(
         globalBytes ?? BUDGETS.unmeasuredGlobal,
       )
     : DEVICE_APPS[harness].budget;
-  const rendered = renderBlock({
-    title: TEXT.globalTitle,
-    // The standing rules, then the person's preferences, always under their
-    // headings, so reading an edit back knows where the rules end (G1-309)
-    intro: `${TEXT.globalIntro}\n\n${TEXT.rulesHeading}\n\n${standingRules("sync")}`,
-    headed: true,
-    preferences,
-    memory,
-    empty: TEXT.noPreferences,
-    budget,
-    map,
-  });
+  const rendered = renderBlock(
+    globalPlan(preferences, budget, docsLocations, memory),
+  );
   return {
     outputs: [
       block(targets.global, rendered),
@@ -258,27 +260,6 @@ function compileGlobal(
     ],
     notes: [...capNotes(rendered, targets.global), ...skillNotes],
     room: roomOf(rendered, targets.global),
-  };
-}
-
-/** A project's notes folder, and a sentence for any note that couldn't have a file of its own. */
-function notesFolder(
-  project: NonNullable<CompileInput["project"]>,
-  folder: { notes: NoteInput[]; tags: string[] },
-): Compiled {
-  const { outputs, leftOut } = notesFolderOutputs({
-    projectName: project.name,
-    notes: folder.notes,
-    tags: folder.tags,
-  });
-  return {
-    outputs,
-    notes:
-      leftOut.length > 0
-        ? [
-            `${plural(leftOut.length, "note was", "notes were")} left out of ${project.name}'s notes folder, as another note's file has the same name: ${leftOut.map((note) => note.title).join(", ")}.`,
-          ]
-        : [],
   };
 }
 
@@ -293,18 +274,13 @@ function compileProject(
     docsLocations?: DocsLocation[];
     workPlaces?: WorkPlace[];
   },
-  folder: { notes: NoteInput[]; tags: string[] },
   agentsMdBytes?: number,
 ): Compiled {
   const targets = TARGETS[harness];
   const outputs: Output[] = [];
   const notes: string[] = [];
   const room: FileRoom[] = [];
-  const mapPlan: MapPlan = {
-    ...map,
-    startHereBudget: BUDGETS.startHere,
-    notesFolder: notesSynced(harness, project.layer),
-  };
+  const mapPlan: MapPlan = { ...map, startHereBudget: BUDGETS.startHere };
   // A project with preferences, Start here entries or a docs home gets its
   // block, which says where lasting docs go once a docs home is recorded
   const compiled =
@@ -325,9 +301,8 @@ function compileProject(
 
   if (project.layer === "personal") {
     // None of the repo's own files change in a repo this workspace doesn't
-    // own: the session start carries the preferences, and only the notes
-    // folder, which git leaves out, is written. Hermes runs its sync from a
-    // daily job, so there's no session start to print at.
+    // own: the session start carries the preferences. Hermes runs its sync
+    // from a daily job, so there's no session start to print at.
     if (harness === "hermes") {
       if (
         preferences.length > 0 ||
@@ -362,12 +337,7 @@ function compileProject(
         `${project.name}'s own skills load only in repos linked with a .contextlocker.json: ${skillList.map((s) => s.name).join(", ")}.`,
       );
     }
-    const mirrored = notesFolder(project, folder);
-    return {
-      outputs: [...outputs, ...mirrored.outputs],
-      notes: [...notes, ...mirrored.notes],
-      room,
-    };
+    return { outputs, notes, room };
   }
 
   if (compiled) {
@@ -421,12 +391,7 @@ function compileProject(
       );
     }
   }
-  const mirrored = notesFolder(project, folder);
-  return {
-    outputs: [...outputs, ...mirrored.outputs],
-    notes: [...notes, ...mirrored.notes],
-    room,
-  };
+  return { outputs, notes, room };
 }
 
 /** What one AI app's files should hold for one sync: global, or one project. */
@@ -445,7 +410,6 @@ export function compile(input: CompileInput): Compiled {
           docsLocations: input.docsLocations,
           workPlaces: input.workPlaces,
         },
-        { notes: [...(input.notes ?? [])], tags: [...(input.tags ?? [])] },
         input.agentsMdBytes,
       )
     : compileGlobal(
@@ -456,4 +420,78 @@ export function compile(input: CompileInput): Compiled {
         [...(input.memory ?? [])],
         input.globalBytes,
       );
+}
+
+/** How big a playbook is whole, against the room agents give it (CLK-415) */
+export interface PlaybookSize {
+  /** The characters it takes whole, its headings included */
+  used: number;
+  /** The most an agent reads whole */
+  room: number;
+}
+
+const sizeOf = (text: string) => Buffer.byteLength(text, "utf8");
+
+/**
+ * A project whole, as an agent reads it at the start of a session, with its
+ * team's preferences first in a team's project, against the room that output
+ * gets: the smallest a project has anywhere, so a project that fits it fits
+ * in every app's files (CLK-415)
+ */
+export function projectSize(
+  project: { name: string; personal?: boolean; team?: string },
+  preferences: PreferenceInput[],
+  map: {
+    startHere: StartHereInput[];
+    docsHome: DocsHome;
+    docsLocations?: DocsLocation[];
+    workPlaces?: WorkPlace[];
+  },
+): PlaybookSize {
+  const rendered = renderContext(
+    project.name,
+    preferences,
+    Number.POSITIVE_INFINITY,
+    { ...map, startHereBudget: BUDGETS.startHere },
+    project.personal === true,
+    project.team,
+  );
+  return { used: sizeOf(rendered.text), room: BUDGETS.context };
+}
+
+/**
+ * What a team's All projects adds to each of its projects whole: its
+ * heading, the line saying it's the team's and its preferences, the same
+ * whatever the project, as it's read first in each (G1-329, CLK-415)
+ */
+export function teamPreferencesSize(
+  team: string,
+  preferences: PreferenceInput[],
+): number {
+  if (preferences.length === 0) return 0;
+  return sizeOf(
+    `${TEXT.teamHeading(team)}\n\n${TEXT.teamIntro}\n\n${preferences.map(preferenceLine).join("\n")}\n\n`,
+  );
+}
+
+/**
+ * The person's All projects whole, as each app's global file holds it after
+ * the standing rules, against the smallest room the apps they sync files to
+ * give it, or null when they sync files to none (CLK-415)
+ */
+export function allProjectsSize(
+  preferences: PreferenceInput[],
+  docsLocations: DocsLocation[] | undefined,
+  harnesses: readonly string[],
+): PlaybookSize | null {
+  const rooms = harnesses
+    .filter((harness): harness is CompiledHarness =>
+      Object.hasOwn(DEVICE_APPS, harness),
+    )
+    .map((harness) => DEVICE_APPS[harness].budget);
+  if (rooms.length === 0) return null;
+  const rendered = renderBlock(
+    globalPlan(preferences, Number.POSITIVE_INFINITY, docsLocations),
+  );
+  return { used: sizeOf(rendered.text), room: Math.min(...rooms) };
 }

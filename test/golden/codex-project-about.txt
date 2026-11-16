@@ -13,5 +13,3 @@ Preferences for this project, kept in sync by Context Locker and edited here as 
 
 - short-sentences: Steps in the docs may use longer sentences when they need to.
 <!-- context-locker:end -->
-
-== file {project}/.context-locker/notes/README.md

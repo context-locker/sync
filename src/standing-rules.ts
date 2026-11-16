@@ -7,7 +7,8 @@
 // regardless, which no preference changes. Each filled version keeps within
 // AI_TEXT_BUDGETS.rules, so the rules never squeeze the person's preferences
 // out of a block. Agents read every word, so none of it may look like prompt
-// injection, and it follows Writing for AI apps in AGENTS.md.
+// injection, and it follows the writing standard in
+// docs/writing-for-ai-apps.md.
 
 /** How an app gets the rules: over MCP, by device sync, or in a brief the person pastes */
 export type RulesEnvironment = "mcp" | "sync" | "brief";
@@ -61,7 +62,7 @@ export const RULE_FILLS: Readonly<
     guide: "the skill context-locker, with get_skill",
   }),
   sync: Object.freeze({
-    read: "Read All projects here, and the project for the folder you work in from its block or session start.",
+    read: "Read All projects here, a project from its folder's block or session start or with the sync script's `context <app>`, and notes with `notes <app> read`.",
     keep: "Keep one at once with the sync script's `remember <app>`.",
     assume: "record it as assumed on the task with `tasks <app> write`",
     where:

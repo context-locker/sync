@@ -18,7 +18,5 @@ Start each session with a three-line startup brief for the person: the project, 
 - short-sentences: Steps in the docs may use longer sentences when they need to.
 <!-- context-locker:end -->
 
-== file {project}/.context-locker/notes/README.md
-
 == notes
 - 3 Start here entries were left out of {project}/.claude/rules/context-locker.md for wording or an address some apps refuse: Ops channel, Status page, Admin notes.

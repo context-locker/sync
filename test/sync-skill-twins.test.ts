@@ -123,6 +123,9 @@ describe("a skill the app also gets elsewhere (G1-221)", () => {
           response.end(blobArchive(blobs as never, 0));
         } else if (route === "POST /v1/sync/done") {
           json(200, { status: "recorded" });
+        } else if (route === "POST /v1/sync/repo") {
+          // A project with no repository, which --project links (CLK-420)
+          json(200, { repo: false, git_remote: null });
         } else if (route === "GET /v1/agent") {
           json(200, {
             agent: { name: "Claude Code", machine_name: "Test" },

@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 import type { HookTarget } from "@internal/compilers";
 
-export const DEFAULT_API = "https://api.context.locker";
+const DEFAULT_API = "https://api.context.locker";
 
 export interface Place {
   /** The person's home folder: the profile folder on Windows */
@@ -40,7 +40,7 @@ export function placeFrom(
 }
 
 /** A setting from Context Locker's config file, a key=value line, as the scripts read it */
-export function readSetting(place: Place, key: string): string | null {
+function readSetting(place: Place, key: string): string | null {
   let text: string;
   try {
     text = readFileSync(join(place.clHome, "config"), "utf8");

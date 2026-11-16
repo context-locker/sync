@@ -10,7 +10,5 @@ Preferences for this project, kept in sync by Context Locker and edited here as 
 1 preference was left out of this file because some agents refuse to load files with wording like it. It's in Context Locker.
 <!-- context-locker:end -->
 
-== file {project}/.context-locker/notes/README.md
-
 == notes
 - 1 preference was left out of {project}/AGENTS.md for wording some apps refuse: ticket-numbers.

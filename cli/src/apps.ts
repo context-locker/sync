@@ -10,7 +10,7 @@ import type { Place } from "./place.js";
 export type App = CompiledHarness;
 
 /** Every app setup works for, in the order it lists them */
-export const APPS: readonly App[] = COMPILED_HARNESSES;
+const APPS: readonly App[] = COMPILED_HARNESSES;
 
 /** The command each app installs */
 const COMMANDS: Readonly<Record<App, string>> = Object.freeze({
@@ -55,7 +55,7 @@ export function appFolder(app: App, place: Place): string {
 }
 
 /** Where a command is on the PATH, or null */
-export function onPath(command: string, place: Place): string | null {
+function onPath(command: string, place: Place): string | null {
   const path = place.env.PATH ?? place.env.Path ?? "";
   const dirs = path.split(place.windows ? ";" : ":").filter(Boolean);
   const endings = place.windows

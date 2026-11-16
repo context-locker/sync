@@ -1,6 +1,6 @@
-# Context Locker sync, version 50. MIT licence.
+# Context Locker sync, version 56. MIT licence.
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 <app> [-Project <id> [-LinkFolder]] [-Now] [-Hook] [-Daily]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 map <app> [-All]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 import <app>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 import-submit <app> <plan.json>
@@ -17,9 +17,12 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 context <app> [request.json] [-Project <id>] [-Json]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 tasks <app> list|read|write|places [request.json] [-Project <id>] [-Json]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 notes <app> list|search|read|write [request.json] [-Project <id>] [-Json]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 files <app> write <request.json> [-File <path>] [-Json]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 files <app> upload <path>
+#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 table <app> <request.json> [-Json]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 versions <app> list|read <request.json> [-Json]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 projects <app> manage|docs-home <request.json> [-Json]
-#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 skills <app> source <request.json> [-Json]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 skills <app> get|source <request.json> [-Json]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 requests <app> list|read|answer|decide [request.json] [-Json]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 suggest <app> <request.json> [-Json]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 remember <app> <request.json> [-Json]
@@ -30,12 +33,12 @@
 # is claude-code, codex, hermes or openclaw. The script asks for a manifest of
 # what the app's files should hold, writes only what changed, and sends any
 # edit it finds in a synced file back to Context Locker. It writes only inside
-# Context Locker's marked blocks, skill folders, a project's notes folder and,
-# once the person brings them in, the app's own memory files, backs up
-# anything it replaces that it didn't write, and never deletes a file of
-# yours, but for a memory file whose note the person archived in Context
-# Locker, after a backup. Once the person picks from the app's import, it
-# also takes what they picked out of the app's own files, after a backup.
+# Context Locker's marked blocks, skill folders and, once the person brings
+# them in, the app's own memory files, backs up anything it replaces that it
+# didn't write, and never deletes a file of yours, but for a memory file
+# whose note the person archived in Context Locker, after a backup. Once the
+# person picks from the app's import, it also takes what they picked out of
+# the app's own files, after a backup.
 # When Context Locker can't be reached, or the connection no longer works,
 # the app keeps the files it has, and its session start says why, from when
 # its files are and what to offer the person. A skill the app also gets
@@ -43,10 +46,11 @@
 # left out while the two are the same, and the session start says once when
 # they differ.
 #
-# In a project, the notes folder, .context-locker/notes, holds the project's
-# notes and, in everywhere/, the ones that apply everywhere, one Markdown
-# file each. An edited note or a new .md file there goes to Context Locker
-# at the next sync, and git leaves the folder out. The sync also checks that
+# Notes stay in Context Locker, which the notes command reads and writes, so
+# every read is counted. A project's sync takes out the copies of notes an
+# earlier script kept in .context-locker/notes that are still as it wrote
+# them, and names the files there that hold what Context Locker doesn't
+# have. In a folder that is the project's repo, the sync also checks that
 # the project's pointers to paths in its repo are there.
 #
 # The app's own memory files, such as Claude Code's memory folders or
@@ -66,8 +70,9 @@
 # are until the app syncs with -Now. A project can have its own setting.
 #
 # -Project <id> links the current folder to a project, for the computer
-#               only, and records the repo's origin remote on the project
-#               when it has none.
+#               only, when it's a checkout of the project's repository or
+#               the project has none, whose origin remote it then records
+#               on the project.
 # -Now          syncs even when auto sync is off.
 # -Hook         is for an app's hook, and prints only what that app's hook
 #               reads.
@@ -167,12 +172,13 @@
 #
 # The same steps as sync.sh, for Windows PowerShell 5.1 and PowerShell 7.
 # sync.sh's spellings of the options (--daily, --now, --hook, --project,
-# --wait, --all, --to, --done, --skip, --reason, --code, --apps, --environment
-# and --yes) work too.
+# --link-folder, --wait, --all, --to, --done, --skip, --reason, --code, --apps,
+# --environment and --yes) work too.
 param(
   [Parameter(Position = 0)][string]$First = '',
   [Parameter(Position = 1)][string]$Second = '',
   [string]$Project = '',
+  [switch]$LinkFolder,
   [switch]$Daily,
   [switch]$Now,
   [switch]$Hook,
@@ -193,6 +199,9 @@ param(
   [string]$Apps = '',
   [string]$Environment = '',
   [switch]$Yes,
+  # files write -File: a file on this computer, sent in parts as the new
+  # file's or version's bytes (CLK-368)
+  [string]$File = '',
   [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest = @()
 )
 
@@ -200,7 +209,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 51
+$ScriptVersion = 56
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -214,7 +223,7 @@ if ($Second.StartsWith('-')) {
 }
 $Mode = 'sync'
 $Harness = $First
-if (@('signin', 'plan', 'doctor', 'readback', 'map', 'gather', 'gather-submit', 'keep', 'export', 'notes-move-out', 'fix', 'daily-job', 'update', 'remove', 'tasks', 'requests', 'notes', 'suggest', 'remember', 'message', 'prompt', 'context', 'versions', 'projects', 'skills', 'whoami') -contains $First) {
+if (@('signin', 'plan', 'doctor', 'readback', 'map', 'gather', 'gather-submit', 'keep', 'export', 'notes-move-out', 'fix', 'daily-job', 'update', 'remove', 'tasks', 'requests', 'notes', 'suggest', 'remember', 'message', 'prompt', 'context', 'versions', 'projects', 'skills', 'whoami', 'files', 'table') -contains $First) {
   $Mode = $First
   $Harness = $Second
 } elseif (@('import', 'import-submit') -contains $First) {
@@ -228,7 +237,7 @@ if (@('signin', 'plan', 'doctor', 'readback', 'map', 'gather', 'gather-submit', 
 $TicketCommand = 'list'
 $TicketFile = ''
 # A family of online commands takes its command, then its request (G1-335)
-if ((@('tasks', 'requests', 'notes', 'versions', 'projects', 'skills') -contains $Mode) -and $extra.Count -gt 0 -and -not $extra[0].StartsWith('-')) {
+if ((@('tasks', 'requests', 'notes', 'versions', 'projects', 'skills', 'files') -contains $Mode) -and $extra.Count -gt 0 -and -not $extra[0].StartsWith('-')) {
   $TicketCommand = $extra[0]
   $extra = @($extra | Select-Object -Skip 1)
   if ($extra.Count -gt 0 -and -not $extra[0].StartsWith('-')) {
@@ -239,8 +248,9 @@ if ((@('tasks', 'requests', 'notes', 'versions', 'projects', 'skills') -contains
 # suggest, remember and message take only their request: suggest a
 # preference, a fact or a skill, remember one line as a fact or a preference
 # (G1-245, G1-247), and write to other AI apps (G1-313); so do context, which
-# may leave it out, and whoami, which takes none (G1-335)
-if (@('suggest', 'remember', 'message', 'context', 'whoami') -contains $Mode) {
+# may leave it out, and whoami, which takes none (G1-335); and table, a
+# table's rows (CLK-367)
+if (@('suggest', 'remember', 'message', 'context', 'whoami', 'table') -contains $Mode) {
   $TicketCommand = $Mode
   if ($extra.Count -gt 0 -and -not $extra[0].StartsWith('-')) {
     $TicketFile = $extra[0]
@@ -264,6 +274,7 @@ $RecapSet = $PSBoundParameters.ContainsKey('Recap')
 # A question back's choices, from --choice, one line each (G1-272)
 $Choices = New-Object System.Collections.Generic.List[string]
 $AppsSet = $PSBoundParameters.ContainsKey('Apps')
+$FileSet = $PSBoundParameters.ContainsKey('File')
 if ($PSBoundParameters.ContainsKey('Done')) { $FixAs = 'done'; $FixId = $Done; $FixMarks++ }
 if ($PSBoundParameters.ContainsKey('Skip')) { $FixAs = 'skipped'; $FixId = $Skip; $FixMarks++ }
 $OffsetSet = $PSBoundParameters.ContainsKey('Offset')
@@ -280,6 +291,8 @@ for ($i = 0; $i -lt $extra.Count; $i++) {
   elseif ($option -eq '--hook') { $Hook = [switch]$true }
   elseif ($option -eq '--all') { $All = [switch]$true }
   elseif ($option -eq '--project' -and $value) { $Project = $value; $i++ }
+  elseif ($option -eq '--link-folder') { $LinkFolder = [switch]$true }
+  elseif ($option -eq '--file' -and $value) { $File = $value; $FileSet = $true; $i++ }
   elseif ($option -eq '--wait' -and $value -match '^\d+$') { $Wait = [int]$value; $i++ }
   elseif ($option -eq '--to' -and $value) { $To = $value; $ToSet = $true; $i++ }
   elseif ($option -eq '--done' -and $value) { $FixAs = 'done'; $FixId = $value; $FixMarks++; $i++ }
@@ -320,7 +333,9 @@ $badCode = $Code -and (($Mode -ne 'signin') -or ($Code -cnotmatch '^ctxl_ic_[A-Z
 $badEnvironment = $Environment -and (($Mode -ne 'signin') -or (@('computer', 'cloud') -cnotcontains $Environment))
 $badYes = $Yes -and ($Mode -ne 'remove')
 # -Now and -Hook are for a sync
-$badSync = ($Mode -ne 'sync') -and ($Now -or $Hook)
+$badSync = (($Mode -ne 'sync') -and ($Now -or $Hook)) -or ($LinkFolder -and (($Mode -ne 'sync') -or -not $Project))
+# -File goes with files write, naming a file
+$badFile = $FileSet -and (($Mode -ne 'files') -or ($TicketCommand -ne 'write') -or -not $File)
 $badTickets = if ($Mode -eq 'tasks') {
   (@('list', 'read', 'write', 'places') -cnotcontains $TicketCommand) -or
   ($TicketCommand -ne 'list' -and -not $TicketFile) -or $All -or $Daily
@@ -335,8 +350,10 @@ $badTickets = if ($Mode -eq 'tasks') {
 } elseif ($Mode -eq 'projects') {
   (@('manage', 'docs-home') -cnotcontains $TicketCommand) -or -not $TicketFile -or $All -or $Daily
 } elseif ($Mode -eq 'skills') {
-  ($TicketCommand -cne 'source') -or -not $TicketFile -or $All -or $Daily
-} elseif ($Mode -eq 'suggest' -or $Mode -eq 'remember' -or $Mode -eq 'message') {
+  (@('get', 'source') -cnotcontains $TicketCommand) -or -not $TicketFile -or $All -or $Daily
+} elseif ($Mode -eq 'files') {
+  (@('write', 'upload') -cnotcontains $TicketCommand) -or -not $TicketFile -or $All -or $Daily
+} elseif ($Mode -eq 'suggest' -or $Mode -eq 'remember' -or $Mode -eq 'message' -or $Mode -eq 'table') {
   (-not $TicketFile) -or $All -or $Daily
 } elseif ($Mode -eq 'context') {
   $All -or $Daily
@@ -346,16 +363,16 @@ $badTickets = if ($Mode -eq 'tasks') {
 # -Apps was for gather, to read some of every app's files (G1-11). Import
 # reads only this app's own (G1-206), so it's taken and left unused
 $badApps = $AppsSet -and ($Mode -ne 'gather')
-if ($badOption -or $badTo -or $badFix -or $badCode -or $badEnvironment -or $badYes -or $badSync -or $badApps -or $badTickets -or (@('claude-code', 'codex', 'hermes', 'openclaw') -notcontains $Harness) -or $Wait -lt 0 -or ($Mode -eq 'gather-submit' -and -not $PlanFile) -or ($Mode -eq 'keep' -and -not $KeepPath)) {
+if ($badOption -or $badTo -or $badFix -or $badCode -or $badEnvironment -or $badYes -or $badSync -or $badFile -or $badApps -or $badTickets -or (@('claude-code', 'codex', 'hermes', 'openclaw') -notcontains $Harness) -or $Wait -lt 0 -or ($Mode -eq 'gather-submit' -and -not $PlanFile) -or ($Mode -eq 'keep' -and -not $KeepPath)) {
   # Each command in one shape, as each MCP tool's description is (G1-309):
   # what it does, its fields, the limits that make a call valid or safe, and
   # its topic in the guide, the skill context-locker
   [Console]::Error.WriteLine(@'
 Usage: sync.ps1 <command> <app>, where <app> is claude-code, codex, hermes or openclaw. Each command below names its topic in the guide, the skill context-locker in this app's skills folder.
-sync.ps1 <app> [-Project <id>] [-Now] [-Hook] [-Daily]
-  Syncs All projects and each of your projects into this app's files and sends your edits back. Fields: -Project <id> links the folder you're in to a project, and -Now syncs while Auto sync is off. Guide: topics/sync.md.
+sync.ps1 <app> [-Project <id> [-LinkFolder]] [-Now] [-Hook] [-Daily]
+  Syncs All projects into this app's files, and a project into its repo's folder, and sends your edits back. Fields: -Project <id> links a checkout of the project's repository, -LinkFolder also a checkout to a project with none or a folder outside any repo, writing nothing there, and -Now syncs with Auto sync off. Limits: Pass -LinkFolder only on the person's word in this chat. Guide: topics/sync.md.
 sync.ps1 context <app> [request.json] [-Project <id>] [-Json]
-  Reads All projects, or a project with All projects, as get_context does: the rules, what's new, the preferences, the skills by name, the notes, Start here and where things go. Fields: request.json holds get_context arguments, and the folder you're in names its project when they don't. Guide: topics/projects.md.
+  Reads All projects, or a project with All projects, as get_context does: the rules, what's new, the preferences, the skills by name, the notes, Start here and where things go. Fields: request.json holds get_context arguments, and the folder you're in, or -Project <id>, names the project when they don't. Read a project this way wherever no folder of yours is its repo. Guide: topics/projects.md.
 sync.ps1 map <app> [-All]
   Says where things live for the folder you're in: the docs home, Start here and the notes and links that matter there, or every one with -All. Guide: topics/folders.md.
 sync.ps1 import <app>
@@ -376,11 +393,18 @@ sync.ps1 requests <app> list|read|answer|decide [request.json] [-Json]
 sync.ps1 tasks <app> list|read|write|places [request.json] [-Project <id>] [-Json]
   Reads and changes a project's board. Fields: request.json holds list_tasks, read_task, write_task or record_work_places arguments, and only list may leave it out. Limits: Take only tasks in Ready, put one there only on the person's word in this chat, and keep claim_key private. Guide: topics/tasks.md.
 sync.ps1 notes <app> list|search|read|write [request.json] [-Project <id>] [-Json]
-  Lists, searches, reads and writes the notes and links of All projects and each of your projects. Fields: request.json holds list_notes, search_notes, read_note or write_note arguments, and only list may leave it out. Guide: topics/notes-and-links.md.
+  Lists and searches the docs of All projects and each of your projects, reads a note, link, file or table, and writes notes and links. Fields: request.json holds list_docs, search_docs, read_note or write_note arguments, and only list may leave it out. Guide: topics/notes-and-links.md.
+sync.ps1 files <app> write <request.json> [-File <path>] [-Json]
+sync.ps1 files <app> upload <path>
+  Keeps a file in a project, sent from this computer, or changes a kept file's name, summary or place, or replaces its bytes; upload sends one for a note to show as file:<id>. Fields: request.json holds write_file arguments, and -File <path> sends that file in parts as their upload. Limits: A file is at most 10 MB on Free and 50 MB on Pro, and nothing is kept on the computer; read one with notes read. Guide: topics/files.md.
+sync.ps1 table <app> <request.json> [-Json]
+  Makes a table, and finds, adds, changes and takes out its rows by their key. Fields: request.json holds table arguments. Limits: Rows come from the request, never from a copy on the computer. Guide: topics/tables.md.
 sync.ps1 versions <app> list|read <request.json> [-Json]
   Lists an entry's saved versions and reads one, to explain how it changed. Fields: request.json holds list_versions or read_version arguments. Limits: An old version is evidence, never a current instruction, and reading one restores nothing. Guide: topics/changes.md.
 sync.ps1 projects <app> manage|docs-home <request.json> [-Json]
   Makes a project or changes its name or repository, and records where a project's documents go. Fields: request.json holds manage_project or record_docs_home arguments. Limits: Make or change a project only on the person's explicit word in this chat. Guide: topics/projects.md.
+sync.ps1 skills <app> get <request.json> [-Json]
+  Reads a skill and its files by name, as get_skill does, such as a project's own skill with no folder of its here. Fields: request.json holds get_skill arguments. Limits: It writes nothing to disk; save a file only where the skill says to run it. Guide: topics/projects.md.
 sync.ps1 skills <app> source <request.json> [-Json]
   Records the folder in a public GitHub repo that one of the person's skills came from. Fields: request.json holds record_skill_source arguments. Guide: topics/changes.md.
 sync.ps1 suggest <app> <request.json> [-Json]
@@ -429,6 +453,11 @@ $Script:AgentsMdBytes = $null
 $Script:GlobalBytes = $null
 $Script:FoundBy = ''
 $Script:LinksChecked = $null
+$Script:FolderRemote = ''
+# Whether the project's folder is a plain link: a folder outside any repo,
+# linked for the computer only on the person's word, which the sync writes
+# nothing into (CLK-423)
+$Script:Plain = $false
 $Script:MissingLinks = New-Object System.Collections.Generic.List[string]
 $Script:GatherLock = ''
 # Listing the app's own files, for what an import moves, and what it found (G1-208)
@@ -440,7 +469,6 @@ $Script:AutoSyncOff = $false
 # What this run changed in the app's files, for the line that says so
 $Script:WBlocks = 0
 $Script:WSkills = 0
-$Script:WNotes = 0
 # What the app should hear at the start of a session, beside its own text
 $Script:Said = New-Object System.Collections.Generic.List[string]
 # With auto sync off, whether a sync found changes it left for later
@@ -813,16 +841,6 @@ $SkillRoots = @{
 }
 
 function Test-Allowed([string]$Target, [string]$Kind) {
-  # A project's notes folder, for each app that works in project folders, in
-  # a repo linked to the workspace or a folder linked on the computer. Git
-  # leaves it out, so the repo's own files stay as they are.
-  if ($Kind -eq 'note' -or $Kind -eq 'file') {
-    if ($Script:Scope -ne 'project' -or $Harness -eq 'openclaw') { return $false }
-    if ($Harness -eq 'hermes' -and $Script:Layer -ne 'repo') { return $false }
-    if ($Kind -eq 'file') { return ($Target -ceq '{project}/.context-locker/notes/README.md') }
-    if (-not ($Target -cmatch '^\{project\}/\.context-locker/notes/(everywhere/)?([^/]+)\z')) { return $false }
-    return (Test-NoteName $Matches[2])
-  }
   # Project files belong to a project's sync, the app's own files to the global one
   if ($Target.StartsWith('{project}/')) {
     if ($Script:Scope -ne 'project' -or $Script:Layer -ne 'repo') { return $false }
@@ -1568,26 +1586,28 @@ function New-Bundle([string]$Dir, $Index = $null) {
   return , $stream.ToArray()
 }
 
-# --- A project's notes folder ----------------------------------------------
+# --- What a project's notes folder held (CLK-423) ----------------------------
 
-# A project's sync mirrors its notes into .context-locker/notes, and the ones
-# that apply everywhere into its everywhere folder, with a README. The
-# folder's own list, .ctx-managed, says what Context Locker last wrote there,
-# so the sync of every app on the computer can tell an edit from an older
-# copy. Before anything is written, edited notes and new .md files go up.
+# A computer keeps no copies of notes: an agent reads them from Context
+# Locker with the notes command, so every read is counted. A sync before
+# script 53 mirrored a project's notes into .context-locker/notes, and the
+# ones that apply everywhere into its everywhere folder, with a README, and
+# the folder's list, .ctx-managed, said what it wrote. A project's sync takes
+# out each file there that's still as a sync wrote it, and the README, each
+# after a copy goes in the backups, then the list and any folder left empty.
+# It keeps every other file, and names the ones with edits Context Locker
+# doesn't have: a note's copy changed here, a new .md file, or an edit kept
+# beside a note as <name>.md.conflict.
 $Notes = '.context-locker/notes'
 $NotesTarget = '{project}/.context-locker/notes'
-# The most a note's file may hold, and how many files go up in one sync
+# The most an app's own memory file may hold, as a note may, and how many
+# of them go up in one sync
 $NotesMax = 524288
 $NotesPerSync = 20
-$Script:NotesOk = $false
-$Script:NotesSaved = $false
-$Script:NotesRescan = $false
 $Script:Excluded = $false
 $Script:NotesRecords = New-Object System.Collections.Generic.List[string]
-$Script:NotesLocal = @{}
-$Script:NotesMisnamed = New-Object System.Collections.Generic.List[string]
-$Script:NotesRefused = New-Object System.Collections.Generic.List[string]
+$Script:NotesGone = New-Object System.Collections.Generic.List[string]
+$Script:NotesNamed = New-Object System.Collections.Generic.List[string]
 
 # Whether a file name is one a note's file can have, such as release-plan.md:
 # lowercase letters and numbers joined by single hyphens. The README's name,
@@ -1610,51 +1630,107 @@ function Test-NotesFolder {
   return $true
 }
 
-# True when this sync keeps the project's notes folder: the app has one in
-# this project, and the manifest brings it, README and all. Otherwise the
-# folder is left as it is, as another app on the computer may keep it.
-function Test-NotesSynced([string[]]$Entries) {
-  if (-not (Test-Allowed "$NotesTarget/README.md" 'file')) { return $false }
-  foreach ($line in $Entries) {
-    $f = $line.Split(' ')
-    if ($f.Length -ge 3 -and $f[0] -ceq 'file' -and $f[2] -ceq "$NotesTarget/README.md") { return $true }
-  }
-  return $false
-}
-
-# What the folder's list says Context Locker last wrote there for this project
+# What the folder's list says a sync wrote there, for whichever project
 function Read-NotesRecords {
   $Script:NotesRecords = New-Object System.Collections.Generic.List[string]
   $list = Get-NotesPath "$Notes/.ctx-managed"
   if (-not (Test-Path -LiteralPath $list -PathType Leaf) -or (Test-Link $list)) { return }
   $lines = @([IO.File]::ReadAllLines($list))
-  if ($lines.Length -eq 0 -or $lines[0] -cne "context-locker-notes 1 $($Script:ProjectId)") { return }
+  if ($lines.Length -eq 0 -or $lines[0] -cnotmatch '^context-locker-notes 1 [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z') { return }
   $record = '^(wrote note [0-9a-f]{64} \{project\}/\.context-locker/notes/[^ ]+ [0-9a-f-]{36} [0-9]+|wrote file [0-9a-f]{64} \{project\}/\.context-locker/notes/README\.md - -|refused [0-9a-f]{64} \{project\}/\.context-locker/notes/[^ ]+)\z'
   foreach ($line in ($lines | Select-Object -Skip 1)) {
     if ($line -cmatch $record) { $Script:NotesRecords.Add($line) }
   }
 }
 
-# Each note's file and the README in the folder, by target, with its hash. A
-# .md file with a name no note's file has is set aside.
-function Get-NotesLocal {
-  $Script:NotesLocal = @{}
-  $Script:NotesMisnamed = New-Object System.Collections.Generic.List[string]
+# Whether a target is a file a sync wrote in the notes folder: a note's
+# file, or the README
+function Test-NoteTarget([string]$Target) {
+  if ($Target -ceq "$NotesTarget/README.md") { return $true }
+  if (-not ($Target -cmatch '^\{project\}/\.context-locker/notes/(everywhere/)?([^/]+)\z')) { return $false }
+  return (Test-NoteName $Matches[2])
+}
+
+# The notes folder as a sync left it: what goes, in $Script:NotesGone, each
+# file still as a sync wrote it and the README a sync wrote, and what stays
+# and is named, in $Script:NotesNamed. With -Take, it takes out what goes,
+# each after a copy goes in the backups, then the folder's list and any
+# folder left empty, and returns $false when one couldn't go.
+function Get-NotesLeft([switch]$Take) {
+  $Script:NotesGone = New-Object System.Collections.Generic.List[string]
+  $Script:NotesNamed = New-Object System.Collections.Generic.List[string]
+  if (-not $Script:ProjectRoot -or -not (Test-Path -LiteralPath (Get-NotesPath $Notes) -PathType Container) -or -not (Test-NotesFolder)) { return $true }
+  Read-NotesRecords
+  $wrote = @{}
+  foreach ($line in $Script:NotesRecords) {
+    $f = $line.Split(' ')
+    if ($f[0] -ceq 'wrote') { $wrote["$($f[3]) $($f[2])"] = $true }
+  }
+  $named = New-Object System.Collections.Generic.List[string]
   foreach ($sub in @('', 'everywhere/')) {
     $dir = Get-NotesPath "$Notes/$sub"
     if (-not (Test-Path -LiteralPath $dir -PathType Container)) { continue }
     $found = @(Get-ChildItem -LiteralPath $dir -File -Force -ErrorAction SilentlyContinue |
-        Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 -and $_.Name -cmatch '\.md\z' -and -not $_.Name.StartsWith('.') } |
-        Sort-Object -Property Name)
+        Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 -and ($_.Name -cmatch '\.md\z' -or $_.Name -cmatch '\.conflict\z') -and -not $_.Name.StartsWith('.') })
     foreach ($file in $found) {
       $name = $file.Name
-      if (-not ($sub -eq '' -and $name -ceq 'README.md') -and -not (Test-NoteName $name)) {
-        $Script:NotesMisnamed.Add((Get-Clean "$sub$name"))
-        continue
+      $target = "$NotesTarget/$sub$name"
+      $gone = $false
+      if (($sub -eq '' -and $name -ceq 'README.md') -or (Test-NoteName $name)) {
+        try {
+          $hash = Get-Sha256File $file.FullName
+          if ($wrote.ContainsKey("$target $hash")) { $gone = $true }
+          elseif ($sub -eq '' -and $name -ceq 'README.md' -and @([IO.File]::ReadAllLines($file.FullName) | Select-Object -First 1)[0] -ceq '# Notes from Context Locker') { $gone = $true }
+        } catch { }
       }
-      try { $Script:NotesLocal["$NotesTarget/$sub$name"] = Get-Sha256File $file.FullName } catch { }
+      if ($gone) { $Script:NotesGone.Add($target) } else { $named.Add((Get-Clean "$sub$name")) }
     }
   }
+  [string[]]$sorted = @($named)
+  [Array]::Sort($sorted, [StringComparer]::Ordinal)
+  foreach ($name in $sorted) { $Script:NotesNamed.Add($name) }
+  if (-not $Take) { return $true }
+  $ok = $true
+  foreach ($target in $Script:NotesGone) {
+    $path = Get-NotesPath $target.Substring('{project}/'.Length)
+    if (-not (Backup-Item $path $target)) { $ok = $false; continue }
+    try { Remove-Item -LiteralPath $path -Force -ErrorAction Stop } catch { $ok = $false }
+  }
+  if (-not $ok) { return $false }
+  $list = Get-NotesPath "$Notes/.ctx-managed"
+  if ((Test-Path -LiteralPath $list -PathType Leaf) -and -not (Test-Link $list)) {
+    try { Remove-Item -LiteralPath $list -Force -ErrorAction Stop } catch { return $false }
+  }
+  foreach ($empty in @((Get-NotesPath "$Notes/everywhere"), (Get-NotesPath $Notes))) {
+    if ((Test-Path -LiteralPath $empty -PathType Container) -and -not @(Get-ChildItem -LiteralPath $empty -Force).Count) {
+      Remove-Item -LiteralPath $empty -Force -ErrorAction SilentlyContinue
+    }
+  }
+  return $true
+}
+
+# The line naming the files left in the notes folder that hold what Context
+# Locker doesn't have, and how to save them, or nothing when there are none
+function Get-NotesNamedLine {
+  $count = $Script:NotesNamed.Count
+  if ($count -eq 0) { return '' }
+  $where = Get-NotesPath $Notes
+  $what = if ($count -eq 1) { "1 file in $where holds" } else { "$count files in $where hold" }
+  $them = if ($count -eq 1) { 'it' } else { 'each' }
+  return "$what what Context Locker doesn't have, and no sync reads them: $(Get-ShortList @($Script:NotesNamed)). Save what's needed with ``$Run notes $Harness write``, then delete $them."
+}
+
+# A project's sync takes out what a sync left in its notes folder, once, and
+# names what stays at every sync, for the session start
+function Invoke-NotesCleanup {
+  if (-not (Get-NotesLeft -Take)) {
+    Warn "couldn't take every copy of a note out of $(Get-NotesPath $Notes). The next sync tries again."
+  }
+  $line = Get-NotesNamedLine
+  if (-not $line) { return }
+  $Script:Said.Add("Context Locker: $line")
+  # The person running the sync sees it once, as it takes the copies out
+  if ($Script:NotesGone.Count) { Warn $line }
 }
 
 # Puts a whole file in place in one step, never through a link
@@ -1672,7 +1748,7 @@ function Write-WholeFile([string]$Path, [byte[]]$Bytes) {
 }
 
 # Adds .context-locker/ to the repo's own exclude file, once, the first time
-# a sync writes in the folder, so git leaves the notes out. It never changes
+# a sync writes in the folder, so git leaves it out. It never changes
 # .gitignore or any file git tracks, goes through no link, and does nothing
 # outside a git work tree.
 function Add-GitExclude {
@@ -1688,7 +1764,7 @@ function Add-GitExclude {
     if (-not [IO.Path]::IsPathRooted($file)) { $file = Join-Path $Script:ProjectRoot $file }
     $info = Split-Path -Parent $file
     if ((Test-Link $file) -or (Test-Link $info) -or (Test-Link (Split-Path -Parent $info))) {
-      Warn "left $file alone: it's a link or in one, and links aren't followed. To keep the notes out of git, add .context-locker/ to it yourself."
+      Warn "left $file alone: it's a link or in one, and links aren't followed. To keep .context-locker/ out of git, add it to that file yourself."
       return
     }
     $text = ''
@@ -1706,195 +1782,18 @@ function Add-GitExclude {
     if ($text -ne '' -and -not $text.EndsWith("`n")) { $text += "`n" }
     Write-WholeFile $file ($Utf8.GetBytes("$text.context-locker/`n"))
   } catch {
-    Warn "couldn't add .context-locker/ to the repo's exclude file. To keep the notes out of git, add it yourself."
-  }
-}
-
-# Writes the file Context Locker sent back for a note it saved, unless the
-# file changed again meanwhile, and records it either way. Returns $false
-# when the answer doesn't make sense, and then nothing is written.
-function Save-NoteReply([string]$Target, [string]$Path, [string]$Sent, [byte[]]$Body) {
-  $first = [Array]::IndexOf($Body, [byte]10)
-  if ($first -lt 0) { return $false }
-  $second = [Array]::IndexOf($Body, [byte]10, $first + 1)
-  if ($second -lt 0) { return $false }
-  if ($Utf8.GetString($Body, 0, $first) -cne 'context-locker-note 1') { return $false }
-  $line = $Utf8.GetString($Body, $first + 1, $second - $first - 1)
-  if (-not ($line -cmatch '^(saved|same) ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}) ([0-9]+) ([0-9a-f]{64}) (\S+)\z')) { return $false }
-  $status = $Matches[1]; $id = $Matches[2]; $version = $Matches[3]; $hash = $Matches[4]
-  if ($Matches[5] -cne $Target) { return $false }
-  $file = New-Object byte[] ($Body.Length - $second - 1)
-  [Array]::Copy($Body, $second + 1, $file, 0, $file.Length)
-  if ((Get-Sha256Bytes $file) -ne $hash) { return $false }
-  if ($status -eq 'saved') { $Script:NotesSaved = $true }
-  $now = ''
-  try { $now = Get-Sha256File $Path } catch { }
-  if ($now -eq $Sent -and $now -ne $hash) {
-    # Context Locker's copy of what was sent takes its place, as the canonical file
-    Add-GitExclude
-    $ok = Backup-Item $Path $Target
-    if ($ok) { try { Write-WholeFile $Path $file } catch { $ok = $false } }
-    if (-not $ok) { Warn "saved $($Target.Substring('{project}/'.Length)), but couldn't write Context Locker's copy of it. The next sync does." }
-  }
-  # A file that changed again meanwhile is an edit to this version, which the next sync sends
-  $Script:NotesRecords.Add("wrote note $hash $Target $id $version")
-  return $true
-}
-
-# An edit made here to a note that changed in Context Locker too, in the same
-# part: the edit is kept beside the note, as <name>.md.conflict, which the
-# sync never sends, and the note's file goes, so this sync writes the newer
-# version in its place. A copy goes in the backups first, so nothing is lost,
-# the edit isn't sent again, and the app is told at the start of the session.
-# $false when the edit can't be kept that way, and then nothing changes.
-function Save-NoteConflict([string]$Target, [string]$Path, [string]$Rel) {
-  $copy = "$Path.conflict"
-  if (Test-Link $copy) { return $false }
-  if (Test-Path -LiteralPath $copy) {
-    # An older copy goes in the backups before this one takes its place
-    if (-not (Test-Path -LiteralPath $copy -PathType Leaf) -or -not (Backup-Item $copy "$Target.conflict")) { return $false }
-  }
-  if (-not (Backup-Item $Path $Target)) { return $false }
-  try {
-    Copy-Item -LiteralPath $Path -Destination $copy -Force
-    Remove-Item -LiteralPath $Path -Force
-  } catch { return $false }
-  $Script:NotesRescan = $true
-  $Script:Said.Add("Context Locker: your edit to $Rel and a change made in Context Locker since touch the same part, so the note has the newer version now, and your edit is kept beside it in $Rel.conflict. Put the two together in the note, and the next sync saves it.")
-  Warn "$Rel changed in Context Locker too, in the same part as your edit, so the note has the newer version now. Your edit is kept in $Rel.conflict."
-  return $true
-}
-
-# Sends the notes edited here, and new .md files, to Context Locker, at most
-# 20 a sync. What it saves is written as Context Locker keeps it; a file it
-# can't take stays as it is, and goes again at the next sync. An edit that
-# clashes with a newer version is kept beside the note instead.
-function Send-Notes([string]$Query, [string[]]$Entries) {
-  foreach ($name in $Script:NotesMisnamed) {
-    Warn "left $Notes/$name as it is: a note's file is named with lowercase letters, numbers and hyphens, such as release-plan.md. Rename it, and the next sync saves it."
-  }
-  # A file goes up when it's a note's file that changed since Context Locker
-  # last wrote it, unless it's already as Context Locker has it now, or when
-  # it's new here: in neither the list nor the manifest
-  $inManifest = @{}
-  foreach ($line in $Entries) {
-    $f = $line.Split(' ')
-    if (($f[0] -eq 'note' -or $f[0] -eq 'file') -and $f.Length -ge 3) { $inManifest[$f[2]] = $f[1] }
-  }
-  $records = @{}
-  foreach ($line in $Script:NotesRecords) {
-    $f = $line.Split(' ')
-    if ($f[0] -eq 'wrote' -and $f.Length -ge 6) { $records[$f[3]] = @{ Kind = $f[1]; Hash = $f[2]; Id = $f[4]; Ver = $f[5] } }
-  }
-  $up = New-Object System.Collections.Generic.List[hashtable]
-  foreach ($t in $Script:NotesLocal.Keys) {
-    if ($t -ceq "$NotesTarget/README.md") { continue }
-    $L = $Script:NotesLocal[$t]
-    if ($records.ContainsKey($t)) {
-      $r = $records[$t]
-      if ($r.Kind -eq 'note' -and $L -ne $r.Hash -and -not ($inManifest.ContainsKey($t) -and $inManifest[$t] -eq $L)) {
-        $up.Add(@{ Target = $t; Edit = $true; Id = $r.Id; Ver = $r.Ver; Hash = $L })
-      }
-    } elseif (-not $inManifest.ContainsKey($t)) {
-      $up.Add(@{ Target = $t; Edit = $false; Id = '-'; Ver = '-'; Hash = $L })
-    }
-  }
-  if ($up.Count -eq 0) { return }
-  [string[]]$targets = @($up | ForEach-Object { $_.Target })
-  [Array]::Sort($targets, [StringComparer]::Ordinal)
-  $byTarget = @{}
-  foreach ($u in $up) { $byTarget[$u.Target] = $u }
-  $sent = 0; $waiting = 0; $stopped = $false
-  foreach ($t in $targets) {
-    $u = $byTarget[$t]
-    $rel = $t.Substring('{project}/'.Length)
-    $path = Get-NotesPath $rel
-    if ($stopped -or $sent -ge $NotesPerSync) { $waiting++; continue }
-    try { $size = (Get-Item -LiteralPath $path -Force).Length } catch { continue }
-    if ($size -gt $NotesMax) {
-      Warn "couldn't save ${rel}: it's $([Math]::Ceiling($size / 1024)) KB, and a note can hold at most $([Math]::Floor($NotesMax / 1024)) KB."
-      $Script:NotesRefused.Add("refused $($u.Hash) $t")
-      continue
-    }
-    $sent++
-    $headers = @{ 'Context-Locker-Target' = $t }
-    if ($u.Edit) { $headers['Context-Locker-Base'] = "$($u.Id) $($u.Ver)" }
-    try { $body = [IO.File]::ReadAllBytes($path) } catch { continue }
-    $reply = Invoke-Api 'POST' "/v1/sync/notes$Query" $body 'text/markdown; charset=utf-8' $headers
-    $status = $reply.Status
-    if ($status -eq 200) {
-      if (-not (Save-NoteReply $t $path $u.Hash $reply.Body)) {
-        Warn "couldn't make sense of Context Locker's answer for $rel. The next sync tries again."
-      }
-    } elseif (@(400, 404, 409, 413, 422) -contains $status) {
-      $conflict = $status -eq 409 -and (Get-ReplyField $reply.Body 'error') -eq 'version_conflict'
-      if ($conflict -and (Save-NoteConflict $t $path $rel)) { continue }
-      if ($conflict) {
-        Warn "$rel changed in Context Locker too, so your edit wasn't saved. Copy your edit, delete the file to get the latest at the next sync, then make the edit again."
-      } else {
-        $message = Get-Clean (Get-ReplyField $reply.Body 'message')
-        if (-not $message) { $message = 'Context Locker refused it.' }
-        Warn "couldn't save ${rel}: $message"
-      }
-      $Script:NotesRefused.Add("refused $($u.Hash) $t")
-    } elseif ($status -eq 403) {
-      Warn "the agent $Harness on $(Get-Computer 'its computer') can only read, so the changes in $Notes stay here."
-      $stopped = $true
-    } elseif ($status -eq 0) {
-      Warn "can't reach Context Locker, so the changes in $Notes wait for the next sync."
-      $stopped = $true
-    } else {
-      Warn "Context Locker answered $status, so the changes in $Notes wait for the next sync."
-      $stopped = $true
-    }
-  }
-  if ($waiting -gt 0 -and -not $stopped) {
-    if ($waiting -eq 1) { Warn "1 more file in $Notes waits for the next sync, which saves up to $NotesPerSync." }
-    else { Warn "$waiting more files in $Notes wait for the next sync, which saves up to $NotesPerSync." }
-  }
-}
-
-# Writes the folder's list of what Context Locker last wrote there, from
-# records where the last one for each file counts and "forget" drops one,
-# with what Context Locker couldn't take at this sync. $false when it can't.
-function Write-NotesList($Records) {
-  if (-not $Script:NotesOk) { return $true }
-  $order = New-Object System.Collections.Generic.List[string]
-  $last = @{}
-  foreach ($line in $Records) {
-    $f = $line.Split(' ')
-    if ($f[0] -eq 'forget' -and $f.Length -ge 2) { [void]$last.Remove($f[1]); continue }
-    if ($f[0] -ne 'wrote' -or $f.Length -lt 6) { continue }
-    if (-not $order.Contains($f[3])) { $order.Add($f[3]) }
-    $last[$f[3]] = $line
-  }
-  $kept = @($order | Where-Object { $last.ContainsKey($_) } | ForEach-Object { $last[$_] })
-  $list = Get-NotesPath "$Notes/.ctx-managed"
-  if ($kept.Count -eq 0 -and $Script:NotesRefused.Count -eq 0 -and -not (Test-Path -LiteralPath $list)) { return $true }
-  $text = "context-locker-notes 1 $($Script:ProjectId)`n# What Context Locker last wrote in this folder, so the sync of each app on the computer can tell an edit from an update. Leave it as it is.`n" +
-    (($kept + @($Script:NotesRefused) | ForEach-Object { "$_`n" }) -join '')
-  $bytes = $Utf8.GetBytes($text)
-  if ((Test-Path -LiteralPath $list -PathType Leaf) -and -not (Test-Link $list) -and (Get-Sha256File $list) -eq (Get-Sha256Bytes $bytes)) { return $true }
-  if ((Test-Link $list) -or ((Test-Path -LiteralPath $list) -and -not (Test-Path -LiteralPath $list -PathType Leaf))) {
-    Warn "left $list alone: it isn't a file of Context Locker's."
-    return $false
-  }
-  Add-GitExclude
-  try { Write-WholeFile $list $bytes; return $true }
-  catch {
-    Warn "couldn't write $list, the list of what Context Locker wrote in the notes folder."
-    return $false
+    Warn "couldn't add .context-locker/ to the repo's exclude file. To keep it out of git, add it yourself."
   }
 }
 
 # --- An app's own memory files (G1-299) ------------------------------------
 
 # Once the person brings them in, each of the app's own memory files syncs
-# both ways with one note in its connection's memory, as the notes folder's
-# files do: an edit here goes up, a change there comes down after a backup,
-# and a file the app deleted archives its note. Until then, the global sync
-# tells Context Locker once what it found, which asks the person, and leaves
-# the files as they are, as it does when they're kept on the computer.
+# both ways with one note in its connection's memory: an edit here goes up,
+# a change there comes down after a backup, and a file the app deleted
+# archives its note. Until then, the global sync tells Context Locker once
+# what it found, which asks the person, and leaves the files as they are,
+# as it does when they're kept on the computer.
 #
 # Where each app keeps its own memory, as MEMORY_PLACES in
 # packages/compilers/src/memory-places.ts has it, which a test keeps the same:
@@ -1920,11 +1819,10 @@ openclaw file {openclaw}/MEMORY.md
 $MemoryEndings = '.md .markdown .mdx .mdc .txt'
 # The longest target a memory note keeps, as items_memory_path_check has it
 $MemoryTargetMax = 512
-# What the sync last wrote of the app's memory files, as the notes folder's
-# list has it: a header with the workspace, the connection the global
-# manifest names and a key of the app's folders, then "wrote memory <sha256>
-# <target> <note> <version>", "refused <sha256> <target>" and "held <sha256>
-# <target> <note> <version>" lines
+# What the sync last wrote of the app's memory files: a header with the
+# workspace, the connection the global manifest names and a key of the app's
+# folders, then "wrote memory <sha256> <target> <note> <version>", "refused
+# <sha256> <target>" and "held <sha256> <target> <note> <version>" lines
 $MemoryRecords = Join-Path $AppDir 'memory-files'
 # A file's bytes as text, a character each, so its lines are read and written
 # back byte for byte, as sync.sh's awk reads them
@@ -2596,8 +2494,7 @@ function Sync-Memory([string[]]$Entries) {
     return
   }
   # What Context Locker keeps of each (S), what the sync last wrote (R)
-  # and what's here now (L), as the notes folder's sync has them, with the
-  # ones Context Locker says went
+  # and what's here now (L), with the ones Context Locker says went
   $kept = New-TargetMap
   $gone = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
   foreach ($line in $Entries) {
@@ -2691,58 +2588,73 @@ function Get-LinkTarget($Item) {
   return $target
 }
 
-# Whether a path in the repo is there, under the folder $Root, going through
-# no link that leads out of it
-function Test-PathHere([string]$Root, [string]$Path) {
-  try {
-    $sep = [IO.Path]::DirectorySeparatorChar
-    $compare = if ($OnWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
-    $top = [IO.Path]::GetFullPath($Root).TrimEnd($sep)
-    $cur = $top
-    $hops = 0
-    foreach ($part in $Path.Split('/')) {
-      if ($part -eq '' -or $part -eq '.') { continue }
-      if ($part -eq '..') { return $false }
-      $next = Join-Path $cur $part
-      # A link is followed only while it stays in the folder
-      while (Test-Link $next) {
-        $hops++
-        if ($hops -gt 16) { return $false }
-        $target = Get-LinkTarget (Get-Item -LiteralPath $next -Force)
-        if (-not $target) { return $false }
-        if (-not [IO.Path]::IsPathRooted($target)) { $target = Join-Path (Split-Path -Parent $next) $target }
-        $next = [IO.Path]::GetFullPath($target).TrimEnd($sep)
-        if (-not ($next.Equals($top, $compare) -or $next.StartsWith("$top$sep", $compare))) { return $false }
-      }
-      if (-not (Test-Path -LiteralPath $next)) { return $false }
-      $cur = $next
-    }
-    return $true
-  } catch {
-    return $false
-  }
+# The default branch the checkout at $Root last fetched, as origin/HEAD names
+# it, such as origin/main; '' when it has none (CLK-420)
+function Get-DefaultBranch([string]$Root) {
+  $known = Invoke-Git @('-C', $Root, 'rev-parse', '-q', '--verify', 'refs/remotes/origin/HEAD^{commit}')
+  if ($known.Code -ne 0) { return '' }
+  $named = Invoke-Git @('-C', $Root, 'symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD')
+  $lines = @($named.Output.Trim() -split "`r?`n")
+  if ($named.Code -ne 0 -or $lines.Length -ne 1 -or -not $lines[0]) { return 'origin/HEAD' }
+  return $lines[0]
 }
 
-# Checks the project's pointers to paths in its repo, from the manifest's
-# link lines, and says in one line which ones aren't in the folder
+# Whether the project's folder is its repo (CLK-420): its .contextlocker.json
+# names the project, or its git remote is the project's repository, as
+# Context Locker answers. Only there are the project's links checked, as
+# another folder can't say whether a file is in the repo.
+function Test-RepoFolder {
+  if ($Script:Layer -eq 'repo') { return $true }
+  Get-RepoAnswer $Script:ProjectId $Script:ProjectRoot
+  return $Script:RepoAnswer -eq 'yes'
+}
+
+# What Context Locker says of the folder $Folder and the project $Id, in
+# RepoAnswer: yes when the folder's git remote is the project's repository,
+# no when it isn't, and unknown when it couldn't say. RepoHas is the
+# project's repository, or nothing when it has none. Asked once a run for
+# each folder and project.
+$Script:RepoAsked = ''
+$Script:RepoAnswer = ''
+$Script:RepoHas = ''
+function Get-RepoAnswer([string]$Id, [string]$Folder) {
+  if ($Script:RepoAsked -eq "$Id $Folder") { return }
+  $Script:RepoAsked = "$Id $Folder"
+  $Script:RepoAnswer = 'unknown'
+  $Script:RepoHas = ''
+  $url = Get-OriginRemote $Folder
+  $reply = Invoke-Api 'POST' "/v1/sync/repo?project=$Id" ($Utf8.GetBytes($url)) 'text/plain' @{}
+  if ($reply.Status -ne 200) { return }
+  $Script:RepoHas = Get-Clean (Get-ReplyField $reply.Body 'git_remote')
+  $Script:RepoAnswer = if ((Get-ReplyField $reply.Body 'repo') -eq 'True') { 'yes' } else { 'no' }
+}
+
+# Checks the project's links to paths in its repo, from the manifest's link
+# lines, in the default branch the checkout last fetched rather than the
+# files on disk, so a checkout of another branch neither raises nor hides a
+# missing file (CLK-420). Says in one line which ones aren't there. With no
+# default branch to look in, it checks none.
 function Test-Links([string[]]$Entries) {
+  $branch = Get-DefaultBranch $Script:ProjectRoot
+  if (-not $branch) { return }
   $Script:LinksChecked = 0
   $paths = New-Object System.Collections.Generic.List[string]
   foreach ($line in $Entries) {
     if (-not ($line -cmatch '^link ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}) (.+)\z')) { continue }
     $id = $Matches[1]; $path = $Matches[2]
     $Script:LinksChecked++
-    if (Test-PathHere $Script:ProjectRoot $path) { continue }
+    if ((Invoke-Git @('-C', $Script:ProjectRoot, 'cat-file', '-e', "refs/remotes/origin/HEAD:./$path")).Code -eq 0) { continue }
     $Script:MissingLinks.Add($id)
     $paths.Add((Get-Clean $path))
   }
   if ($paths.Count -eq 0) { return }
   $names = (@($paths) | Select-Object -First 5) -join ', '
   if ($paths.Count -gt 5) { $names += " and $($paths.Count - 5) more" }
+  $where = "$branch, the default branch $($Script:ProjectRoot) last fetched"
   if ($paths.Count -eq 1) {
-    Warn "1 of this project's pointers points to a path that isn't in $($Script:ProjectRoot): $names. If it moved, change the pointer's address in Context Locker."
+    Warn "1 of this project's links leads to a path that isn't on ${where}: $names. If it moved, change the link's address in Context Locker."
   } else {
-    Warn "$($paths.Count) of this project's pointers point to paths that aren't in $($Script:ProjectRoot): $names. If they moved, change their addresses in Context Locker."
+    Warn "$($paths.Count) of this project's links lead to paths that aren't on ${where}: $names. If they moved, change their addresses in Context Locker."
   }
 }
 
@@ -2783,9 +2695,11 @@ $PartBytes = 4194304
 # carried the body names instead. When Context Locker refuses a step or can't
 # be reached, it returns '', with the step's HTTP status in
 # $Script:UploadStatus and Context Locker's answer in $Script:UploadReply.
-function Send-Upload([string]$Purpose, [byte[]]$Body) {
+function Send-Upload([string]$Purpose, [byte[]]$Body, [string]$Name = '') {
   $parts = [int][Math]::Ceiling($Body.Length / $PartBytes)
-  $start = $Utf8.GetBytes("{`"purpose`":`"$Purpose`",`"parts`":$parts,`"bytes`":$($Body.Length),`"sha256`":`"$(Get-Sha256Bytes $Body)`"}")
+  # A project file goes with the name it arrives with (CLK-368)
+  $named = if ($Name) { ",`"name`":$(ConvertTo-Json ($Name -replace '[\x00-\x1f\x7f]', '') -Compress)" } else { '' }
+  $start = $Utf8.GetBytes("{`"purpose`":`"$Purpose`",`"parts`":$parts,`"bytes`":$($Body.Length),`"sha256`":`"$(Get-Sha256Bytes $Body)`"$named}")
   $reply = Invoke-Api 'POST' '/v1/uploads' $start 'application/json' @{ 'Accept' = 'text/plain' }
   $Script:UploadStatus = $reply.Status
   $Script:UploadReply = $reply.Body
@@ -2803,6 +2717,31 @@ function Send-Upload([string]$Purpose, [byte[]]$Body) {
     if ($sent.Status -ne 204) { return '' }
   }
   return $id
+}
+
+# Sends a file on this computer in parts, as a project file's upload, and
+# returns the upload's id for files write, or says why it can't and returns
+# '' (CLK-368). Nothing is kept on the computer: the file stays where it is.
+function Send-File([string]$Path) {
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    [Console]::Error.WriteLine("Context Locker: $Path isn't a file this agent can read, so nothing was sent.")
+    return ''
+  }
+  $item = Get-Item -LiteralPath $Path
+  if ($item.Length -eq 0) {
+    [Console]::Error.WriteLine("Context Locker: $Path is empty, so there's nothing to keep.")
+    return ''
+  }
+  $id = Send-Upload 'file' ([IO.File]::ReadAllBytes($item.FullName)) $item.Name
+  if ($id) { return $id }
+  if ($Script:UploadStatus -eq 401) { Write-GoneReply $Script:UploadReply }
+  elseif ($Script:UploadStatus -eq 0) { [Console]::Error.WriteLine("Context Locker: can't reach $Api, so the file wasn't sent.") }
+  else {
+    $said = Get-ReplyField $Script:UploadReply 'message'
+    if (-not $said) { $said = "Context Locker answered $($Script:UploadStatus), so the file wasn't sent. Try again in a minute." }
+    [Console]::Error.WriteLine("Context Locker: $said")
+  }
+  return ''
 }
 
 function Get-ReplyField([byte[]]$Body, [string]$Name) {
@@ -2870,7 +2809,7 @@ function Send-Edit([string]$Target, [string]$Kind, [string]$Path, [string]$Recor
 # against those the last sync wrote, the app's own memory files among them
 # (G1-299). The hash of its list when it does, and '' when it doesn't.
 function Get-FilesChange([string[]]$Entries, [string[]]$LockLines) {
-  $kinds = '^(block|skill|file|note|memory) '
+  $kinds = '^(block|skill|memory) '
   [string[]]$new = @($Entries | Where-Object { $_ -cmatch $kinds })
   [string[]]$old = @($LockLines | Where-Object { $_.StartsWith('entry ') } | ForEach-Object { $_.Substring(6) } | Where-Object { $_ -cmatch $kinds })
   [Array]::Sort($new, [StringComparer]::Ordinal)
@@ -2931,7 +2870,6 @@ function Add-Change([string]$Kind, [string]$Target, $Changed) {
   switch ($Kind) {
     'block' { $Script:WBlocks++ }
     'skill' { $Script:WSkills++ }
-    'note' { $Script:WNotes++ }
   }
 }
 
@@ -3078,7 +3016,8 @@ function Remove-ProjectCopies([string]$Id, [int]$Version, [string]$State, [strin
     if ($f.Length -lt 4 -or $f[0] -cne 'wrote') { continue }
     $kind=$f[1]; $target=$f[3]
     if (-not $target.StartsWith('{project}/')) { continue }
-    if (-not (Test-Allowed $target $kind) -or -not (Test-InsideProject $target)) { $failed=$true; continue }
+    $known = if ($kind -eq 'note' -or $kind -eq 'file') { Test-NoteTarget $target } else { Test-Allowed $target $kind }
+    if (-not $known -or -not (Test-InsideProject $target)) { $failed=$true; continue }
     $path = Resolve-Target $target
     if (-not $path) { $failed=$true; continue }
     if (-not (Test-Path -LiteralPath $path)) { continue }
@@ -3155,7 +3094,7 @@ function Sync-Scope([string]$Query, [string]$State) {
   $lockLines = @()
   if (Test-Path -LiteralPath $lockfile -PathType Leaf) { $lockLines = @([IO.File]::ReadAllLines($lockfile)) }
   # What the last check of the project's pointers found
-  $linksBefore = (@($lockLines | Where-Object { $_ -cmatch '^(links|missing) ' }) | ForEach-Object { "$_`n" }) -join ''
+  $linksBefore = (@($lockLines | Where-Object { $_ -cmatch '^(repo-links|repo-remote|missing) ' }) | ForEach-Object { "$_`n" }) -join ''
   $oldEtag = ''
   foreach ($line in $lockLines) { if ($line -match '^etag ([0-9a-f]{64})$') { $oldEtag = $Matches[1] } }
   # A plan always looks at the whole manifest
@@ -3254,7 +3193,8 @@ function Sync-Scope([string]$Query, [string]$State) {
       }
     }
     foreach ($line in $entries) {
-      if ($Mode -eq 'sync' -and $line -cmatch '^project-generation ([0-9]{1,9})$') {
+      # A plain link's folder gets nothing written into it (CLK-423)
+      if ($Mode -eq 'sync' -and -not $Script:Plain -and $line -cmatch '^project-generation ([0-9]{1,9})$') {
         $generation=[int]$Matches[1]
         if (-not (Test-InsideProject '{project}/.context-locker/project-generation')) { return 1 }
         $generationPath=Join-Path $Script:ProjectRoot '.context-locker/project-generation'
@@ -3263,6 +3203,7 @@ function Sync-Scope([string]$Query, [string]$State) {
           if ($current -cmatch '^[0-9]{1,9}$' -and [int]$current -gt $generation) { return 1 }
         }
         [void](New-Item -ItemType Directory -Path (Split-Path -Parent $generationPath) -Force)
+        if (-not (Test-Path -LiteralPath $generationPath -PathType Leaf) -or (Read-Text $generationPath).Trim() -cne "$generation") { Add-GitExclude }
         Write-Into $generationPath "$generation`n"
         Set-FolderLink $Script:ProjectId $Script:ProjectRoot
       }
@@ -3271,62 +3212,39 @@ function Sync-Scope([string]$Query, [string]$State) {
 
   Remove-ScopeCopies
 
-  # A project's notes folder, when this sync keeps it: what's in it and what
-  # Context Locker last wrote there. Edited notes and new files go up before
-  # anything is written. A folder this sync doesn't keep is left as it is.
-  $Script:NotesRecords = New-Object System.Collections.Generic.List[string]
-  $Script:NotesLocal = @{}
-  $Script:NotesMisnamed = New-Object System.Collections.Generic.List[string]
-  $Script:NotesRefused = New-Object System.Collections.Generic.List[string]
-  $Script:NotesOk = $false
-  $Script:NotesSaved = $false
-  $Script:NotesRescan = $false
-  $notesWrote = New-Object System.Collections.Generic.List[string]
-  if ($Script:Scope -eq 'project' -and $Mode -eq 'sync' -and (Test-NotesSynced $entries)) {
-    if (Test-NotesFolder) {
-      $Script:NotesOk = $true
-      Read-NotesRecords
-      Get-NotesLocal
-      Send-Notes $Query $entries
-      if ($Script:NotesSaved) {
-        # The playbook changed, so the manifest did too
-        $reply = Invoke-Api 'GET' "/v1/sync$Query" $null '' @{}
-        $all = @()
-        if ($reply.Status -eq 200) { $all = Get-Lines ($Utf8.GetString($reply.Body)) }
-        if ($all.Length -eq 0 -or $all[0] -ne 'context-locker-sync 1' -or -not (Test-NotesSynced @($all | Select-Object -Skip 1))) {
-          Warn "couldn't fetch the latest files after saving the notes, so the next sync finishes the job."
-          $Script:Failed = $true
-          [void](Write-NotesList $Script:NotesRecords)
-          return 1
-        }
-        $entries = @($all | Select-Object -Skip 1)
-        $etag = Get-Sha256Bytes $reply.Body
-        $fresh = $true
-        Get-NotesLocal
-      } elseif ($Script:NotesRescan) {
-        # An edit kept beside its note took the note's file away
-        Get-NotesLocal
-      }
-    } else {
-      Warn "left $(Get-NotesPath '.context-locker') alone: part of its path is a link, and links in a project aren't followed."
-    }
-  }
+  # What a sync left in the project's notes folder, as computers keep no
+  # copies of notes (CLK-423)
+  if ($Script:Scope -eq 'project' -and $Mode -eq 'sync' -and -not $Script:Plain) { Invoke-NotesCleanup }
 
-  # Whether the project's pointers to paths in its repo are there
+  # Whether the project's links to paths in its repo are there, checked only
+  # in a folder that is its repo (CLK-420)
   $Script:LinksChecked = $null
   $Script:MissingLinks = New-Object System.Collections.Generic.List[string]
-  if ($Script:Scope -eq 'project' -and $Mode -eq 'sync') { Test-Links $entries }
+  # The folder's remote goes with every project report, for Context Locker
+  # to tell whether the folder is the project's repo: its links' findings
+  # count only then (CLK-420), and so does the sync for taking a task
+  # (CLK-423)
+  $Script:FolderRemote = ''
+  if ($Script:Scope -eq 'project' -and $Mode -eq 'sync' -and -not $Script:Plain) {
+    $Script:FolderRemote = Get-OriginRemote $Script:ProjectRoot
+    if ($Script:FolderRemote -cnotmatch '^[!-~]*\z') { $Script:FolderRemote = '' }
+  }
+  if ($Script:Scope -eq 'project' -and $Mode -eq 'sync' -and -not $Script:Plain -and
+    @($entries | Where-Object { $_ -cmatch '^link ' }).Count -gt 0 -and (Test-RepoFolder)) {
+    Test-Links $entries
+  }
 
   # What the manifest says, what this script last wrote, edits waiting for
-  # approval, and edits the API refused, per target, and for the notes
-  # folder, the note and version Context Locker last wrote there
+  # approval, and edits the API refused, per target. A manifest's lines for
+  # a project's notes folder, from before computers kept no copies of notes,
+  # are left out (CLK-423).
   $order = New-Object System.Collections.Generic.List[string]
   $plan = @{}
   foreach ($line in $entries) {
     $f = $line.Split(' ')
-    if (@('block', 'skill', 'file', 'note') -contains $f[0] -and $f.Length -ge 3) {
+    if (@('block', 'skill') -contains $f[0] -and $f.Length -ge 3) {
       $item = '-'; $ver = '-'
-      if (($f[0] -eq 'skill' -or $f[0] -eq 'note') -and $f.Length -ge 5) { $item = $f[3]; $ver = $f[4] }
+      if ($f[0] -eq 'skill' -and $f.Length -ge 5) { $item = $f[3]; $ver = $f[4] }
       $plan[$f[2]] = @{ Kind = $f[0]; S = $f[1]; R = '-'; Holds = @(); Refused = @(); Item = $item; Ver = $ver; RId = '-'; RVer = '-' }
       $order.Add($f[2])
     }
@@ -3344,16 +3262,6 @@ function Sync-Scope([string]$Query, [string]$State) {
         $order.Add($f[3])
       }
       $plan[$f[3]].R = $f[2]
-    }
-  }
-  foreach ($line in $Script:NotesRecords) {
-    $f = $line.Split(' ')
-    if ($f[0] -eq 'wrote' -and $f.Length -ge 6) {
-      if (-not $plan.ContainsKey($f[3])) {
-        $plan[$f[3]] = @{ Kind = $f[1]; S = '-'; R = '-'; Holds = @(); Refused = @(); Item = '-'; Ver = '-'; RId = '-'; RVer = '-' }
-        $order.Add($f[3])
-      }
-      $plan[$f[3]].R = $f[2]; $plan[$f[3]].RId = $f[4]; $plan[$f[3]].RVer = $f[5]
     }
   }
   # Skill write records predate item/version fields. Their previous manifest
@@ -3385,44 +3293,6 @@ function Sync-Scope([string]$Query, [string]$State) {
       Warn "skipped ${t}: it isn't a file $Harness's sync may write."
       Add-Planned "Skip ${t}: it isn't a file $AppName's sync may write."
       $skipped.Add("skipped not-allowed $t")
-      continue
-    }
-    if ($kind -eq 'note' -or $kind -eq 'file') {
-      # What Context Locker last wrote here stays on record, unless this
-      # sync writes or removes it
-      if ($R -ne '-') { $notesWrote.Add("wrote $kind $R $t $($p.RId) $($p.RVer)") }
-      if (-not $Script:NotesOk) { continue }
-      $path = Get-NotesPath $t.Substring('{project}/'.Length)
-      if (Test-Link $path) {
-        Warn "left $path alone: it's a link, and links in a project aren't followed."
-        $skipped.Add("skipped link $t")
-        continue
-      }
-      if ((Test-Path -LiteralPath $path) -and -not (Test-Path -LiteralPath $path -PathType Leaf)) {
-        Warn "left $path alone: it isn't a file."
-        $skipped.Add("skipped not-a-file $t")
-        continue
-      }
-      $L = if ($Script:NotesLocal.ContainsKey($t)) { $Script:NotesLocal[$t] } else { 'none' }
-      if ($S -eq '-') {
-        # Gone from the folder in Context Locker: take it away unless it
-        # changed here. A note edited here went up before this, and stays.
-        if ($L -eq 'none') { $notesWrote.Add("forget $t") }
-        elseif ($L -eq $R) { $actions.Add(@{ Action = 'remove'; Target = $t; Kind = $kind; Expect = $L }) }
-        elseif ($kind -eq 'file') { $actions.Add(@{ Action = 'untrack'; Target = $t; Kind = $kind }) }
-        continue
-      }
-      $write = @{ Action = 'write'; Target = $t; Kind = $kind; Hash = $S; Item = $p.Item; Ver = $p.Ver; Keep = $false; Expect = $L }
-      if ($L -eq $S) { $notesWrote.Add("wrote $kind $S $t $($p.Item) $($p.Ver)") }
-      elseif ($L -eq 'none') { $actions.Add($write) }
-      elseif ($R -eq '-' -or $L -eq $R -or $kind -eq 'file') {
-        # Written over: a file the sync has no record of writing, or the
-        # README edited here, is kept in the backups first
-        $write.Keep = ($L -ne $R)
-        $actions.Add($write)
-      }
-      # Otherwise it's a note edited here, which went up before this and
-      # stays until Context Locker saves it
       continue
     }
     $path = Resolve-Target $t
@@ -3588,7 +3458,7 @@ function Sync-Scope([string]$Query, [string]$State) {
   # The targets whose files changed in the playbook since the last sync here
   $changed = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
   if ($oldEtag) {
-    $kinds = '^(block|skill|file|note) '
+    $kinds = '^(block|skill) '
     $old = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
     foreach ($line in $lockLines) {
       if ($line.StartsWith('entry ') -and $line.Substring(6) -cmatch $kinds) { [void]$old.Add($line.Substring(6)) }
@@ -3662,7 +3532,6 @@ function Sync-Scope([string]$Query, [string]$State) {
     if (-not $ok) {
       Warn "couldn't fetch the latest files, so $Harness keeps the ones it has. The next sync tries again."
       $Script:Failed = $true
-      [void](Write-NotesList $notesWrote)
       return 1
     }
   }
@@ -3738,50 +3607,8 @@ function Sync-Scope([string]$Query, [string]$State) {
         Warn "$path is no longer synced here. You'd changed it, so it stays here as your own."
       }
       'untrack block' { Warn "the Context Locker block in $path is no longer synced here. You'd changed it, so it stays as it is." }
-      { $_ -eq 'write note' -or $_ -eq 'write file' } {
-        $blob = Join-Path $blobs $a.Hash
-        if (-not (Test-Path -LiteralPath $blob -PathType Leaf) -or (Get-Sha256File $blob) -ne $a.Hash) {
-          Warn "the new content for $path didn't match its hash, so it wasn't written. The next sync tries again."
-          $complete = $false; break
-        }
-        if (Test-Path -LiteralPath $path -PathType Leaf) {
-          if ($a.Keep) {
-            if (-not (Backup-Item $path $t)) {
-              Warn "couldn't keep a copy of $path, so it wasn't written over."
-              $complete = $false; break
-            }
-            if ($a.Kind -eq 'note') {
-              Warn "replaced $path with the note from Context Locker, as the sync has no record of writing it there. A copy is in $(Join-Path $ClHome 'backups')."
-            }
-          } elseif ((Get-Sha256File $path) -ne $a.Expect) {
-            # Changed since this sync looked, so it's an edit for the next one
-            break
-          }
-        }
-        Add-GitExclude
-        try {
-          Write-WholeFile $path ([IO.File]::ReadAllBytes($blob))
-          $written++
-          Add-Change $a.Kind $t $changed
-          $notesWrote.Add("wrote $($a.Kind) $($a.Hash) $t $($a.Item) $($a.Ver)")
-        } catch { Warn "couldn't write $path."; $complete = $false }
-      }
-      { $_ -eq 'remove note' -or $_ -eq 'remove file' } {
-        # Only while it's still as Context Locker wrote it, and a copy is kept
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf) -or (Get-Sha256File $path) -ne $a.Expect) { break }
-        if (Backup-Item $path $t) {
-          try { Remove-Item -LiteralPath $path -Force; Add-Change $a.Kind $t $changed; $notesWrote.Add("forget $t") } catch { $complete = $false }
-        } else { $complete = $false }
-      }
-      'untrack file' {
-        $notesWrote.Add("forget $t")
-        Warn "$path is no longer from Context Locker. You'd changed it, so it stays as it is."
-      }
     }
   }
-
-  # The notes folder's own list of what Context Locker wrote there
-  if (-not (Write-NotesList $notesWrote)) { $complete = $false }
 
   # The app's own memory files, after its block, as one file can hold both
   # (G1-299)
@@ -3811,20 +3638,28 @@ function Sync-Scope([string]$Query, [string]$State) {
   foreach ($line in $entries) { if ($line) { [void]$out.Append("entry $line`n") } }
   foreach ($line in $wrote) { [void]$out.Append("$line`n") }
   foreach ($line in $refusedOut) { [void]$out.Append("$line`n") }
-  # What this check of the pointers found, kept to tell when it changes
+  # What this check of the links found, with the folder's remote, kept to
+  # tell when it changes
   $linksNow = ''
+  if ($null -ne $Script:LinksChecked) { $linksNow += "repo-links $($Script:LinksChecked)`n" }
+  if ($Script:FolderRemote) { $linksNow += "repo-remote $($Script:FolderRemote)`n" }
   if ($null -ne $Script:LinksChecked) {
-    $linksNow = "links $($Script:LinksChecked)`n" + ((@($Script:MissingLinks) | ForEach-Object { "missing $_`n" }) -join '')
+    $linksNow += ((@($Script:MissingLinks) | ForEach-Object { "missing $_`n" }) -join '')
   }
   [void]$out.Append($linksNow)
   [IO.File]::WriteAllText("$lockfile.tmp", $out.ToString(), $Utf8)
   if (Test-Path -LiteralPath $lockfile) { [IO.File]::Replace("$lockfile.tmp", $lockfile, [NullString]::Value) } else { [IO.File]::Move("$lockfile.tmp", $lockfile) }
 
   if (-not $complete) { $Script:Failed = $true }
-  # The report goes with a new manifest, and when the missing paths changed
-  if ($complete -and ($fresh -or ($null -ne $Script:LinksChecked -and $linksNow -cne $linksBefore))) {
+  # The report goes with a new manifest, and when what the links check found
+  # changed, even to nothing, as a sync in a folder that isn't the repo
+  # replaces what this agent found before (CLK-420)
+  if ($complete -and ($fresh -or $linksNow -cne $linksBefore)) {
     $missing = (@($Script:MissingLinks) | Select-Object -First 100 | ForEach-Object { "missing $_`n" }) -join ''
-    $linksReport = if ($null -ne $Script:LinksChecked) { "links $($Script:LinksChecked)`n$missing" } else { '' }
+    $linksReport = ''
+    if ($null -ne $Script:LinksChecked) { $linksReport += "repo-links $($Script:LinksChecked)`n" }
+    if ($Script:FolderRemote) { $linksReport += "repo-remote $($Script:FolderRemote)`n" }
+    if ($null -ne $Script:LinksChecked) { $linksReport += $missing }
     $report = "manifest $etag`nwritten $written`nheld $held`n" + (($skipped | Select-Object -First 100 | ForEach-Object { "$_`n" }) -join '') + $linksReport
     [void](Invoke-Api 'POST' "/v1/sync/done$Query" ($Utf8.GetBytes($report)) 'text/plain' @{})
   }
@@ -3898,16 +3733,20 @@ function Find-LocalProject([string]$From) {
   }
 
   # Folders linked on the computer only: "<project id> <folder>" per line
+  # for a checkout, and "plain <project id> <folder>" for a plain link
+  $Script:Plain = $false
   $map = Join-Path $ClHome 'projects'
   if (-not (Test-Path -LiteralPath $map -PathType Leaf)) { return $false }
   $best = ''
   $sep = [IO.Path]::DirectorySeparatorChar
   foreach ($line in [IO.File]::ReadAllLines($map)) {
+    $plain = $line.StartsWith('plain ')
+    if ($plain) { $line = $line.Substring(6) }
     $space = $line.IndexOf(' ')
     if ($space -lt 1) { continue }
     $id = $line.Substring(0, $space); $folder = $line.Substring($space + 1)
     if (("$From$sep").StartsWith("$folder$sep") -and $folder.Length -gt $best.Length) {
-      $best = $folder; $Script:ProjectId = $id
+      $best = $folder; $Script:ProjectId = $id; $Script:Plain = $plain
     }
   }
   if (-not $best) { return $false }
@@ -3922,12 +3761,17 @@ function Find-FlagProject {
   $root = Get-GitTop $Start
   if (-not $root) { $root = $Start }
   $Script:ProjectId = $Project; $Script:ProjectRoot = $root; $Script:Layer = 'personal'
-  $file = Join-Path $root '.contextlocker.json'
-  if ((Test-Path -LiteralPath $file -PathType Leaf) -and $Script:WorkspaceId) {
-    $named = Read-LinkFile $file
-    if ($named.Workspace -eq $Script:WorkspaceId -and $named.Project -eq $Project) { $Script:Layer = 'repo' }
-  }
+  if (Test-DeclaredProject $root $Project) { $Script:Layer = 'repo' }
   return $true
+}
+
+# Whether the folder's .contextlocker.json names this workspace and the
+# project: such a folder is the project's by its own file
+function Test-DeclaredProject([string]$Root, [string]$Id) {
+  $file = Join-Path $Root '.contextlocker.json'
+  if (-not (Test-Path -LiteralPath $file -PathType Leaf) -or -not $Script:WorkspaceId) { return $false }
+  $named = Read-LinkFile $file
+  return ($named.Workspace -eq $Script:WorkspaceId -and $named.Project -eq $Id)
 }
 
 # The origin remote of the repo whose top folder is $Top, without a user
@@ -3961,26 +3805,120 @@ function Get-OriginRemote([string]$Top) {
 }
 
 # Links the folder $Folder to the project $Id, for the computer only
-function Set-FolderLink([string]$Id, [string]$Folder) {
+function Set-FolderLink([string]$Id, [string]$Folder, [switch]$Plain) {
   $map = Join-Path $ClHome 'projects'
   $lines = @()
   if (Test-Path -LiteralPath $map) {
-    $lines = @([IO.File]::ReadAllLines($map) | Where-Object { $_.IndexOf(' ') -gt 0 -and $_.Substring($_.IndexOf(' ') + 1) -ne $Folder })
+    $lines = @([IO.File]::ReadAllLines($map) | Where-Object {
+        $rest = if ($_.StartsWith('plain ')) { $_.Substring(6) } else { $_ }
+        $rest.IndexOf(' ') -gt 0 -and $rest.Substring($rest.IndexOf(' ') + 1) -ne $Folder
+      })
   }
-  $lines += "$Id $Folder"
+  $entry = if ($Plain) { "plain $Id $Folder" } else { "$Id $Folder" }
+  $lines += $entry
   [IO.File]::WriteAllText($map, (($lines | ForEach-Object { "$_`n" }) -join ''), $Utf8)
 }
 
+# Whether the folder $Folder has a plain link to the project $Id
+function Test-PlainLinked([string]$Id, [string]$Folder) {
+  $map = Join-Path $ClHome 'projects'
+  if (-not (Test-Path -LiteralPath $map -PathType Leaf)) { return $false }
+  return @([IO.File]::ReadAllLines($map) | Where-Object { $_ -ceq "plain $Id $Folder" }).Count -gt 0
+}
+
+# Links the folder this session is in to the project -Project names, for
+# the computer only. A checkout is linked only when it's a checkout of the
+# project's repository (CLK-420), or, on the person's word with -LinkFolder,
+# when the project has none, whose remote it then records. A folder outside
+# any repo gets a plain link on the person's word, which writes nothing into
+# it (CLK-423). Any other folder gets none of the project's files, and the
+# project can be read for one call instead.
 function Set-ProjectLink {
-  if ($Project -notmatch $Uuid) { Warn '-Project needs a project''s id.'; $Script:Failed = $true; return }
+  if ($Project -notmatch $Uuid) { Warn '-Project needs a project''s id.'; $Script:Failed = $true; return $false }
   $root = Get-GitTop $Start
+  $inRepo = [bool]$root
   if (-not $root) { $root = $Start }
+  # A folder whose .contextlocker.json names the project is its folder by its
+  # own file, found without a link, and gets the project's files
+  if (Test-DeclaredProject $root $Project) { return $true }
+  Get-RepoAnswer $Project $root
+  $once = "``$Run context $Harness -Project $Project``"
+  $plainOffer = 'link this folder for this computer only, writing nothing into it, with -Project and -LinkFolder, only on the person''s word'
+  if ($Script:RepoAnswer -eq 'unknown') {
+    Warn "didn't link $root to the project, as Context Locker couldn't say whether it's a checkout of the project's repository. Try -Project again once Context Locker answers."
+    $Script:Failed = $true
+    return $false
+  }
+  if ($Script:RepoAnswer -eq 'no') {
+    if (-not $inRepo) {
+      if (Test-PlainLinked $Project $root) { $Script:Plain = $true; return $true }
+      if ($LinkFolder) {
+        Set-FolderLink $Project $root -Plain
+        $Script:Plain = $true
+        Warn "linked $root to the project for this computer only: the sync writes nothing into it and checks none of its links, and a session started there gets the project at its start."
+        return $true
+      }
+      if ($Script:RepoHas) {
+        Warn "didn't link $root to the project: it isn't a checkout of $($Script:RepoHas), the project's repository. Read the project for one call instead with $once, or $plainOffer."
+      } else {
+        Warn "didn't link $root to the project, which has no repository. Read it for one call with $once, or $plainOffer."
+      }
+      return $false
+    }
+    if ($Script:RepoHas) {
+      Warn "didn't link $root to the project: it isn't a checkout of $($Script:RepoHas), the project's repository. Run -Project in a checkout of it, or read the project for one call instead with $once."
+      $Script:Failed = $true
+      return $false
+    }
+    if (-not $LinkFolder) {
+      Warn "didn't link $root to the project, which has no repository, so no folder gets its files. Read it with $once. To link this folder, which records its git remote as the project's repository, run -Project with -LinkFolder, only on the person's word."
+      return $false
+    }
+    if (-not (Get-OriginRemote $root)) {
+      Warn "didn't link $root to the project: it's a repo with no git remote, which would become the project's repository. Read the project with $once."
+      $Script:Failed = $true
+      return $false
+    }
+  }
   Set-FolderLink $Project $root
+  return $true
+}
+
+# Takes the folder $Folder's link to the project $Id off the computer
+function Remove-FolderLink([string]$Id, [string]$Folder) {
+  $map = Join-Path $ClHome 'projects'
+  if (-not (Test-Path -LiteralPath $map -PathType Leaf)) { return }
+  $lines = @([IO.File]::ReadAllLines($map) | Where-Object { $_ -cne "$Id $Folder" })
+  [IO.File]::WriteAllText($map, (($lines | ForEach-Object { "$_`n" }) -join ''), $Utf8)
+}
+
+# Whether a folder linked on the computer may still have its project's
+# files: only a checkout of the project's repository (CLK-423). An older
+# script linked any folder -Project named, so a sync unlinks one that isn't,
+# with a line saying how to read the project instead, and writes nothing
+# there. When Context Locker can't say, the link stays and this sync skips
+# the project.
+function Test-LinkedFolder {
+  if ($Script:Layer -ne 'personal' -or $Script:Plain) { return $true }
+  Get-RepoAnswer $Script:ProjectId $Script:ProjectRoot
+  if ($Script:RepoAnswer -eq 'yes') { return $true }
+  if ($Script:RepoAnswer -eq 'unknown') {
+    Warn "didn't sync the project into $($Script:ProjectRoot), as Context Locker couldn't say whether it's a checkout of the project's repository. The next sync asks again."
+    return $false
+  }
+  $id = $Script:ProjectId
+  $folder = $Script:ProjectRoot
+  Remove-FolderLink $id $folder
+  # Nor does the session start give the project there any more
+  $Script:ProjectId = ''; $Script:ProjectRoot = ''; $Script:Layer = ''
+  $why = if ($Script:RepoHas) { "it isn't a checkout of $($Script:RepoHas), the project's repository" } else { 'the project has no repository' }
+  Warn "unlinked $folder from its project, as $why, so it gets none of the project's files. Read the project with ``$Run context $Harness -Project $id``."
+  return $false
 }
 
 function Remove-ProjectLink([string]$Id) {
   $map = Join-Path $ClHome 'projects'
-  $lines = @([IO.File]::ReadAllLines($map) | Where-Object { -not $_.StartsWith("$Id ") })
+  $lines = @([IO.File]::ReadAllLines($map) | Where-Object { -not $_.StartsWith("$Id ") -and -not $_.StartsWith("plain $Id ") })
   [IO.File]::WriteAllText($map, (($lines | ForEach-Object { "$_`n" }) -join ''), $Utf8)
 }
 
@@ -4053,6 +3991,7 @@ function Sync-DailyProjects {
     $Script:ProjectId = ''; $Script:ProjectRoot = ''; $Script:Layer = ''
     if (-not (Find-LocalProject $folder)) { continue }
     if ($Harness -eq 'hermes' -and $Script:Layer -ne 'repo') { continue }
+    if (-not (Test-LinkedFolder)) { continue }
     $key = "$($Script:ProjectId) $($Script:ProjectRoot)"
     if ($synced.ContainsKey($key)) { continue }
     $synced[$key] = $true
@@ -5711,58 +5650,22 @@ function Write-ProjectDoctor {
   Write-NotesDoctor
 }
 
-# The project's notes folder, in a line or two: how many notes it holds, the
-# files waiting to be saved or that weren't saved at the last sync, and any
-# Context Locker wrote that are missing
+# The project's notes folder, as a sync left it: copies of notes the next
+# sync takes out, and files that hold what Context Locker doesn't have, as
+# computers keep no copies of notes (CLK-423)
 function Write-NotesDoctor {
-  if ($Harness -eq 'openclaw' -or ($Harness -eq 'hermes' -and $Script:Layer -ne 'repo')) { return }
   $where = Get-NotesPath $Notes
+  if (-not (Test-Path -LiteralPath $where -PathType Container)) { return }
   if (-not (Test-NotesFolder)) {
     Warning "Part of the path to $where is a link, so syncs leave the notes folder alone."
     return
   }
-  Read-NotesRecords
-  $records = @{}
-  $refused = @{}
-  foreach ($line in $Script:NotesRecords) {
-    $f = $line.Split(' ')
-    if ($f[0] -eq 'wrote') { $records[$f[3]] = @{ Kind = $f[1]; Hash = $f[2] } }
-    elseif ($f[0] -eq 'refused') { $refused[$f[2]] = $f[1] }
+  [void](Get-NotesLeft)
+  if ($Script:NotesGone.Count) {
+    Warning "$where holds $(Get-Plural $Script:NotesGone.Count 'copy of a note' 'copies of notes') that the next sync in this project takes out. Read notes with ``$Run notes $Harness read``."
   }
-  if ($records.Count -eq 0) {
-    Warning "Nothing has synced to $where yet. The next sync in this project writes it."
-    return
-  }
-  Get-NotesLocal
-  # A recorded note that changed here waits to be saved, as does a new file,
-  # unless the last sync couldn't take it as it is now
-  $notes = 0; $waiting = 0
-  $names = New-Object System.Collections.Generic.List[string]
-  foreach ($t in $Script:NotesLocal.Keys) {
-    $L = $Script:NotesLocal[$t]
-    if ($t -ceq "$NotesTarget/README.md" -or ($records.ContainsKey($t) -and $records[$t].Kind -ne 'note')) { continue }
-    if ($records.ContainsKey($t)) {
-      $notes++
-      if ($records[$t].Hash -eq $L) { continue }
-    }
-    if ($refused.ContainsKey($t) -and $refused[$t] -eq $L) { $names.Add($t.Substring("$NotesTarget/".Length)) }
-    else { $waiting++ }
-  }
-  foreach ($name in $Script:NotesMisnamed) { $names.Add($name) }
-  Pass "$where holds $(Get-Plural $notes 'note' 'notes')."
-  # What Context Locker wrote there that's gone, which the next sync writes again
-  $missing = @($records.Keys | Where-Object { -not $Script:NotesLocal.ContainsKey($_) }).Count
-  if ($missing -gt 0) {
-    Warning "$(Get-Plural $missing 'file Context Locker wrote in the notes folder is' 'files Context Locker wrote in the notes folder are') missing. The next sync in this project writes them again."
-  }
-  if ($waiting -gt 0) { Warning "$(Get-Plural $waiting 'file in the notes folder waits' 'files in the notes folder wait') to be saved at the next sync." }
-  if ($names.Count -gt 0) {
-    [string[]]$sorted = @($names)
-    [Array]::Sort($sorted, [StringComparer]::Ordinal)
-    $shown = ($sorted | Select-Object -First 3) -join ', '
-    if ($sorted.Length -gt 3) { $shown += " and $($sorted.Length - 3) more" }
-    Warning "$(Get-Plural $sorted.Length "file in the notes folder wasn't" "files in the notes folder weren't") saved at the last sync: $shown. A sync in this project says why."
-  }
+  $line = Get-NotesNamedLine
+  if ($line) { Warning $line }
 }
 
 function Invoke-Readback {
@@ -5968,6 +5871,14 @@ function Invoke-Fix {
 # Tickets are online commands. Their request files are inputs, never synced
 # board snapshots, and a network failure never queues or retries a mutation.
 function Invoke-Tickets {
+  # files upload sends a file for a note to show, and says its id (CLK-368)
+  if ($Mode -eq 'files' -and $TicketCommand -eq 'upload') {
+    $id = Send-File $TicketFile
+    if (-not $id) { return 1 }
+    $name = (Split-Path -Leaf $TicketFile) -replace '[\[\]]', ''
+    Write-Out "Sent $name as upload $id. Show it in a note's text as ![$name](file:$id) with notes write, or keep it as a project file with files write, upload set to $id."
+    return 0
+  }
   $body = $Utf8.GetBytes('{}')
   if ($TicketFile) {
     if (-not (Test-Path -LiteralPath $TicketFile -PathType Leaf)) { throw 'The request must be a UTF-8 JSON file.' }
@@ -5982,9 +5893,16 @@ function Invoke-Tickets {
     }
   }
   if (Find-Project 'ask') { $query = "?project=$($Script:ProjectId)" }
+  # files write -File sends the file in parts first, and names its upload in
+  # the request's address (CLK-368)
+  if ($File) {
+    $upload = Send-File $File
+    if (-not $upload) { return 1 }
+    $query = if ($query) { "$query&upload=$upload" } else { "?upload=$upload" }
+  }
   $accept = if ($Json) { 'application/json' } else { 'text/plain' }
   # Tasks keep the API's own address for them, which every release knows
-  $path = if (@('suggest', 'remember', 'message', 'context', 'whoami') -contains $Mode) { "/v1/sync/$Mode" } elseif ($Mode -eq 'tasks') { "/v1/sync/tickets/$TicketCommand" } else { "/v1/sync/$Mode/$TicketCommand" }
+  $path = if (@('suggest', 'remember', 'message', 'context', 'whoami', 'table') -contains $Mode) { "/v1/sync/$Mode" } elseif ($Mode -eq 'tasks') { "/v1/sync/tickets/$TicketCommand" } else { "/v1/sync/$Mode/$TicketCommand" }
   $reply = Invoke-Api 'POST' "$path$query" $body 'application/json' @{ Accept = $accept }
   $words = $Utf8.GetString($reply.Body) -replace '[\x00-\x08\x0b-\x1f\x7f]', ''
   if ($reply.Status -eq 200) { Write-Out $words; return 0 }
@@ -7256,31 +7174,6 @@ function Invoke-NotesMoveOut {
   }
   $dest = Join-Path $Script:ProjectRoot ($rel -replace '/', $sep)
 
-  # A note edited in the notes folder, or a new one there, goes to Context
-  # Locker before the notes move, so no change is left behind. The notes that
-  # apply everywhere don't move, so their edits can wait.
-  if ((Test-Path -LiteralPath (Get-NotesPath $Notes) -PathType Container) -and (Test-NotesFolder)) {
-    Read-NotesRecords
-    Get-NotesLocal
-    $records = @{}
-    foreach ($line in $Script:NotesRecords) {
-      $f = $line.Split(' ')
-      if ($f[0] -eq 'wrote') { $records[$f[3]] = @{ Kind = $f[1]; Hash = $f[2] } }
-    }
-    $unsaved = New-Object System.Collections.Generic.List[string]
-    foreach ($t in $Script:NotesLocal.Keys) {
-      if ($t -ceq "$NotesTarget/README.md" -or $t.StartsWith("$NotesTarget/everywhere/")) { continue }
-      if (-not $records.ContainsKey($t) -or ($records[$t].Kind -eq 'note' -and $records[$t].Hash -ne $Script:NotesLocal[$t])) {
-        $unsaved.Add($t.Substring('{project}/'.Length))
-      }
-    }
-    if ($unsaved.Count -gt 0) {
-      [string[]]$sorted = @($unsaved)
-      [Array]::Sort($sorted, [StringComparer]::Ordinal)
-      [Console]::Error.WriteLine("Context Locker: nothing moved, as some of $Notes isn't saved in Context Locker yet: $(Get-ShortList $sorted). Sync first, with: $Run $Harness")
-      return 1
-    }
-  }
 
   # The project's notes, as the repo will keep them
   $reply = Invoke-Api 'GET' "/v1/sync/move-out?project=$($Script:ProjectId)" $null '' @{}
@@ -7467,9 +7360,10 @@ function Invoke-NotesMoveOut {
     Say "$($gone.Count) notes were retired, became pointers or left the project while they were moving, so they didn't move: $(Get-ShortList @($gone)). The files this move wrote for them came out again."
   }
   if ($moved.Count -eq 0) { return 1 }
-  if (Test-Path -LiteralPath (Get-NotesPath $Notes) -PathType Container) {
-    Say "The next sync in this project takes the moved notes out of $Notes, keeping a copy of each in $(ConvertTo-HomePath (Join-Path $ClHome 'backups'))."
-  }
+  # Files a sync left in the notes folder hold what didn't move (CLK-423)
+  [void](Get-NotesLeft)
+  $left = Get-NotesNamedLine
+  if ($left) { Say $left }
   return 0
 }
 
@@ -7649,7 +7543,7 @@ function Get-WrittenItems([string]$LockFile) {
   $items = New-Object System.Collections.Generic.List[object]
   if (-not (Test-Path -LiteralPath $LockFile -PathType Leaf)) { return , $items }
   foreach ($line in [IO.File]::ReadAllLines($LockFile)) {
-    if ($line -cmatch '^wrote (block|skill|note|file) ([0-9a-f]{64}) (\{[a-z]+\}/\S+)' -and -not $Matches[3].Contains('..')) {
+    if ($line -cmatch '^wrote (block|skill) ([0-9a-f]{64}) (\{[a-z]+\}/\S+)' -and -not $Matches[3].Contains('..')) {
       $items.Add(@{ Kind = $Matches[1]; Hash = $Matches[2]; Target = $Matches[3] })
     }
   }
@@ -7676,9 +7570,8 @@ function Get-RemoveLocal([string]$Kind, [string]$Path) {
 }
 
 # Takes out, or with no -Yes only names, what one lock says the sync wrote
-# that's still as it wrote it. A project's notes stay while another app here
-# syncs that project.
-function Invoke-RemoveLock([string]$LockFile, [bool]$Shared, $Lists) {
+# that's still as it wrote it
+function Invoke-RemoveLock([string]$LockFile, $Lists) {
   foreach ($item in (Get-WrittenItems $LockFile)) {
     $target = $item.Target
     if ($target.StartsWith('{project}/')) {
@@ -7690,10 +7583,6 @@ function Invoke-RemoveLock([string]$LockFile, [bool]$Shared, $Lists) {
       'block' { "Context Locker's part of $path" }
       'skill' { "the skill $($target.Substring($target.LastIndexOf('/') + 1)) at $path" }
       default { $path }
-    }
-    if ($Shared -and ($item.Kind -eq 'note' -or $item.Kind -eq 'file')) {
-      $Lists.Kept.Add("$what, as another app on $(Get-Computer 'the computer') syncs that project")
-      continue
     }
     $local = Get-RemoveLocal $item.Kind $path
     if ($local -eq 'none') { continue }
@@ -7715,6 +7604,18 @@ function Invoke-RemoveLock([string]$LockFile, [bool]$Shared, $Lists) {
       }
     } catch { $Lists.Failed.Add("$what, which couldn't be taken out") }
   }
+}
+
+# What a sync left in a project's notes folder: the copies of notes, which
+# go, and the files that hold what Context Locker doesn't have, which stay
+# (CLK-423)
+function Invoke-RemoveNotes($Lists) {
+  $where = Get-NotesPath $Notes
+  if (-not $Yes) { [void](Get-NotesLeft) }
+  elseif (-not (Get-NotesLeft -Take)) { $Lists.Failed.Add("copies of notes in $where, which couldn't all be taken out") }
+  if ($Script:NotesGone.Count) { $Lists.Taken.Add("$(Get-Plural $Script:NotesGone.Count 'copy of a note' 'copies of notes') in $where") }
+  $line = Get-NotesNamedLine
+  if ($line) { $Lists.Kept.Add($line) }
 }
 
 # The hook that runs the sync, taken out where setup put it, or named for
@@ -7775,7 +7676,7 @@ function Invoke-Remove {
   # What the sync wrote for the app itself, then in each project linked here
   $Script:ProjectRoot = ''
   $Script:ProjectId = ''
-  Invoke-RemoveLock (Join-Path $AppDir 'global.lock') $false $lists
+  Invoke-RemoveLock (Join-Path $AppDir 'global.lock') $lists
   $projects = Join-Path $ClHome 'projects'
   if (Test-Path -LiteralPath $projects -PathType Leaf) {
     foreach ($line in [IO.File]::ReadAllLines($projects)) {
@@ -7786,7 +7687,8 @@ function Invoke-Remove {
       $shared = [bool]@($others | Where-Object { Test-Path -LiteralPath (Join-Path (Join-Path (Join-Path $ClHome $_) 'projects') "$id.lock") -PathType Leaf }).Count
       $Script:ProjectRoot = $folder
       $Script:ProjectId = $id
-      Invoke-RemoveLock $lock $shared $lists
+      Invoke-RemoveLock $lock $lists
+      Invoke-RemoveNotes $lists
       if ($Yes -and -not $shared) {
         $notes = Join-Path (Join-Path $folder '.context-locker') 'notes'
         foreach ($empty in @((Join-Path $notes 'everywhere'), $notes, (Join-Path $folder '.context-locker'))) {
@@ -7874,6 +7776,8 @@ if ($Mode -ne 'sync') {
       'projects' { $exitCode = Invoke-Tickets }
       'skills' { $exitCode = Invoke-Tickets }
       'whoami' { $exitCode = Invoke-Tickets }
+      'files' { $exitCode = Invoke-Tickets }
+      'table' { $exitCode = Invoke-Tickets }
     }
   } catch {
     [Console]::Error.WriteLine("Context Locker: $($_.Exception.Message)")
@@ -7893,7 +7797,7 @@ try {
   $globalFailed = $Script:Failed
 
   if (-not $Daily) {
-    if ($Project) { Set-ProjectLink }
+    # Without the global manifest, use the workspace from the last one
     if (-not $Script:WorkspaceId) {
       $globalLock = Join-Path $AppDir 'global.lock'
       if (Test-Path -LiteralPath $globalLock) {
@@ -7902,9 +7806,13 @@ try {
         }
       }
     }
+    # A folder -Project doesn't link gets none of the project's files (CLK-420)
+    $linkedOk = $true
+    if ($Project) { $linkedOk = Set-ProjectLink }
     # Context Locker is asked about the git remote only once it has answered
     $how = if ($globalOk -eq 0) { 'link' } else { 'local' }
-    if ((Find-Project $how) -and $globalOk -eq 0) {
+    if ($linkedOk -and (Find-Project $how) -and $globalOk -eq 0 -and
+      ($Script:FoundBy -ne 'local' -or (Test-LinkedFolder))) {
       $Script:Scope = 'project'
       $result = Sync-Scope "?project=$($Script:ProjectId)&layer=$($Script:Layer)" (Join-Path (Join-Path $AppDir 'projects') $Script:ProjectId)
       if ($result -eq 3) {
@@ -7978,7 +7886,6 @@ function Get-WhatChanged {
   $parts = New-Object System.Collections.Generic.List[string]
   if ($Script:WBlocks -gt 0) { $parts.Add('its instructions') }
   if ($Script:WSkills -gt 0) { $parts.Add((Get-Plural $Script:WSkills 'skill' 'skills')) }
-  if ($Script:WNotes -gt 0) { $parts.Add((Get-Plural $Script:WNotes 'note' 'notes')) }
   if ($parts.Count -le 1) { return ($parts -join '') }
   return ((@($parts) | Select-Object -First ($parts.Count - 1)) -join ', ') + ' and ' + $parts[$parts.Count - 1]
 }

@@ -56,6 +56,15 @@ describe("the published setup files", () => {
           "topics/projects.md",
           "topics/changes.md",
           "topics/when-something-breaks.md",
+          // Files came after setup 64, whose steps it isn't in; the setup
+          // version the files mirror brings names it (CLK-368)
+          "topics/files.md",
+          // Tables too, whose rows the same setup version brings (CLK-367)
+          "topics/tables.md",
+          // Recording an assumption left the tasks topic after setup 67, whose
+          // steps name the tasks topic, which points to it; the next setup
+          // version names it (CLK-437)
+          "topics/assumptions.md",
         ].includes(topic.file)
       )
         continue;

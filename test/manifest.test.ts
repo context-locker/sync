@@ -21,10 +21,8 @@ import {
   WORKSPACE_ID,
   preferences,
   project,
-  projectNotes,
   projectPreferences,
   skills,
-  tagList,
 } from "./fixtures.js";
 
 const outputs = compile({
@@ -113,43 +111,30 @@ describe("the sync manifest", () => {
     );
   });
 
-  it("lists a project's notes folder: its README as a file, and each note with its id and version", () => {
-    const folder = compile({
-      harness: "codex",
-      project: { ...project, layer: "repo" },
-      preferences: projectPreferences,
-      skills: [],
-      notes: projectNotes,
-      tags: tagList,
-    }).outputs;
+  it("lists no notes for a project, as a computer keeps no copies of them (CLK-423)", () => {
     const manifest = buildManifest({
       workspaceId: WORKSPACE_ID,
-      outputs: folder,
+      outputs: compile({
+        harness: "codex",
+        project: { ...project, layer: "repo" },
+        preferences: projectPreferences,
+        skills: [],
+      }).outputs,
       holds: [],
     });
-    const lines = manifest.text.split("\n");
-    const readme = folder.find((output) => output.kind === "file");
-    const plan = folder.find(
-      (output) =>
-        output.kind === "note" &&
-        output.target === "{project}/.context-locker/notes/release-plan.md",
+    assert.deepEqual(
+      manifest.entries.map((entry) => entry.kind),
+      ["block"],
     );
-    assert.ok(readme?.kind === "file" && plan?.kind === "note");
-    assert.deepEqual(lines.slice(2, 4), [
-      `block ${blockHash((folder[0] as { text: string }).text)} {project}/AGENTS.md`,
-      `file ${sha256(readme.text)} {project}/.context-locker/notes/README.md`,
-    ]);
-    assert.ok(
-      lines.includes(
-        `note ${sha256(plan.text)} {project}/.context-locker/notes/release-plan.md d1111111-1111-4111-8111-111111111111 3`,
-      ),
+    assert.doesNotMatch(manifest.text, /\.context-locker\/notes/);
+    // A line for a notes folder, as an older manifest had, reads as one it
+    // doesn't know
+    assert.deepEqual(
+      parseManifest(
+        `${manifest.text}file ${"a".repeat(64)} {project}/.context-locker/notes/README.md\nnote ${"b".repeat(64)} {project}/.context-locker/notes/plan.md d1111111-1111-4111-8111-111111111111 3\n`,
+      ).entries,
+      manifest.entries,
     );
-    // Each one's hash is the file's, byte for byte, as the scripts hash it
-    assert.deepEqual(manifest.blobs.get(sha256(plan.text)), {
-      kind: "file",
-      bytes: Buffer.from(plan.text),
-    });
-    assert.deepEqual(parseManifest(manifest.text).entries, manifest.entries);
   });
 
   it("reads back, skipping lines it doesn't know", () => {
@@ -491,33 +476,14 @@ describe("targets an app may write", () => {
     assert.equal(parseTarget("openclaw", "{project}/AGENTS.md"), null);
   });
 
-  it("allow a project's notes folder to apps that work in project folders", () => {
-    assert.deepEqual(
-      parseTarget("hermes", "{project}/.context-locker/notes/README.md"),
-      { kind: "file", target: "{project}/.context-locker/notes/README.md" },
-    );
-    assert.deepEqual(
-      parseTarget(
-        "claude-code",
-        "{project}/.context-locker/notes/everywhere/writing-voice.md",
-      ),
-      {
-        kind: "note",
-        target: "{project}/.context-locker/notes/everywhere/writing-voice.md",
-        name: "writing-voice",
-        everywhere: true,
-      },
-    );
-    assert.equal(
-      parseTarget("codex", "{project}/.context-locker/notes/con.md"),
-      null,
-    );
-    assert.equal(
-      parseTarget(
-        "codex",
-        "{project}/.context-locker/notes/everywhere/README.md",
-      ),
-      null,
-    );
+  it("allow no file in a project's notes folder, as a computer keeps no copies of notes (CLK-423)", () => {
+    for (const target of [
+      "{project}/.context-locker/notes/README.md",
+      "{project}/.context-locker/notes/everywhere/writing-voice.md",
+      "{project}/.context-locker/notes/release-plan.md",
+    ]) {
+      assert.equal(parseTarget("claude-code", target), null, target);
+      assert.equal(parseTarget("hermes", target), null, target);
+    }
   });
 });

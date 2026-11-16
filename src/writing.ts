@@ -1,9 +1,10 @@
 /**
- * Writing for AI apps (G1-310): the mechanical checks of the standard in
- * AGENTS.md, which the tests run over every text an AI app reads. Each
- * check finds what a text says that the standard rules out: a length over
- * its budget, history, a reference, a hash, a date, a dash, an American
- * spelling, a second word for the person, or a sentence said twice.
+ * Writing for AI apps (G1-310): the mechanical checks of the writing
+ * standard in docs/writing-for-ai-apps.md, which the tests run over every
+ * text an AI app reads. Each check finds what a text says that the standard
+ * rules out: a length over its budget, history, a reference, a hash, a date,
+ * a dash, an American spelling, a second word for the person, or a sentence
+ * said twice.
  */
 
 /** Length budgets, in characters, for each kind of text an AI app reads */
@@ -26,6 +27,8 @@ export const AI_TEXT_BUDGETS = Object.freeze({
   reply: 600,
   /** The line the per-prompt hook and every tool reply add */
   promptLine: 300,
+  /** The repo's AGENTS.md, which every coding session loads (CLK-407) */
+  repoGuide: 20_000,
 });
 
 export type AiTextBudget = keyof typeof AI_TEXT_BUDGETS;
@@ -166,9 +169,10 @@ const SPELLING = new RegExp(`\\b(?:${AMERICAN.join("|")})\\b`, "gi");
 
 /**
  * The words one glossary retires, in what people and agents read alike
- * (G1-319), each with the word that takes its place, as AGENTS.md's glossary
- * says. The writing test finds them in what agents read, and the people's
- * words test in the web app, the site and the emails.
+ * (G1-319), each with the word that takes its place, as the glossary in
+ * docs/writing-for-ai-apps.md says, and the reader it's retired for where
+ * it's only one (CLK-411). The writing test finds them in what agents read,
+ * and the people's words test in the web app, the site and the emails.
  */
 export const RETIRED_WORDS = Object.freeze([
   { word: "user", say: "the person" },
@@ -179,7 +183,12 @@ export const RETIRED_WORDS = Object.freeze([
     say: "All projects, a project, or your context for preferences, skills and notes together",
   },
   { word: "ticket", say: "a task" },
-  { word: "AI app", say: "an agent" },
+  { word: "AI app", say: "an agent", reader: "agents" },
+  {
+    word: "app",
+    say: "your AI, an AI app or the agent's own name, by the moment",
+    reader: "people",
+  },
   { word: "AI inbox", say: "an agent's inbox" },
   { word: "Inboxes", say: "Inbox, the page's name" },
   { word: "Agents' inboxes", say: "Agent inboxes" },
@@ -188,6 +197,14 @@ export const RETIRED_WORDS = Object.freeze([
   { word: "suggestion", say: "a change" },
   { word: "persona", say: "nothing, as it was never built" },
 ] as const);
+
+/**
+ * A bare app: one with no word before it that says which, such as AI, web,
+ * phone or notes, and never an address such as app.context.locker or a flag
+ * such as --app
+ */
+const BARE_APP =
+  /(?<!\b(?:AI|web|desktop|mobile|phone|authenticator|notes)\s+)(?<!-)\bapps?\b(?!\.\w)/gi;
 
 /** Owner as a team's role: the team's owner, or beside admins */
 const TEAM_OWNER = [
@@ -202,9 +219,14 @@ const TEAM_OWNER = [
  * a tool's or field's name such as include_my_playbook included (CLK-360).
  * Everywhere counts as the place, with its capital; everywhere as a plain
  * word stays. Inboxes counts as the inbox page's old name, with its capital;
- * inboxes as a plain word stays (CLK-362).
+ * inboxes as a plain word stays (CLK-362). AI app counts for agents, and a
+ * bare app for people (CLK-411).
  */
-export function retiredWords(prose: string): Map<string, number> {
+export function retiredWords(
+  prose: string,
+  /** People read the word that fits the moment, and agents keep agent */
+  reader: "people" | "agents" = "agents",
+): Map<string, number> {
   const counts = new Map<string, number>();
   const count = (word: string, pattern: RegExp, text = prose) => {
     for (const _ of text.matchAll(pattern))
@@ -220,7 +242,8 @@ export function retiredWords(prose: string): Map<string, number> {
   // Playbook is retired everywhere people and agents read it (CLK-360)
   count("playbook", /\b\w*playbooks?\w*\b/gi);
   count("ticket", /\b\w*tickets?\w*\b/gi);
-  count("AI app", /\bAI\s+apps?(?:'s|s')?\b/gi);
+  if (reader === "agents") count("AI app", /\bAI\s+apps?(?:'s|s')?\b/gi);
+  else count("app", BARE_APP);
   count("AI inbox", /\bAI\s+inbox(?:es|'s)?\b/gi);
   count("Inboxes", /\bInboxes\b/g);
   count("Agents' inboxes", /\bagents['’]\s+inbox(?:es)?\b/gi);
