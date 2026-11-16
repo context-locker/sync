@@ -47,7 +47,8 @@ describe("each MCP tool's command in the sync scripts (G1-335)", () => {
     assert.equal(commandLine("notes write", "codex"), "notes codex write");
     assert.equal(commandLine("context", "<app>"), "context <app>");
     assert.equal(toolCommand("read_note", "hermes"), "notes hermes read");
-    assert.equal(toolCommand("get_skill", "codex"), null);
+    assert.equal(toolCommand("get_skill", "codex"), "skills codex get");
+    assert.equal(toolCommand("upload", "codex"), null);
     assert.equal(toolCommand("toString", "codex"), null);
   });
 

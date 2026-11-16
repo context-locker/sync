@@ -55,7 +55,7 @@ function runsScript(text: string, installed: string): boolean {
  * Whether a SessionStart hook in a JSON settings file runs the script, or
  * with an event, that event's, such as the per-prompt hook's (G1-271)
  */
-export function jsonHookIn(
+function jsonHookIn(
   settings: Json,
   installed: string,
   event = "SessionStart",

@@ -936,7 +936,8 @@ describe("the sync scripts' tools", () => {
           described++;
         }
         assert.equal(commands, 0, "the last command has no description");
-        assert.equal(described, 23);
+        // files and table came with script 55 (CLK-368, CLK-367)
+        assert.equal(described, 26);
       });
 
       it("prints Tidy-up with fix, for the project, and marks an item done or skipped", async () => {

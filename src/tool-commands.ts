@@ -10,17 +10,19 @@ export type ToolCommand = { command: string } | { none: string };
 export const TOOL_COMMANDS: Readonly<Record<string, ToolCommand>> =
   Object.freeze({
     get_context: { command: "context" },
-    get_skill: {
-      none: "The sync puts every skill, the guide too, in the skills folder.",
-    },
+    get_skill: { command: "skills get" },
     project_map: { command: "map" },
     manage_project: { command: "projects manage" },
-    list_notes: { command: "notes list" },
-    search_notes: { command: "notes search" },
+    list_docs: { command: "notes list" },
+    search_docs: { command: "notes search" },
     read_note: { command: "notes read" },
     list_versions: { command: "versions list" },
     read_version: { command: "versions read" },
     write_note: { command: "notes write" },
+    // A file sent from the computer, and a table's rows, from script 55
+    // (CLK-368, CLK-367)
+    write_file: { command: "files write" },
+    table: { command: "table" },
     record_docs_home: { command: "projects docs-home" },
     list_tasks: { command: "tasks list" },
     read_task: { command: "tasks read" },
@@ -30,7 +32,7 @@ export const TOOL_COMMANDS: Readonly<Record<string, ToolCommand>> =
     suggest: { command: "suggest" },
     submit_import: { command: "import-submit" },
     upload: {
-      none: "The script sends a big import plan in parts itself.",
+      none: "The script sends a big import plan, and a file with files write --file, in parts itself.",
     },
     pending_changes: { command: "requests list" },
     read_request: { command: "requests read" },
@@ -38,6 +40,9 @@ export const TOOL_COMMANDS: Readonly<Record<string, ToolCommand>> =
     decide_change: { command: "requests decide" },
     fix_list: { command: "fix" },
     mark_fix: { command: "fix --done|--skip|--working|--waiting" },
+    remind: {
+      none: "The person sets reminders.",
+    },
     message: { command: "message" },
     record_skill_source: { command: "skills source" },
     whoami: { command: "whoami" },

@@ -3,7 +3,6 @@
 import { BLOCK_END, BLOCK_START } from "./blocks.js";
 import { firstSentence } from "./first-sentence.js";
 import { plainMarkdown } from "./markdown.js";
-import { NOTES_PATH, noteFileName } from "./notes.js";
 import { oneAppPlace } from "./one-app-places.js";
 import { injectionMatches } from "./threats.js";
 import type {
@@ -135,13 +134,15 @@ export const TEXT = {
   docsHomePlace: (place: string) =>
     `Keep lasting docs in ${place}, this project's docs home, and add a link for each new one with the sync script's \`notes <app> write\`.`,
   docsHomeNotes:
-    "Keep lasting docs in Context Locker Notes, this project's docs home.",
+    "Keep lasting docs in Context Locker Docs, this project's docs home.",
   /**
-   * After docsHomeNotes in a project's files, where the sync mirrors its
-   * notes: how an app that only reads its files saves a lasting doc
+   * After docsHomeNotes in a project's files: how an agent that reads them
+   * saves a lasting doc, as computers keep no copies of notes (CLK-423)
    */
-  notesFolder:
-    "Save each as a Markdown file in .context-locker/notes, with the front matter its README shows; the next sync saves it.",
+  notesWrite: "Save each with the sync script's `notes <app> write`.",
+  /** The same, after a project's documentation locations */
+  notesWriteChosen:
+    "When the chosen location is Context Locker Docs, save it with the sync script's `notes <app> write`.",
   /** When the docs home's place has wording or an address some apps refuse */
   docsHomeLeftOut:
     "Keep lasting docs in this project's docs home, and add a link for each new one with the sync script's `notes <app> write`. The place is left out here because some agents refuse to load files with wording like it. It's in Context Locker.",
@@ -205,15 +206,14 @@ export function oneAppOnly(address: string): string | null {
 
 /**
  * A Start here entry as a block lists it. A pointer is its title linked to
- * its address; a note is its title linked to its file in the notes folder,
- * when the app mirrors it, and otherwise its title with a word on how to read
- * it. Then its kind and its summary. Null for a pointer whose address a block
- * can't link to. With ids, each line ends with the entry's id, for an app
- * that can open it by its id.
+ * its address; a note is its title with a word on how to read it. Then its
+ * kind and its summary. Null for a pointer whose address a block can't link
+ * to. With ids, the line ends with the entry's id, for an app that opens it
+ * by its id, as a note in an app's files is (CLK-423).
  */
 export function startHereLine(
   entry: StartHereInput,
-  options: { notesFolder?: boolean; ids?: boolean; reach?: Reach } = {},
+  options: { ids?: boolean; reach?: Reach } = {},
 ): string | null {
   const title = plainMarkdown(entry.title);
   const facts = `(${plainMarkdown(entry.kind)})`;
@@ -221,12 +221,14 @@ export function startHereLine(
   if (entry.address !== null) {
     const destination = linkDestination(entry.address);
     if (destination === null) return null;
+    // A path in the repo links to its page, which every device opens, and
+    // names the path for an agent working in a copy of the repo (CLK-422)
+    const page = entry.webAddress ? linkDestination(entry.webAddress) : null;
+    if (page !== null && page !== destination) {
+      return `- [${title}](${page}) (${plainMarkdown(entry.kind)}, ${plainMarkdown(entry.address)} in the repo): ${plainMarkdown(entry.summary)}${id}`;
+    }
     const only = oneAppOnly(entry.address);
     return `- [${title}](${destination}) ${only ? `(${plainMarkdown(entry.kind)}, ${only})` : facts}: ${plainMarkdown(entry.summary)}${id}`;
-  }
-  if (options.notesFolder) {
-    const file = `${NOTES_PATH}/${noteFileName(entry)}.md`;
-    return `- [${title}](${file}) ${facts}: ${plainMarkdown(entry.summary)}${id}`;
   }
   return `- ${title} ${facts}: ${sentence(entry.summary)} ${TEXT.readNote(options.reach ?? "mcp")}${id}`;
 }
@@ -272,7 +274,7 @@ export function docsLocationsRule(
 ): string {
   const rule = DOCS_LOCATIONS_RULE;
   const lines = locations.map((l) => {
-    const destination = l.kind === "notes" ? "Context Locker Notes" : l.place!;
+    const destination = l.kind === "notes" ? "Context Locker Docs" : l.place!;
     const only = l.kind === "notes" ? null : oneAppOnly(l.place!);
     const line = `- ${plainMarkdown(l.name)}${l.is_default ? " (default)" : ""}: ${plainMarkdown(destination)}${only ? ` (${only})` : ""}${l.purpose ? `. For: ${plainMarkdown(l.purpose)}` : ""}`;
     return injectionMatches(line).length
@@ -327,8 +329,6 @@ export interface MapPlan {
   workPlaces?: WorkPlace[];
   /** Most bytes the Start here section may take, so preferences keep most of the room */
   startHereBudget: number;
-  /** Whether the sync mirrors the project's notes into its notes folder for this app */
-  notesFolder?: boolean;
 }
 
 /** What the map adds to a block, built before the preferences are fitted. */
@@ -376,10 +376,8 @@ function renderMap(map: MapPlan | undefined): RenderedMap {
   const lines = new Map(
     listed.map((entry) => [
       entry,
-      startHereLine(entry, {
-        notesFolder: map.notesFolder === true,
-        reach: "sync",
-      }),
+      // A note's id, which the notes command reads it by
+      startHereLine(entry, { ids: entry.address === null, reach: "sync" }),
     ]),
   );
   const leftOut = listed.filter((entry) => {
@@ -415,14 +413,15 @@ function renderMap(map: MapPlan | undefined): RenderedMap {
     map.docsLocations === undefined
       ? docsHomeRule(map.docsHome)
       : { rule: docsLocationsRule(map.docsLocations), leftOut: null };
-  // With Notes as the docs home, an app that only reads its files saves a
-  // lasting doc as a file in the notes folder, when the sync mirrors one
+  // With Context Locker Docs as the docs home, an agent that reads these
+  // files saves a lasting doc with the notes command
   const rule =
     home.rule !== null &&
     (map.docsHome?.kind === "notes" ||
-      map.docsLocations?.some((l) => l.kind === "notes")) &&
-    map.notesFolder
-      ? `${home.rule}${map.docsLocations === undefined ? " " : "\n"}${map.docsLocations === undefined ? TEXT.notesFolder : "When the chosen location is Context Locker Notes, save a Markdown file in .context-locker/notes with the front matter its README shows; the next sync saves it."}`
+      map.docsLocations?.some((l) => l.kind === "notes"))
+      ? map.docsLocations === undefined
+        ? `${home.rule} ${TEXT.notesWrite}`
+        : `${home.rule}\n${TEXT.notesWriteChosen}`
       : home.rule;
   return {
     startHere:
@@ -443,37 +442,6 @@ function renderMap(map: MapPlan | undefined): RenderedMap {
     map: { overflow, leftOut, docsHomeLeftOut: home.leftOut },
   };
 }
-
-/**
- * Intros the compilers wrote before. A file edited from an older copy of its
- * block can still hold one, and reading the edit skips it like today's.
- */
-export const OLD_INTROS: readonly string[] = [
-  "Preferences for this project, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
-  "Your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync sends your edit for review.",
-  "Preferences for this project, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync sends your edit for review.",
-  "More of your preferences, kept in sync by Context Locker. To change one, edit its line here. The next sync sends your edit for review.",
-  // What the global block said after its intro until the standing rules
-  // (G1-309): how to speak to the person, the ask protocol and what to do
-  // with an answer given in a chat
-  "When you tell the person what you did or found, say what is so and what they need to decide, in the present tense and in plain English, with the main points only. Leave task, change, version, requirement and section numbers out unless they ask or need one to act: keep them in the task or note, and give one link to the detail. Name things by what they are, such as the PRD, not by id.",
-  ASK_PROTOCOL,
-  LOG_DECISIONS,
-  // What it said before the word playbook was retired (CLK-360)
-  "In a chat, ask the user there, not in the inbox, and log their answer with remember, kind decision: your question and their words, on the task, entry or playbook it's about, or on this connection for setup, the doctor or an import. Log only what concerns Context Locker, never the rest of the chat. It never waits, and they can correct it.",
-  // What blocks said before the restructure's words (G1-321)
-  "Preferences for this playbook, kept in sync by Context Locker. Where one has the same name as a general preference, it replaces that one here. To change one, edit its line here. The next sync saves your edit in Context Locker, unless it needs approval first.",
-  "Start each session with a three-line startup brief for the user: the playbook, the sources you'll use, and your first step. These come from the playbook's map in Context Locker. Read the Start here summaries above now, and open an entry only when the task needs it. When the task needs more of the map, call Context Locker's playbook_map tool if you have it.",
-  "The documentation and work locations didn't fit here. Read them with Context Locker's playbook_map before choosing where to save docs or track work.",
-  "Some Start here summaries didn't fit here. Read them with Context Locker's playbook_map before work, and open the full entries only when needed.",
-  "The full playbook didn't fit in this file. Before work, call Context Locker's get_context for this playbook and read all Start here summaries. Preferences and documentation or work locations omitted here still apply. If you can't fetch them, tell the user what is missing before acting.",
-  "There is no room for a complete Context Locker block in AGENTS.md within the apps' reading limits. The block is not loaded. Before work, call get_context for this playbook and read all Start here summaries. If you can't fetch them, tell the user what is missing before acting. Text outside the block stays unchanged.",
-  // What they said before they named the sync script's commands (G1-335)
-  "The documentation and work locations didn't fit here. Read them with Context Locker's project_map before choosing where to save docs or track work.",
-  "Some Start here summaries didn't fit here. Read them with Context Locker's project_map before work, and open the full entries only when needed.",
-  "The full project didn't fit in this file. Before work, call Context Locker's get_context for this project and read all Start here summaries. Preferences and documentation or work locations omitted here still apply. If you can't fetch them, tell the person what is missing before acting.",
-  "There is no room for a complete Context Locker block in AGENTS.md within the apps' reading limits. The block is not loaded. Before work, call get_context for this project and read all Start here summaries. If you can't fetch them, tell the person what is missing before acting. Text outside the block stays unchanged.",
-];
 
 /**
  * A preference as one list item. Any further lines are indented under the

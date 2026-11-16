@@ -23,7 +23,7 @@ const DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
 const TOKEN = /^ctxl_at_[A-Za-z0-9_-]+$/;
 
 /** Where an app's connection is kept, as the sync script reads it */
-export function tokenFile(place: Place, app: App): string {
+function tokenFile(place: Place, app: App): string {
   return join(place.clHome, app, "token");
 }
 
@@ -36,7 +36,7 @@ export function readToken(place: Place, app: App): string | null {
   }
 }
 
-export function saveToken(place: Place, app: App, token: string): void {
+function saveToken(place: Place, app: App, token: string): void {
   privateFolder(join(place.clHome, app));
   writeFile(tokenFile(place, app), `${token}\n`, 0o600);
   // A sign-in the sync script was waiting on isn't needed any more
@@ -141,7 +141,7 @@ export function machineName(place: Place): string | null {
  * an app again replaces its old connection instead of adding another. The
  * sync scripts keep the same one.
  */
-export function machineId(place: Place): string | null {
+function machineId(place: Place): string | null {
   const file = join(place.clHome, "machine-id");
   try {
     const id = readFileSync(file, "utf8").split(/\r?\n/)[0]?.trim() ?? "";
@@ -159,7 +159,7 @@ export function machineId(place: Place): string | null {
   }
 }
 
-export function osName(place: Place): string {
+function osName(place: Place): string {
   return place.windows ? "Windows" : place.mac ? "macOS" : "Linux";
 }
 

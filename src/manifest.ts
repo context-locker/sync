@@ -16,8 +16,6 @@
 //                                                    for that version, and its SHA-256 (G1-112)
 //   block <sha256> <target>                          a managed block
 //   skill <tree hash> <target> <item id> <version>   a skill folder
-//   file <sha256> <target>                           a whole file, such as the notes folder's README
-//   note <sha256> <target> <item id> <version>       a note's file in a project's notes folder
 //   link <item id> <path>                            a project's pointer to a path in the repo,
 //                                                    which the script checks is there; the path
 //                                                    is the rest of the line, and may hold spaces
@@ -35,9 +33,11 @@
 //                                                    no live note at its path, which the script
 //                                                    takes away while it's as the sync wrote it
 //
-// Scripts skip lines they don't know, so later versions can add kinds: a
-// script from before notes leaves the notes folder alone, and one from before
-// link lines doesn't check pointers' paths.
+// Scripts skip lines they don't know, so later versions can add kinds: one
+// from before link lines doesn't check pointers' paths. Until 15 Nov 2026 a
+// project's manifest also had file and note lines, for the notes folder a
+// computer kept; with none, a script before 53 leaves that folder as it is,
+// and script 53 skips any such line (CLK-423).
 import {
   blockHash,
   sha256,
@@ -53,7 +53,7 @@ export const MANIFEST_HEADER = "context-locker-sync 1";
  * The newest version of the sync scripts, as their SCRIPT_VERSION says. The
  * global manifest names it, so an older script can say a newer one is out.
  */
-export const SYNC_SCRIPT_VERSION = 51;
+export const SYNC_SCRIPT_VERSION = 56;
 
 /** The shell a sync script runs in: sh on macOS and Linux, PowerShell on Windows */
 export type ScriptShell = "sh" | "powershell";
@@ -75,11 +75,11 @@ export interface ScriptRelease {
 
 export const SYNC_SCRIPT_RELEASE: ScriptRelease = Object.freeze({
   version: SYNC_SCRIPT_VERSION,
-  setup: 64,
+  setup: 69,
   sha256: Object.freeze({
-    sh: "25c97afb76dd20ced6873c11bfb5c0f3aff38efdb0f502a1899f39b118430ad7",
+    sh: "96926305c58b84628e29b3485c233283603d28f3a86f29f6f25dd11e96a3b021",
     powershell:
-      "0b33680f02ef4605d3b3f99cd47a200d7cb3611af87d2ef89b812b09359f77d6",
+      "e54f1205835c85d069aacaf2a3db2a4ec5f5fa8fe7030274a4a93d8f94f2fcbf",
   }),
   updatesFrom: 40,
 });
@@ -87,8 +87,6 @@ export const SYNC_SCRIPT_RELEASE: ScriptRelease = Object.freeze({
 export type ManifestEntry =
   | { kind: "block"; hash: string; target: string }
   | { kind: "skill"; hash: string; target: string; item: ItemRef }
-  | { kind: "file"; hash: string; target: string }
-  | { kind: "note"; hash: string; target: string; item: ItemRef }
   | { kind: "memory"; hash: string; target: string; item: ItemRef }
   | { kind: "memory-gone"; target: string; id: string }
   | { kind: "link"; id: string; path: string }
@@ -163,7 +161,8 @@ function checkRepoPath(path: string): string {
   return path;
 }
 
-export function buildManifest(input: {
+/** What a manifest is built from */
+type ManifestInput = {
   workspaceId: string;
   outputs: readonly Output[];
   projectGeneration?: number;
@@ -199,7 +198,9 @@ export function buildManifest(input: {
   memoryGone?: readonly { target: string; id: string }[];
   /** For a project the app's connection can't use, which gets nothing */
   access?: "none";
-}): Manifest {
+};
+
+export function buildManifest(input: ManifestInput): Manifest {
   if (!UUID.test(input.workspaceId)) {
     throw new Error("The workspace id must be a UUID");
   }
@@ -224,15 +225,108 @@ export function buildManifest(input: {
     );
   }
 
+  const { blobs, blocks, skills, memories, contexts } = outputEntries(
+    input.outputs,
+  );
+
+  const holds: ManifestEntry[] = [...input.holds]
+    .map((hold) => {
+      if (!HASH.test(hold.hash)) throw new Error("A hold needs a SHA-256");
+      return {
+        kind: "hold" as const,
+        hash: hold.hash,
+        target: checkTarget(hold.target),
+      };
+    })
+    .sort(byTarget);
+
+  const gone = [...(input.memoryGone ?? [])]
+    .map((one) => {
+      if (!UUID.test(one.id)) throw new Error("A note's id must be a UUID");
+      return {
+        kind: "memory-gone" as const,
+        target: checkTarget(one.target),
+        id: one.id,
+      };
+    })
+    .sort((a, b) => byTarget(a, b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+  const links = [...(input.links ?? [])]
+    .map((link) => {
+      if (!UUID.test(link.id)) throw new Error("A link's id must be a UUID");
+      return {
+        kind: "link" as const,
+        id: link.id,
+        path: checkRepoPath(link.path),
+      };
+    })
+    .sort((a, b) =>
+      a.path < b.path ? -1 : a.path > b.path ? 1 : a.id < b.id ? -1 : 1,
+    );
+
+  const entries = [
+    ...(input.script !== undefined
+      ? [{ kind: "script" as const, version: input.script }]
+      : []),
+    ...(input.update
+      ? [
+          {
+            kind: "update" as const,
+            hash: input.update.hash,
+            setup: input.update.setup,
+          },
+        ]
+      : []),
+    ...(blocks as Array<ManifestEntry & { target: string }>).sort(byTarget),
+    ...(skills as Array<ManifestEntry & { target: string }>).sort(byTarget),
+    ...(memories as Array<ManifestEntry & { target: string }>).sort(byTarget),
+    ...gone,
+    ...links,
+    ...contexts,
+    ...holds,
+  ];
+
+  const lines = [MANIFEST_HEADER, `workspace ${input.workspaceId}`];
+  if (input.projectGeneration !== undefined) {
+    if (
+      !Number.isSafeInteger(input.projectGeneration) ||
+      input.projectGeneration < 1
+    )
+      throw new Error("Invalid project generation");
+    lines.push(`project-generation ${input.projectGeneration}`);
+  }
+  if (input.removedProject) {
+    if (
+      !UUID.test(input.removedProject.id) ||
+      !Number.isSafeInteger(input.removedProject.version) ||
+      input.removedProject.version < 1
+    )
+      throw new Error("Invalid project removal");
+    lines.push(
+      `removed-project ${input.removedProject.id} ${input.removedProject.version}`,
+    );
+  }
+  if (input.autoSync === false) lines.push("auto-sync off");
+  if (input.promptLine === false) lines.push("prompt-line off");
+  if (input.memoryFiles)
+    lines.push(
+      `memory-files ${input.memoryFiles.state} ${input.memoryFiles.connection}`,
+    );
+  if (input.access === "none") lines.push("access none");
+  lines.push(...entryLines(entries));
+  const text = `${lines.join("\n")}\n`;
+  return { text, etag: sha256(text), entries, blobs };
+}
+
+/** Each output's entry, by kind, with the blobs the script fetches by hash */
+function outputEntries(outputs: readonly Output[]) {
   const blobs = new Map<string, Blob>();
   const blocks: ManifestEntry[] = [];
   const skills: ManifestEntry[] = [];
-  const files: ManifestEntry[] = [];
-  const notes: ManifestEntry[] = [];
   const memories: ManifestEntry[] = [];
   const contexts: ManifestEntry[] = [];
 
-  for (const output of input.outputs) {
+  for (const output of outputs) {
     if (output.kind === "block") {
       const hash = blockHash(output.text);
       blobs.set(hash, {
@@ -287,19 +381,6 @@ export function buildManifest(input: {
         target: checkTarget(output.target),
         item: output.item,
       });
-    } else if (output.kind === "file" || output.kind === "note") {
-      // A whole file, byte for byte, as the script hashes the file it finds
-      const hash = sha256(output.text);
-      blobs.set(hash, {
-        kind: "file",
-        bytes: Buffer.from(output.text, "utf8"),
-      });
-      const target = checkTarget(output.target);
-      if (output.kind === "note") {
-        notes.push({ kind: "note", hash, target, item: output.item });
-      } else {
-        files.push({ kind: "file", hash, target });
-      }
     } else {
       const hash = sha256(output.text);
       blobs.set(hash, {
@@ -309,93 +390,12 @@ export function buildManifest(input: {
       contexts.push({ kind: "context", hash });
     }
   }
+  return { blobs, blocks, skills, memories, contexts };
+}
 
-  const holds: ManifestEntry[] = [...input.holds]
-    .map((hold) => {
-      if (!HASH.test(hold.hash)) throw new Error("A hold needs a SHA-256");
-      return {
-        kind: "hold" as const,
-        hash: hold.hash,
-        target: checkTarget(hold.target),
-      };
-    })
-    .sort(byTarget);
-
-  const gone = [...(input.memoryGone ?? [])]
-    .map((one) => {
-      if (!UUID.test(one.id)) throw new Error("A note's id must be a UUID");
-      return {
-        kind: "memory-gone" as const,
-        target: checkTarget(one.target),
-        id: one.id,
-      };
-    })
-    .sort((a, b) => byTarget(a, b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-
-  const links = [...(input.links ?? [])]
-    .map((link) => {
-      if (!UUID.test(link.id)) throw new Error("A link's id must be a UUID");
-      return {
-        kind: "link" as const,
-        id: link.id,
-        path: checkRepoPath(link.path),
-      };
-    })
-    .sort((a, b) =>
-      a.path < b.path ? -1 : a.path > b.path ? 1 : a.id < b.id ? -1 : 1,
-    );
-
-  const entries = [
-    ...(input.script !== undefined
-      ? [{ kind: "script" as const, version: input.script }]
-      : []),
-    ...(input.update
-      ? [
-          {
-            kind: "update" as const,
-            hash: input.update.hash,
-            setup: input.update.setup,
-          },
-        ]
-      : []),
-    ...(blocks as Array<ManifestEntry & { target: string }>).sort(byTarget),
-    ...(skills as Array<ManifestEntry & { target: string }>).sort(byTarget),
-    ...(files as Array<ManifestEntry & { target: string }>).sort(byTarget),
-    ...(notes as Array<ManifestEntry & { target: string }>).sort(byTarget),
-    ...(memories as Array<ManifestEntry & { target: string }>).sort(byTarget),
-    ...gone,
-    ...links,
-    ...contexts,
-    ...holds,
-  ];
-
-  const lines = [MANIFEST_HEADER, `workspace ${input.workspaceId}`];
-  if (input.projectGeneration !== undefined) {
-    if (
-      !Number.isSafeInteger(input.projectGeneration) ||
-      input.projectGeneration < 1
-    )
-      throw new Error("Invalid project generation");
-    lines.push(`project-generation ${input.projectGeneration}`);
-  }
-  if (input.removedProject) {
-    if (
-      !UUID.test(input.removedProject.id) ||
-      !Number.isSafeInteger(input.removedProject.version) ||
-      input.removedProject.version < 1
-    )
-      throw new Error("Invalid project removal");
-    lines.push(
-      `removed-project ${input.removedProject.id} ${input.removedProject.version}`,
-    );
-  }
-  if (input.autoSync === false) lines.push("auto-sync off");
-  if (input.promptLine === false) lines.push("prompt-line off");
-  if (input.memoryFiles)
-    lines.push(
-      `memory-files ${input.memoryFiles.state} ${input.memoryFiles.connection}`,
-    );
-  if (input.access === "none") lines.push("access none");
+/** Each entry's line, in the order the entries come */
+function entryLines(entries: readonly ManifestEntry[]): string[] {
+  const lines: string[] = [];
   for (const entry of entries) {
     switch (entry.kind) {
       case "script":
@@ -412,17 +412,9 @@ export function buildManifest(input: {
           `skill ${entry.hash} ${entry.target} ${entry.item.id} ${entry.item.version}`,
         );
         break;
-      case "file":
-        lines.push(`file ${entry.hash} ${entry.target}`);
-        break;
       case "memory":
         lines.push(
           `memory ${entry.hash} ${entry.target} ${entry.item.id} ${entry.item.version}`,
-        );
-        break;
-      case "note":
-        lines.push(
-          `note ${entry.hash} ${entry.target} ${entry.item.id} ${entry.item.version}`,
         );
         break;
       case "memory-gone":
@@ -439,8 +431,7 @@ export function buildManifest(input: {
         break;
     }
   }
-  const text = `${lines.join("\n")}\n`;
-  return { text, etag: sha256(text), entries, blobs };
+  return lines;
 }
 
 /** Whether an app's own memory files sync with its connection's memory (G1-299) */
@@ -489,7 +480,7 @@ export function parseManifest(text: string): {
     else if (kind === "block" && hash && target) {
       entries.push({ kind, hash, target });
     } else if (
-      (kind === "skill" || kind === "note" || kind === "memory") &&
+      (kind === "skill" || kind === "memory") &&
       hash &&
       target &&
       id &&
@@ -509,8 +500,6 @@ export function parseManifest(text: string): {
       fields.length === 3
     ) {
       entries.push({ kind, target: hash, id: target });
-    } else if (kind === "file" && hash && target) {
-      entries.push({ kind, hash, target });
     } else if (kind === "link" && hash && target) {
       // The path is the rest of the line, spaces and all
       entries.push({

@@ -1,6 +1,3 @@
-// The checks of Writing for AI apps (G1-310). The glossary they follow is in
-// the platform repo's AGENTS.md, which isn't part of this copy, so the check
-// that it names each retired word stays there.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
@@ -150,6 +147,34 @@ describe("the checks of Writing for AI apps (G1-310)", () => {
         "Open Inbox, then Agent inboxes. Both inboxes, the person's and each agent's inbox, stay.",
       ),
       [],
+    );
+  });
+
+  it("finds a bare app in what people read, and AI app only in what agents read (CLK-411)", () => {
+    const found = (text: string, reader: "people" | "agents") =>
+      [...retiredWords(text, reader)].map(
+        ([word, count]) => `${word}:${count}`,
+      );
+    // A made-up line with a bare app fails, however it's said
+    assert.deepEqual(
+      found(
+        "Waiting for the app. Apps sync, and the app's files and its apps' replies stay.",
+        "people",
+      ),
+      ["app:4"],
+    );
+    // Your AI, an AI app, an agent's own name, and apps that aren't agents
+    assert.deepEqual(
+      found(
+        "Ask your AI, or paste it into an AI app such as Claude Code. The web app, a desktop or phone app, an authenticator app and a notes app stay, as do app.context.locker and setup --app.",
+        "people",
+      ),
+      [],
+    );
+    // What agents read keeps agent: AI app is retired there, and app isn't
+    assert.deepEqual(
+      found("Paste it into an AI app, then the app reads it.", "agents"),
+      ["AI app:1"],
     );
   });
 

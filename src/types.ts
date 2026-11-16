@@ -68,7 +68,13 @@ export interface StartHereInput extends ItemRef {
    * Null for a note, which holds its own text
    */
   address: string | null;
-  /** A note's name, which its file in the notes folder is named after */
+  /**
+   * A path in the repo's page on the web, such as
+   * https://github.com/acme/docs/blob/HEAD/AGENTS.md, which every device opens
+   * (CLK-422). Left out for a web address and a note
+   */
+  webAddress?: string;
+  /** A note's name, such as release-plan */
   name: string;
   /**
    * The project's lessons note, which every agent reads first and which
@@ -78,13 +84,11 @@ export interface StartHereInput extends ItemRef {
 }
 
 /**
- * A note as a project's notes folder holds it: a Markdown document and its
- * front matter, in a file named after the note. Pointers hold no text, so
- * they have no files.
+ * A note as a Markdown file holds it, in an export or a repo it moved out
+ * to: a document and its front matter. Links hold no text, so they have no
+ * files.
  */
 export interface NoteInput extends ItemRef {
-  /** The note's name, such as release-plan, which its file is named after */
-  name: string;
   title: string;
   /** plan, spec, decision, research, guide, record or profile */
   kind: string;
@@ -95,17 +99,10 @@ export interface NoteInput extends ItemRef {
   tags: string[];
   /** The note, in Markdown */
   text: string;
-  /** Whether it applies everywhere, rather than to the project being synced */
-  everywhere: boolean;
-  /**
-   * For one that applies to more than one project: their names, its own
-   * first, which its file lists in each project's notes folder (G1-68)
-   */
-  appliesTo?: readonly string[];
 }
 
 /**
- * Where a project's lasting docs go: Context Locker Notes, a place such as a
+ * Where a project's lasting docs go: Context Locker Docs, a place such as a
  * folder in the repo or a web address, or null when the owner hasn't said yet.
  */
 export type DocsHome =
@@ -184,13 +181,6 @@ export interface CompileInput {
   docsLocations?: DocsLocation[];
   /** For a project sync: where its work is tracked, when that's recorded */
   workPlaces?: WorkPlace[];
-  /**
-   * For a project sync: its live notes and the ones that apply everywhere,
-   * which its notes folder mirrors. Pointers are left out.
-   */
-  notes?: NoteInput[];
-  /** For a project sync: the workspace's tag list, which the notes folder's README gives. */
-  tags?: string[];
 }
 
 /**
@@ -220,20 +210,6 @@ export type Output =
       /** Printed at the start of each session instead of written to a file. */
       text: string;
       items: ItemRef[];
-    }
-  | {
-      kind: "note";
-      /** A note's file in a project's notes folder. */
-      target: string;
-      /** The whole file: its front matter, then the note. */
-      text: string;
-      item: ItemRef;
-    }
-  | {
-      kind: "file";
-      /** A whole file Context Locker writes, such as the notes folder's README. */
-      target: string;
-      text: string;
     }
   | {
       kind: "memory";

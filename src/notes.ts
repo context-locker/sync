@@ -1,96 +1,28 @@
-// A project's notes as files. The sync mirrors each live note into the
-// project's .context-locker/notes folder as Markdown with YAML front matter,
-// the notes that apply everywhere into its everywhere folder, and writes a
-// README that says how the folder works. Files people and AI apps edit or add
-// there go back to Context Locker, which reads them with write_note's rules.
-// Pointers hold no text, so they have no files here: the project's map lists
-// them.
-import { plainMarkdown } from "./markdown.js";
-import type { NoteInput, Output } from "./types.js";
-
-/** The notes folder, as the sync's targets name it. */
-export const NOTES_FOLDER = "{project}/.context-locker/notes";
-
-/** The folder in it for the notes that apply everywhere. */
-export const EVERYWHERE_FOLDER = `${NOTES_FOLDER}/everywhere`;
-
-/** The folder's README, which says how it works. */
-export const NOTES_README = `${NOTES_FOLDER}/README.md`;
-
-/** The notes folder as someone working in the project finds it. */
-export const NOTES_PATH = ".context-locker/notes";
+// A note as a Markdown file with YAML front matter, as an export and
+// notes-move-out write it, and the answer the API gives for an app's own
+// memory file. Computers keep no copies of notes: an agent reads them from
+// Context Locker with the sync script's notes commands (CLK-423).
+import type { NoteInput } from "./types.js";
 
 /** What a note's file may hold, as the store's limits set it. */
 export const NOTE_FILE_RULES = Object.freeze({
-  kinds: Object.freeze([
-    "plan",
-    "spec",
-    "decision",
-    "research",
-    "guide",
-    "record",
-    "profile",
-  ] as const),
-  titleCharacters: 120,
-  summaryCharacters: 200,
-  tags: 20,
   /**
-   * A note's text, in bytes of UTF-8 (G1-17). The sync scripts hold whole
-   * files to the same from script 15; earlier ones to 100 KB.
+   * A note's text, in bytes of UTF-8 (G1-17). The sync scripts hold an
+   * app's own memory files to the same.
    */
   bytes: 512 * 1024,
 });
-
-const NOTE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 // A file name no note gets: the README's, which a file system that ignores
 // case would take for the same file, and the names Windows keeps for devices,
 // which no file there can have
 const RESERVED = /^(?:readme|con|prn|aux|nul|com[0-9]|lpt[0-9])$/;
 
-/** Whether a note's name can't name its file as it is. */
-export function isReservedNoteName(name: string): boolean {
-  return RESERVED.test(name);
-}
-
 /** The name of a note's file, without .md: its own name, or with part of its id when that name is kept. */
 export function noteFileName(note: { name: string; id: string }): string {
-  return isReservedNoteName(note.name)
+  return RESERVED.test(note.name)
     ? `${note.name}-${note.id.slice(0, 8)}`
     : note.name;
-}
-
-/** Where a note's file goes. */
-export function noteTarget(note: {
-  name: string;
-  id: string;
-  everywhere: boolean;
-}): string {
-  return `${note.everywhere ? EVERYWHERE_FOLDER : NOTES_FOLDER}/${noteFileName(note)}.md`;
-}
-
-const NOTE_TARGET =
-  /^\{project\}\/\.context-locker\/notes\/(everywhere\/)?([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/;
-
-/**
- * What a target in the notes folder names: a note's file, directly in the
- * folder or in its everywhere folder, with a name a note can have. Null for
- * anything else, the README included.
- */
-export function parseNoteTarget(
-  target: string,
-): { everywhere: boolean; name: string } | null {
-  const match = NOTE_TARGET.exec(target);
-  const name = match?.[2];
-  if (!match || !name || name.length > 64 || isReservedNoteName(name)) {
-    return null;
-  }
-  return { everywhere: match[1] !== undefined, name };
-}
-
-/** Whether some text is a name a note's file can have, such as release-plan. */
-export function isNoteFileName(name: string): boolean {
-  return name.length <= 64 && NOTE_NAME.test(name) && !isReservedNoteName(name);
 }
 
 // Characters a person can't see or that break a line, which a quoted string
@@ -141,178 +73,10 @@ export function renderNoteFile(
 }
 
 /**
- * A note's file split into its front matter and the note after it. A byte
- * order mark at the start is dropped, and Windows line breaks are evened
- * out. Null when the file doesn't start with front matter between --- lines.
- */
-export function splitNoteFile(
-  text: string,
-): { frontMatter: string; body: string } | null {
-  const unmarked = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
-  const even = unmarked.replace(/\r\n?/g, "\n");
-  const match = /^---[ \t]*\n(?:([\s\S]*?)\n)?---[ \t]*(?:\n|$)/.exec(even);
-  if (!match) return null;
-  return { frontMatter: match[1] ?? "", body: even.slice(match[0].length) };
-}
-
-/** The words of the notes folder's README, which AI apps read, so none may look like prompt injection. */
-export const README_TEXT = {
-  title: "# Notes from Context Locker",
-  holds: (project: string) =>
-    `This folder holds the notes for ${project} from Context Locker: plans, specifications, decisions, research, guides, records and profiles, one Markdown file each. A note that applies to other projects as well is in each of their folders too, and the notes that apply everywhere are in everywhere/. Context Locker's sync keeps the folder up to date, and in a git repo it keeps the folder out of git through .git/info/exclude.`,
-  pointers:
-    "Links aren't here. A link stands in for a note whose text lives somewhere else, such as a file in the repo or a page on the web, and the project's map lists each one with where it points.",
-  changeHeading: "## Change a note",
-  change:
-    "Edit its file, and the next sync saves the edit as a new version. For a source-of-truth note, send the edit as JSON to the sync script's notes <app> write instead: its id, base_version, the edits or its text, a change_note and a brief for the person's inbox, what changes and then why in two or three sentences. It's saved at once, unless added or changed guidance is flagged for review: then it waits in the person's inbox with your brief, and the reply links to it. An edited file that's flagged waits too, in your local file, with no reason given. If the note changed in Context Locker too, the edit isn't saved, and the sync says what to do.",
-  deleting:
-    "Deleting a file doesn't delete its note: the file comes back at the next sync. To archive or delete one, send its id, base_version, an action of archive or delete and a brief for the person's inbox, what changes and then why in two or three sentences, as JSON to the sync script's notes <app> write, and its file goes at the next sync. Archived notes aren't here: notes <app> search, with include archive, finds them and notes <app> read reads one, only when asked, or when a note a tidy-up run changed is unclear, as its old text is in an archived copy. Then read only the section you need, and improve the note.",
-  sources:
-    "Current source-of-truth notes carry standing guidance, so two that contradict each other mislead every agent that reads them. When you change one, check that the other sources of truth beside it, in this folder or in everywhere/, still agree where your change touches what they say, and check them all now and then, such as once a week. If you can schedule a task, offer the person a weekly check. Where one is out of date, fix it, and where two disagree on a decision, ask the person.",
-  addHeading: "## Add a note",
-  add: "Save a new .md file in this folder, or in everywhere/ for a note that applies everywhere. Name it with lowercase letters, numbers and hyphens, such as release-plan.md, and start it with front matter like this:",
-  exampleText: "The note, in Markdown.",
-  added:
-    'The next sync saves it as a new note and adds its id and version, unless its source-of-truth guidance waits for review. In everywhere/, applies_to is "everywhere".',
-  addFile:
-    "To bring in a doc that's already a file, write the front matter into the new file, then add the doc's text after it with a command, such as cat, rather than typing it out, so it comes in exactly as it is.",
-  rulesHeading: "## Rules",
-  rules: [
-    "A note has a title, type, use_as, summary, tags and applies_to, then its text.",
-    'applies_to lists every project a note applies to, such as ["Website", "App"], when there are several. Change where a note applies in Context Locker, not in its file.',
-    `type is ${NOTE_FILE_RULES.kinds.slice(0, -1).join(", ")} or ${NOTE_FILE_RULES.kinds.at(-1)}.`,
-    "use_as is source-of-truth for standing guidance agents follow, or reference for background information. One that no longer holds is archived in Context Locker, which takes its file away. A starred onboarding note is a natural home for long-form project rules.",
-    `title is one line of up to ${NOTE_FILE_RULES.titleCharacters} characters. summary is one line of up to ${NOTE_FILE_RULES.summaryCharacters} that says what the note holds.`,
-    `tags: 1 to ${NOTE_FILE_RULES.tags}, from the tag list below. To add a new tag, name it in new_tags too, such as new_tags: ["q4"].`,
-    `A note holds at most ${NOTE_FILE_RULES.bytes / 1024} KB.`,
-    "Leave secrets out, such as passwords, keys and tokens. Context Locker turns down a note that seems to hold one.",
-    "A file may say kind in place of type: give only one of them.",
-    "Leave id and version as they are.",
-  ],
-  tagsHeading: "## Tag list",
-  noTags: "No tags yet, so name each tag in new_tags too.",
-  moreTags: (count: number) => `and ${count} more, which Context Locker lists`,
-} as const;
-
-/** The most of the tag list the README gives, in characters. */
-const TAG_LIST_CHARACTERS = 3_000;
-
-function tagList(tags: readonly string[]): string {
-  if (tags.length === 0) return README_TEXT.noTags;
-  const shown: string[] = [];
-  let size = 0;
-  for (const tag of tags) {
-    if (shown.length > 0 && size + tag.length + 2 > TAG_LIST_CHARACTERS) break;
-    shown.push(tag);
-    size += tag.length + 2;
-  }
-  const more = tags.length - shown.length;
-  return `${shown.join(", ")}${more > 0 ? `, ${README_TEXT.moreTags(more)}` : ""}.`;
-}
-
-/** A code fence longer than any run of backticks in the text, so the text can't end it. */
-function fenceFor(text: string): string {
-  const longest = Math.max(
-    0,
-    ...(text.match(/`+/g) ?? []).map((run) => run.length),
-  );
-  return "`".repeat(Math.max(3, longest + 1));
-}
-
-/** The notes folder's README: what it is, how to change and add notes, and the rules. */
-export function renderNotesReadme(input: {
-  projectName: string;
-  tags: readonly string[];
-}): string {
-  const example = [
-    "---",
-    `title: ${yamlString("Release plan")}`,
-    `type: ${yamlString("plan")}`,
-    `use_as: ${yamlString("source-of-truth")}`,
-    `summary: ${yamlString("What ships in the next release, and when.")}`,
-    `tags: [${yamlString("release")}]`,
-    `applies_to: ${yamlString(input.projectName)}`,
-    "---",
-    "",
-    README_TEXT.exampleText,
-  ].join("\n");
-  const fence = fenceFor(example);
-  return `${[
-    README_TEXT.title,
-    README_TEXT.holds(plainMarkdown(input.projectName)),
-    README_TEXT.pointers,
-    README_TEXT.changeHeading,
-    README_TEXT.change,
-    README_TEXT.deleting,
-    README_TEXT.sources,
-    README_TEXT.addHeading,
-    README_TEXT.add,
-    `${fence}\n${example}\n${fence}`,
-    README_TEXT.added,
-    README_TEXT.addFile,
-    README_TEXT.rulesHeading,
-    README_TEXT.rules.map((rule) => `- ${rule}`).join("\n"),
-    README_TEXT.tagsHeading,
-    tagList(input.tags),
-  ].join("\n\n")}\n`;
-}
-
-const byTarget = (a: { target: string }, b: { target: string }) =>
-  a.target < b.target ? -1 : a.target > b.target ? 1 : 0;
-
-/**
- * Everything a project's notes folder holds: its README, then a file for
- * each note. Two notes can't share a file, so a second one that would is
- * left out and named.
- */
-export function notesFolderOutputs(input: {
-  projectName: string;
-  notes: readonly NoteInput[];
-  tags: readonly string[];
-}): { outputs: Output[]; leftOut: NoteInput[] } {
-  const outputs: Output[] = [
-    {
-      kind: "file",
-      target: NOTES_README,
-      text: renderNotesReadme({
-        projectName: input.projectName,
-        tags: input.tags,
-      }),
-    },
-  ];
-  const placed = input.notes
-    .map((note) => ({ note, target: noteTarget(note) }))
-    .sort(byTarget);
-  const taken = new Set<string>([NOTES_README]);
-  const leftOut: NoteInput[] = [];
-  for (const { note, target } of placed) {
-    if (taken.has(target)) {
-      leftOut.push(note);
-      continue;
-    }
-    taken.add(target);
-    outputs.push({
-      kind: "note",
-      target,
-      text: renderNoteFile(
-        note,
-        note.everywhere
-          ? "everywhere"
-          : note.appliesTo && note.appliesTo.length > 1
-            ? note.appliesTo
-            : input.projectName,
-      ),
-      item: { id: note.id, version: note.version },
-    });
-  }
-  return { outputs, leftOut };
-}
-
-/**
- * How the API answers a note's file the sync sent: a header line, a line
- * with what it did, the note's id and version, the hash of the file it keeps
- * and where it goes, then that file's bytes. A shell script can read it with
- * read and tail, and nothing has to be unescaped.
+ * How the API answers an app's own memory file the sync sent (G1-299): a
+ * header line, a line with what it did, the note's id and version, the hash
+ * of the file it keeps and where it goes, then that file's bytes. A shell
+ * script can read it with read and tail, and nothing has to be unescaped.
  *
  *   context-locker-note 1
  *   saved <note id> <version> <sha256> <target>

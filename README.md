@@ -8,7 +8,7 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v63`](setup/v63), which runs `context-locker@0.1.18`, bundling script 40, then takes script 50, the newest, with `update`. The setup command 0.1.20, on npm since 10 Nov 2026, bundles script 49, and takes script 50 the same way. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for the app you are, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
+Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v69`](setup/v69), which runs `context-locker@0.1.18`, bundling script 40, then takes script 56, the newest, with `update`. The setup command 0.1.20, on npm since 10 Nov 2026, bundles script 49, and takes script 56 the same way. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for yourself, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
 
 Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.20 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
 
@@ -166,6 +166,22 @@ A file with too little room for its block, or none, names `context <app>` in pla
 ## All projects and your context
 
 Script 51, in setup 64, retires the word playbook in everything an app reads, as Context Locker's tools and synced files do from the same release. All projects is the level above projects, whose entries apply in every project, for the person and for each team, and your context stands for preferences, skills and notes together. The script's help, the session start's line when something changed, export's reply and OpenClaw's hook file say so, as do the standing rules, the guide, version 13, and the Import skill, version 24. Requests name `all projects` where they named `my playbook`, and a notes list takes `include_all_projects`. A team's part of a project's block is headed `### All projects in <team>`, and the older heading is still read as one until the next sync writes the block again. Synced notes keep their `everywhere` folder. Setup 64 still runs the setup command 0.1.18, which saves script 40, then takes script 51 with `update`.
+
+## Links checked only in the repo
+
+Script 52, in setup 65, checks a project's links to paths in its repo only in a folder that is that repo: one whose `.contextlocker.json` names the project, or whose git remote is the project's repository, which the script asks Context Locker about with `POST /v1/sync/repo`. It looks for each path in the default branch the checkout last fetched, not in the files on disk, so an old branch or an unpushed file neither raises a request nor hides one, and anywhere else it checks no links. For a public repo on GitHub, Context Locker asks GitHub instead.
+
+## Notes read from the cloud
+
+Script 53, in setup 66, keeps no copies of notes on a computer: an agent reads a note from Context Locker with `notes <app> read`, so every read is counted. On each project sync it takes out the copies earlier syncs wrote in `.context-locker/notes`, after a backup, and keeps any file that holds what Context Locker doesn't have, naming each at the start of a session with the command that saves it.
+
+## A clone allowed, never required
+
+Script 54, in setup 67, brings a project into a folder only where that folder is the project's repo, and never writes a project's files anywhere else. With no such folder, an agent reads the project from the cloud with `context <app>` and its id, and a project's own skill with `skills <app> get`, which writes nothing to disk. `--link-folder`, on the person's word, links a checkout for a project with no repository yet.
+
+## Files and tables
+
+Script 55, in setup 68, gives a project's files and tables commands, as a computer keeps no copy of either: `files <app> write <request.json> --file <path>` sends a file in parts of up to 4 MB and keeps it, `files <app> upload <path>` sends one for a note to show as `file:<id>`, and `table <app> <request.json>` makes a table and finds, adds and changes its rows. A note, a file or a table is read by its id with `notes <app> read`. Script 56, in setup 69, says so in the notes command's help, which now names the list_docs and search_docs arguments it takes. Setups 65 to 69 still run the setup command 0.1.18, which saves script 40, then take the newest script with `update`.
 
 ## Skill file transfers
 

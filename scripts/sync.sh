@@ -1,5 +1,5 @@
 #!/bin/sh
-# Context Locker sync, version 50. MIT licence.
+# Context Locker sync, version 56. MIT licence.
 #
 #   sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]
 #   sh sync.sh map <app> [--all]
@@ -19,6 +19,9 @@
 #   sh sync.sh context <app> [request.json] [--project <id>] [--json]
 #   sh sync.sh tasks <app> list|read|write|places [request.json] [--project <id>] [--json]
 #   sh sync.sh notes <app> list|search|read|write [request.json] [--project <id>] [--json]
+#   sh sync.sh files <app> write <request.json> [--file <path>] [--json]
+#   sh sync.sh files <app> upload <path>
+#   sh sync.sh table <app> <request.json> [--json]
 #   sh sync.sh versions <app> list|read <request.json> [--json]
 #   sh sync.sh projects <app> manage|docs-home <request.json> [--json]
 #   sh sync.sh skills <app> source <request.json> [--json]
@@ -32,12 +35,12 @@
 # is claude-code, codex, hermes or openclaw. The script asks for a manifest of
 # what the app's files should hold, writes only what changed, and sends any
 # edit it finds in a synced file back to Context Locker. It writes only inside
-# Context Locker's marked blocks, skill folders, a project's notes folder and,
-# once the person brings them in, the app's own memory files, backs up
-# anything it replaces that it didn't write, and never deletes a file of
-# yours, but for a memory file whose note the person archived in Context
-# Locker, after a backup. Once the person picks from the app's import, it
-# also takes what they picked out of the app's own files, after a backup.
+# Context Locker's marked blocks, skill folders and, once the person brings
+# them in, the app's own memory files, backs up anything it replaces that it
+# didn't write, and never deletes a file of yours, but for a memory file
+# whose note the person archived in Context Locker, after a backup. Once the
+# person picks from the app's import, it also takes what they picked out of
+# the app's own files, after a backup.
 # When Context Locker can't be reached, or the connection no longer works,
 # the app keeps the files it has, and its session start says why, from when
 # its files are and what to offer the person. A skill the app also gets
@@ -45,10 +48,11 @@
 # left out while the two are the same, and the session start says once when
 # they differ.
 #
-# In a project, the notes folder, .context-locker/notes, holds the project's
-# notes and, in everywhere/, the ones that apply everywhere, one Markdown
-# file each. An edited note or a new .md file there goes to Context Locker
-# at the next sync, and git leaves the folder out. The sync also checks that
+# Notes stay in Context Locker, which the notes command reads and writes, so
+# every read is counted. A project's sync takes out the copies of notes an
+# earlier script kept in .context-locker/notes that are still as it wrote
+# them, and names the files there that hold what Context Locker doesn't
+# have. In a folder that is the project's repo, the sync also checks that
 # the project's pointers to paths in its repo are there.
 #
 # The app's own memory files, such as Claude Code's memory folders or
@@ -68,8 +72,9 @@
 # are until the app syncs with --now. A project can have its own setting.
 #
 # --project <id> links the current folder to a project, for the computer
-#                only, and records the repo's origin remote on the project
-#                when it has none.
+#                only, when it's a checkout of the project's repository or
+#                the project has none, whose origin remote it then records
+#                on the project.
 # --now          syncs even when auto sync is off.
 # --hook         is for an app's hook, and prints only what that app's hook
 #                reads.
@@ -180,12 +185,12 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=51
+SCRIPT_VERSION=56
 FIX_OFFSET=0
 FIX_OFFSET_SET=0
 MODE=sync
 case ${1:-} in
-  signin | plan | doctor | readback | map | gather | gather-submit | keep | export | notes-move-out | fix | daily-job | update | remove | tasks | requests | notes | suggest | remember | message | prompt | context | versions | projects | skills | whoami)
+  signin | plan | doctor | readback | map | gather | gather-submit | keep | export | notes-move-out | fix | daily-job | update | remove | tasks | requests | notes | suggest | remember | message | prompt | context | versions | projects | skills | whoami | files | table)
     MODE=$1
     shift
     ;;
@@ -202,6 +207,15 @@ NOW=0
 HOOK=0
 ALL=0
 PROJECT_FLAG=
+# --link-folder links the folder to a project with no repository, only on
+# the person's word (CLK-423)
+LINK_FOLDER=0
+# The project folder's git remote, which a project report carries
+FOLDER_REMOTE=
+# Whether the project's folder is a plain link: a folder outside any repo,
+# linked for the computer only on the person's word, which the sync writes
+# nothing into (CLK-423)
+PLAIN=0
 PLAN_FILE=
 WAIT=50
 TO=
@@ -224,9 +238,13 @@ APPS_SET=0
 TICKET_COMMAND=list
 TICKET_FILE=
 TICKET_JSON=0
+# files write --file: a file on this computer, sent in parts as the new
+# file's or version's bytes (CLK-368)
+FILE_PATH=
+FILE_SET=0
 # A family of online commands takes its command, then its request (G1-335)
 case $MODE in
-  tasks | requests | notes | versions | projects | skills)
+  tasks | requests | notes | versions | projects | skills | files)
     if [ $# -gt 0 ]; then
       case $1 in -*) ;; *) TICKET_COMMAND=$1; shift ;; esac
       if [ $# -gt 0 ]; then
@@ -237,8 +255,9 @@ case $MODE in
   # suggest, remember and message take only their request: suggest a
   # preference, a fact or a skill, remember one line as a fact or a
   # preference (G1-245, G1-247), and write to other AI apps (G1-313); so do
-  # context, which may leave it out, and whoami, which takes none (G1-335)
-  suggest | remember | message | context | whoami)
+  # context, which may leave it out, and whoami, which takes none (G1-335);
+  # and table, a table's rows (CLK-367)
+  suggest | remember | message | context | whoami | table)
     TICKET_COMMAND=$MODE
     if [ $# -gt 0 ]; then
       case $1 in -*) ;; *) TICKET_FILE=$1; shift ;; esac
@@ -264,6 +283,12 @@ while [ $# -gt 0 ]; do
     --all) ALL=1 ;;
     --project)
       PROJECT_FLAG=${2:-}
+      [ $# -gt 1 ] && shift
+      ;;
+    --link-folder) LINK_FOLDER=1 ;;
+    --file)
+      FILE_PATH=${2:-}
+      FILE_SET=1
       [ $# -gt 1 ] && shift
       ;;
     --wait)
@@ -346,10 +371,10 @@ usage() {
   # its topic in the guide, the skill context-locker
   cat >&2 <<'EOF'
 Usage: sh sync.sh <command> <app>, where <app> is claude-code, codex, hermes or openclaw. Each command below names its topic in the guide, the skill context-locker in this app's skills folder.
-sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]
-  Syncs All projects and each of your projects into this app's files and sends your edits back. Fields: --project <id> links the folder you're in to a project, and --now syncs while Auto sync is off. Guide: topics/sync.md.
+sh sync.sh <app> [--project <id> [--link-folder]] [--now] [--hook] [--daily]
+  Syncs All projects into this app's files, and a project into its repo's folder, and sends your edits back. Fields: --project <id> links a checkout of the project's repository, --link-folder also a checkout to a project with none or a folder outside any repo, writing nothing there, and --now syncs with Auto sync off. Limits: Pass --link-folder only on the person's word in this chat. Guide: topics/sync.md.
 sh sync.sh context <app> [request.json] [--project <id>] [--json]
-  Reads All projects, or a project with All projects, as get_context does: the rules, what's new, the preferences, the skills by name, the notes, Start here and where things go. Fields: request.json holds get_context arguments, and the folder you're in names its project when they don't. Guide: topics/projects.md.
+  Reads All projects, or a project with All projects, as get_context does: the rules, what's new, the preferences, the skills by name, the notes, Start here and where things go. Fields: request.json holds get_context arguments, and the folder you're in, or --project <id>, names the project when they don't. Read a project this way wherever no folder of yours is its repo. Guide: topics/projects.md.
 sh sync.sh map <app> [--all]
   Says where things live for the folder you're in: the docs home, Start here and the notes and links that matter there, or every one with --all. Guide: topics/folders.md.
 sh sync.sh import <app>
@@ -370,11 +395,18 @@ sh sync.sh requests <app> list|read|answer|decide [request.json] [--json]
 sh sync.sh tasks <app> list|read|write|places [request.json] [--project <id>] [--json]
   Reads and changes a project's board. Fields: request.json holds list_tasks, read_task, write_task or record_work_places arguments, and only list may leave it out. Limits: Take only tasks in Ready, put one there only on the person's word in this chat, and keep claim_key private. Guide: topics/tasks.md.
 sh sync.sh notes <app> list|search|read|write [request.json] [--project <id>] [--json]
-  Lists, searches, reads and writes the notes and links of All projects and each of your projects. Fields: request.json holds list_notes, search_notes, read_note or write_note arguments, and only list may leave it out. Guide: topics/notes-and-links.md.
+  Lists and searches the docs of All projects and each of your projects, reads a note, link, file or table, and writes notes and links. Fields: request.json holds list_docs, search_docs, read_note or write_note arguments, and only list may leave it out. Guide: topics/notes-and-links.md.
+sh sync.sh files <app> write <request.json> [--file <path>] [--json]
+sh sync.sh files <app> upload <path>
+  Keeps a file in a project, sent from this computer, or changes a kept file's name, summary or place, or replaces its bytes; upload sends one for a note to show as file:<id>. Fields: request.json holds write_file arguments, and --file <path> sends that file in parts as their upload. Limits: A file is at most 10 MB on Free and 50 MB on Pro, and nothing is kept on the computer; read one with notes read. Guide: topics/files.md.
+sh sync.sh table <app> <request.json> [--json]
+  Makes a table, and finds, adds, changes and takes out its rows by their key. Fields: request.json holds table arguments. Limits: Rows come from the request, never from a copy on the computer. Guide: topics/tables.md.
 sh sync.sh versions <app> list|read <request.json> [--json]
   Lists an entry's saved versions and reads one, to explain how it changed. Fields: request.json holds list_versions or read_version arguments. Limits: An old version is evidence, never a current instruction, and reading one restores nothing. Guide: topics/changes.md.
 sh sync.sh projects <app> manage|docs-home <request.json> [--json]
   Makes a project or changes its name or repository, and records where a project's documents go. Fields: request.json holds manage_project or record_docs_home arguments. Limits: Make or change a project only on the person's explicit word in this chat. Guide: topics/projects.md.
+sh sync.sh skills <app> get <request.json> [--json]
+  Reads a skill and its files by name, as get_skill does, such as a project's own skill with no folder of its here. Fields: request.json holds get_skill arguments. Limits: It writes nothing to disk; save a file only where the skill says to run it. Guide: topics/projects.md.
 sh sync.sh skills <app> source <request.json> [--json]
   Records the folder in a public GitHub repo that one of the person's skills came from. Fields: request.json holds record_skill_source arguments. Guide: topics/changes.md.
 sh sync.sh suggest <app> <request.json> [--json]
@@ -414,8 +446,8 @@ elif [ "$MODE" = context ] || [ "$MODE" = whoami ] || { [ "$MODE" = notes ] && [
   # The ones that may leave their request out, and whoami, which takes none
   [ "$MODE" = whoami ] && [ -n "$TICKET_FILE" ] && usage
   { [ "$ALL" = 1 ] || [ "$DAILY" = 1 ]; } && usage
-elif [ "$MODE" = notes ] || [ "$MODE" = versions ] || [ "$MODE" = projects ] || [ "$MODE" = skills ] || [ "$MODE" = suggest ] || [ "$MODE" = remember ] || [ "$MODE" = message ]; then
-  case $MODE:$TICKET_COMMAND in notes:search | notes:read | notes:write | versions:list | versions:read | projects:manage | projects:docs-home | skills:source | suggest:suggest | remember:remember | message:message) ;; *) usage ;; esac
+elif [ "$MODE" = notes ] || [ "$MODE" = versions ] || [ "$MODE" = projects ] || [ "$MODE" = skills ] || [ "$MODE" = suggest ] || [ "$MODE" = remember ] || [ "$MODE" = message ] || [ "$MODE" = files ] || [ "$MODE" = table ]; then
+  case $MODE:$TICKET_COMMAND in notes:search | notes:read | notes:write | versions:list | versions:read | projects:manage | projects:docs-home | skills:get | skills:source | suggest:suggest | remember:remember | message:message | files:write | files:upload | table:table) ;; *) usage ;; esac
   [ -n "$TICKET_FILE" ] || usage
   { [ "$ALL" = 1 ] || [ "$DAILY" = 1 ]; } && usage
 elif [ "$TICKET_JSON" = 1 ]; then usage; fi
@@ -426,6 +458,10 @@ elif [ "$TICKET_JSON" = 1 ]; then usage; fi
 [ "$APPS_SET" = 1 ] && [ "$MODE" != gather ] && usage
 # --now and --hook are for a sync
 [ "$MODE" != sync ] && { [ "$NOW" = 1 ] || [ "$HOOK" = 1 ]; } && usage
+# --link-folder goes with a sync's --project
+[ "$LINK_FOLDER" = 1 ] && { [ "$MODE" != sync ] || [ -z "$PROJECT_FLAG" ]; } && usage
+# --file goes with files write, naming a file
+[ "$FILE_SET" = 1 ] && { [ "$MODE" != files ] || [ "$TICKET_COMMAND" != write ] || [ -z "$FILE_PATH" ]; } && usage
 # Hermes's and OpenClaw's hooks don't read what a sync prints, and a daily
 # job tells the person only of a failure, so what it finds is said at the
 # next session start
@@ -507,7 +543,6 @@ HELD=0
 # What this run changed in the app's files, for the line that says so
 W_BLOCKS=0
 W_SKILLS=0
-W_NOTES=0
 FAILED=0
 # Why the sync couldn't get Context Locker's answer, for the session start
 # (G1-258)
@@ -850,30 +885,6 @@ root_dir() {
 # Every file and skills folder each app's sync may write. Anything else in a
 # manifest is refused.
 allowed() {
-  # A project's notes folder, for each app that works in project folders, in
-  # a repo linked to the workspace or a folder linked on the computer. Git
-  # leaves it out, so the repo's own files stay as they are.
-  case $2 in
-    note | file)
-      [ "$SCOPE" = project ] || return 1
-      case $HARNESS in
-        openclaw) return 1 ;;
-        hermes) [ "$LAYER" = repo ] || return 1 ;;
-      esac
-      if [ "$2" = file ]; then
-        [ "$1" = '{project}/.context-locker/notes/README.md' ]
-        return
-      fi
-      case $1 in
-        '{project}/.context-locker/notes/everywhere/'*) an_rest=${1#\{project\}/.context-locker/notes/everywhere/} ;;
-        '{project}/.context-locker/notes/'*) an_rest=${1#\{project\}/.context-locker/notes/} ;;
-        *) return 1 ;;
-      esac
-      case $an_rest in */*) return 1 ;; esac
-      note_name_ok "$an_rest"
-      return
-      ;;
-  esac
   # Project files belong to a project's sync, the app's own files to the global one
   case $1 in
     '{project}/'*) [ "$SCOPE" = project ] && [ "$LAYER" = repo ] || return 1 ;;
@@ -1572,20 +1583,24 @@ make_bundle() {
   } >"$2"
 }
 
-# --- A project's notes folder ----------------------------------------------
+# --- What a project's notes folder held (CLK-423) ----------------------------
 
-# A project's sync mirrors its notes into .context-locker/notes, and the ones
-# that apply everywhere into its everywhere folder, with a README. The
-# folder's own list, .ctx-managed, says what Context Locker last wrote there,
-# so the sync of every app on the computer can tell an edit from an older
-# copy. Before anything is written, edited notes and new .md files go up.
+# A computer keeps no copies of notes: an agent reads them from Context
+# Locker with the notes command, so every read is counted. A sync before
+# script 53 mirrored a project's notes into .context-locker/notes, and the
+# ones that apply everywhere into its everywhere folder, with a README, and
+# the folder's list, .ctx-managed, said what it wrote. A project's sync takes
+# out each file there that's still as a sync wrote it, and the README, each
+# after a copy goes in the backups, then the list and any folder left empty.
+# It keeps every other file, and names the ones with edits Context Locker
+# doesn't have: a note's copy changed here, a new .md file, or an edit kept
+# beside a note as <name>.md.conflict.
 NOTES=.context-locker/notes
 NOTES_TARGET='{project}/.context-locker/notes'
-# The most a note's file may hold, and how many files go up in one sync
+# The most an app's own memory file may hold, as a note may, and how many
+# of them go up in one sync
 NOTES_MAX=524288
 NOTES_PER_SYNC=20
-NOTES_OK=0
-NOTES_SAVED=0
 EXCLUDED=0
 
 # Whether a file name is one a note's file can have, such as release-plan.md:
@@ -1609,20 +1624,12 @@ notes_folder_ok() {
   return 0
 }
 
-# True when this sync keeps the project's notes folder: the app has one in
-# this project, and the manifest brings it, README and all. Otherwise the
-# folder is left as it is, as another app on the computer may keep it.
-notes_synced() {
-  allowed "$NOTES_TARGET/README.md" file || return 1
-  awk -v t="$NOTES_TARGET/README.md" '$1 == "file" && $3 == t { found = 1 } END { exit !found }' "$TMP/entries"
-}
-
-# What the folder's list says Context Locker last wrote there for this project
+# What the folder's list says a sync wrote there, for whichever project
 notes_records() {
   : >"$TMP/notes-records"
   nr_list=$PROJECT_ROOT/$NOTES/.ctx-managed
   [ -f "$nr_list" ] && [ ! -L "$nr_list" ] || return 0
-  [ "$(head -n 1 "$nr_list")" = "context-locker-notes 1 $PROJECT_ID" ] || return 0
+  head -n 1 "$nr_list" | grep -q "^context-locker-notes 1 $UUID\$" || return 0
   grep -E '^(wrote note [0-9a-f]{64} \{project\}/\.context-locker/notes/[^ ]+ [0-9a-f-]{36} [0-9]+|wrote file [0-9a-f]{64} \{project\}/\.context-locker/notes/README\.md - -|refused [0-9a-f]{64} \{project\}/\.context-locker/notes/[^ ]+)$' \
     "$nr_list" >"$TMP/notes-records"
 }
@@ -1635,29 +1642,41 @@ hash_files() {
   esac
 }
 
-# Each note's file and the README in the folder, as "<sha256> <target>", in
-# one pass. A .md file with a name no note's file has is set aside.
+# Each .md and .conflict file in the folder and its everywhere folder: as
+# "<sha256> <target>" when it has a name a sync could have written, and
+# otherwise by its name alone, in $TMP/notes-other
 notes_scan() {
   : >"$TMP/notes-local"
   : >"$TMP/notes-names"
-  : >"$TMP/notes-misnamed"
+  : >"$TMP/notes-other"
   for ns_sub in '' everywhere/; do
     [ -d "$PROJECT_ROOT/$NOTES/$ns_sub" ] || continue
-    for ns_file in "$PROJECT_ROOT/$NOTES/$ns_sub"*.md; do
+    for ns_file in "$PROJECT_ROOT/$NOTES/$ns_sub"*.md "$PROJECT_ROOT/$NOTES/$ns_sub"*.conflict; do
       [ -f "$ns_file" ] && [ ! -L "$ns_file" ] || continue
       ns_name=${ns_file##*/}
-      if [ -z "$ns_sub" ] && [ "$ns_name" = README.md ]; then
-        :
-      elif ! note_name_ok "$ns_name"; then
-        { printf '%s%s' "$ns_sub" "$ns_name" | clean; printf '\n'; } >>"$TMP/notes-misnamed"
-        continue
+      if note_name_ok "$ns_name" || { [ -z "$ns_sub" ] && [ "$ns_name" = README.md ]; }; then
+        printf '%s%s\n' "$ns_sub" "$ns_name" >>"$TMP/notes-names"
+      else
+        { printf '%s%s' "$ns_sub" "$ns_name" | clean; printf '\n'; } >>"$TMP/notes-other"
       fi
-      printf '%s%s\n' "$ns_sub" "$ns_name" >>"$TMP/notes-names"
     done
   done
   [ -s "$TMP/notes-names" ] || return 0
   (cd "$PROJECT_ROOT/$NOTES" && hash_files <"$TMP/notes-names") |
     awk -v root="$NOTES_TARGET/" 'NF >= 2 { f = $2; sub(/^\*/, "", f); print $1, root f }' >"$TMP/notes-local"
+}
+
+# Whether a target is a file a sync wrote in the notes folder: a note's
+# file, or the README
+note_target_ok() {
+  case $1 in
+    '{project}/.context-locker/notes/README.md') return 0 ;;
+    '{project}/.context-locker/notes/everywhere/'*) nt_rest=${1#\{project\}/.context-locker/notes/everywhere/} ;;
+    '{project}/.context-locker/notes/'*) nt_rest=${1#\{project\}/.context-locker/notes/} ;;
+    *) return 1 ;;
+  esac
+  case $nt_rest in */*) return 1 ;; esac
+  note_name_ok "$nt_rest"
 }
 
 # Puts a whole file in place from a copy, in one step, keeping the old
@@ -1675,7 +1694,7 @@ write_file() {
 }
 
 # Adds .context-locker/ to the repo's own exclude file, once, the first time
-# a sync writes in the folder, so git leaves the notes out. It never changes
+# a sync writes in the folder, so git leaves it out. It never changes
 # .gitignore or any file git tracks, goes through no link, and does nothing
 # outside a git work tree.
 keep_out_of_git() {
@@ -1696,7 +1715,7 @@ keep_out_of_git() {
   esac
   kg_info=${kg_file%/*}
   if [ -L "$kg_file" ] || [ -L "$kg_info" ] || [ -L "${kg_info%/*}" ]; then
-    warn "left $kg_file alone: it's a link or in one, and links aren't followed. To keep the notes out of git, add .context-locker/ to it yourself."
+    warn "left $kg_file alone: it's a link or in one, and links aren't followed. To keep .context-locker/ out of git, add it to that file yourself."
     return 0
   fi
   if [ -e "$kg_file" ]; then
@@ -1721,179 +1740,78 @@ keep_out_of_git() {
     return 0
   fi
   rm -f "$kg_tmp"
-  warn "couldn't add .context-locker/ to $kg_file. To keep the notes out of git, add it yourself."
+  warn "couldn't add .context-locker/ to $kg_file. To keep it out of git, add it yourself."
 }
 
-# Writes the file Context Locker sent back for a note it saved, unless the
-# file changed again meanwhile, and records it either way. Fails when the
-# answer doesn't make sense, and then nothing is written.
-note_saved() {
-  ns_t=$1 ns_path=$2 ns_sent=$3
-  { read -r ns_head && read -r ns_status ns_id ns_ver ns_hash ns_target ns_rest; } <"$TMP/note-reply" || return 1
-  [ "$ns_head" = 'context-locker-note 1' ] && [ -z "$ns_rest" ] && [ "$ns_target" = "$ns_t" ] || return 1
-  case $ns_status in saved | same) ;; *) return 1 ;; esac
-  case $ns_ver in '' | *[!0123456789]*) return 1 ;; esac
-  printf '%s\n' "$ns_id" | grep -q "^$UUID\$" || return 1
-  printf '%s\n' "$ns_hash" | grep -q "^$HASH\$" || return 1
-  tail -n +3 "$TMP/note-reply" >"$TMP/note-file"
-  [ "$(sha_file "$TMP/note-file")" = "$ns_hash" ] || return 1
-  [ "$ns_status" = saved ] && NOTES_SAVED=1
-  ns_now=$(sha_file "$ns_path" 2>/dev/null)
-  if [ "$ns_now" = "$ns_sent" ] && [ "$ns_now" != "$ns_hash" ]; then
-    # Context Locker's copy of what was sent takes its place, as the canonical file
-    keep_out_of_git
-    { backup "$ns_path" "$ns_t" && write_file "$ns_path" "$TMP/note-file"; } ||
-      warn "saved ${ns_t#\{project\}/}, but couldn't write Context Locker's copy of it. The next sync does."
+# The notes folder as a sync left it: what goes, in $TMP/notes-gone, each
+# file still as a sync wrote it and the README a sync wrote, and what stays
+# and is named, in $TMP/notes-named. With "take", it takes out what goes,
+# each after a copy goes in the backups, then the folder's list and any
+# folder left empty, and fails when one couldn't go.
+notes_left() {
+  : >"$TMP/notes-gone"
+  : >"$TMP/notes-named"
+  [ -n "$PROJECT_ROOT" ] && [ -d "$PROJECT_ROOT/$NOTES" ] && notes_folder_ok || return 0
+  notes_records
+  notes_scan
+  nl_readme=
+  [ -f "$PROJECT_ROOT/$NOTES/README.md" ] && [ "$(head -n 1 "$PROJECT_ROOT/$NOTES/README.md")" = '# Notes from Context Locker' ] &&
+    nl_readme=$NOTES_TARGET/README.md
+  awk -v readme="$nl_readme" '
+    FILENAME == ARGV[1] { if ($1 == "wrote") W[$4 " " $3] = 1; next }
+    { if ($2 == readme || (($2 " " $1) in W)) print "gone", $2; else print "named", $2 }' \
+    "$TMP/notes-records" "$TMP/notes-local" >"$TMP/notes-sorted"
+  sed -n 's/^gone //p' "$TMP/notes-sorted" >"$TMP/notes-gone"
+  { sed -n "s|^named {project}/$NOTES/||p" "$TMP/notes-sorted"; cat "$TMP/notes-other"; } | LC_ALL=C sort >"$TMP/notes-named"
+  [ "${1:-}" = take ] || return 0
+  nl_failed=0
+  while IFS= read -r nl_t; do
+    nl_path=$PROJECT_ROOT/${nl_t#\{project\}/}
+    if backup "$nl_path" "$nl_t" && rm -f "$nl_path"; then :; else nl_failed=1; fi
+  done <"$TMP/notes-gone"
+  [ "$nl_failed" = 0 ] || return 1
+  nl_list=$PROJECT_ROOT/$NOTES/.ctx-managed
+  if [ -f "$nl_list" ] && [ ! -L "$nl_list" ]; then
+    rm -f "$nl_list" || return 1
   fi
-  # A file that changed again meanwhile is an edit to this version, which the next sync sends
-  printf 'wrote note %s %s %s %s\n' "$ns_hash" "$ns_t" "$ns_id" "$ns_ver" >>"$TMP/notes-records"
-}
-
-# An edit made here to a note that changed in Context Locker too, in the same
-# part: the edit is kept beside the note, as <name>.md.conflict, which the
-# sync never sends, and the note's file goes, so this sync writes the newer
-# version in its place. A copy goes in the backups first, so nothing is lost,
-# the edit isn't sent again, and the app is told at the start of the session.
-# Fails when the edit can't be kept that way, and then nothing changes.
-note_conflict() {
-  nc_t=$1 nc_path=$2 nc_rel=$3
-  nc_copy=$nc_path.conflict
-  [ -L "$nc_copy" ] && return 1
-  if [ -e "$nc_copy" ]; then
-    # An older copy goes in the backups before this one takes its place
-    { [ -f "$nc_copy" ] && backup "$nc_copy" "$nc_t.conflict"; } || return 1
-  fi
-  backup "$nc_path" "$nc_t" || return 1
-  cp "$nc_path" "$nc_copy" 2>/dev/null || return 1
-  rm -f "$nc_path" || return 1
-  NOTES_RESCAN=1
-  printf 'Context Locker: your edit to %s and a change made in Context Locker since touch the same part, so the note has the newer version now, and your edit is kept beside it in %s. Put the two together in the note, and the next sync saves it.\n' \
-    "$nc_rel" "$nc_rel.conflict" >>"$TMP/said"
-  warn "$nc_rel changed in Context Locker too, in the same part as your edit, so the note has the newer version now. Your edit is kept in $nc_rel.conflict."
+  rmdir "$PROJECT_ROOT/$NOTES/everywhere" 2>/dev/null
+  rmdir "$PROJECT_ROOT/$NOTES" 2>/dev/null
   return 0
 }
 
-# Sends the notes edited here, and new .md files, to Context Locker, at most
-# 20 a sync. What it saves is written as Context Locker keeps it; a file it
-# can't take stays as it is, and goes again at the next sync. An edit that
-# clashes with a newer version is kept beside the note instead.
-notes_up() {
-  nu_query=$1
-  while IFS= read -r nu_name; do
-    warn "left $NOTES/$nu_name as it is: a note's file is named with lowercase letters, numbers and hyphens, such as release-plan.md. Rename it, and the next sync saves it."
-  done <"$TMP/notes-misnamed"
-  # A file goes up when it's a note's file that changed since Context Locker
-  # last wrote it, unless it's already as Context Locker has it now, or when
-  # it's new here: in neither the list nor the manifest
-  awk -v readme="$NOTES_TARGET/README.md" '
-    FILENAME == ARGV[1] && ($1 == "note" || $1 == "file") { S[$3] = $2; next }
-    FILENAME == ARGV[2] && $1 == "wrote" { R[$4] = $3; rk[$4] = $2; ri[$4] = $5; rv[$4] = $6; next }
-    FILENAME == ARGV[3] { L[$2] = $1; next }
-    END {
-      for (t in L) {
-        if (t == readme) continue
-        if (t in R) {
-          if (rk[t] == "note" && L[t] != R[t] && !((t in S) && S[t] == L[t])) print t, "edit", ri[t], rv[t], L[t]
-        } else if (!(t in S)) print t, "new", "-", "-", L[t]
-      }
-    }' "$TMP/entries" "$TMP/notes-records" "$TMP/notes-local" | LC_ALL=C sort >"$TMP/notes-up"
-  [ -s "$TMP/notes-up" ] || return 0
-  nu_sent=0 nu_waiting=0 nu_stopped=0
-  while read -r nu_t nu_what nu_id nu_ver nu_hash <&4; do
-    nu_rel=${nu_t#\{project\}/}
-    nu_path=$PROJECT_ROOT/$nu_rel
-    if [ "$nu_stopped" = 1 ] || [ "$nu_sent" -ge "$NOTES_PER_SYNC" ]; then
-      nu_waiting=$((nu_waiting + 1))
-      continue
-    fi
-    nu_size=$(wc -c <"$nu_path" 2>/dev/null | tr -d ' ')
-    case $nu_size in '' | *[!0123456789]*) continue ;; esac
-    if [ "$nu_size" -gt "$NOTES_MAX" ]; then
-      warn "couldn't save $nu_rel: it's $(((nu_size + 1023) / 1024)) KB, and a note can hold at most $((NOTES_MAX / 1024)) KB."
-      printf 'refused %s %s\n' "$nu_hash" "$nu_t" >>"$TMP/notes-refused"
-      continue
-    fi
-    nu_sent=$((nu_sent + 1))
-    nu_base=
-    [ "$nu_what" = edit ] && nu_base="$nu_id $nu_ver"
-    rm -f "$TMP/note-reply"
-    nu_code=$(status_of "$(http POST "/v1/sync/notes$nu_query" "$TMP/note-reply" "$nu_path" 'text/markdown; charset=utf-8' '' "$nu_t" "$nu_base")")
-    case $nu_code in
-      200)
-        note_saved "$nu_t" "$nu_path" "$nu_hash" ||
-          warn "couldn't make sense of Context Locker's answer for $nu_rel. The next sync tries again."
-        ;;
-      409 | 400 | 404 | 413 | 422)
-        if [ "$nu_code" = 409 ] && [ "$(reply_field error "$TMP/note-reply")" = version_conflict ] &&
-          note_conflict "$nu_t" "$nu_path" "$nu_rel"; then
-          continue
-        fi
-        if [ "$nu_code" = 409 ] && [ "$(reply_field error "$TMP/note-reply")" = version_conflict ]; then
-          warn "$nu_rel changed in Context Locker too, so your edit wasn't saved. Copy your edit, delete the file to get the latest at the next sync, then make the edit again."
-        else
-          nu_message=$(reply_field message "$TMP/note-reply" | clean)
-          warn "couldn't save $nu_rel: ${nu_message:-Context Locker refused it.}"
-        fi
-        printf 'refused %s %s\n' "$nu_hash" "$nu_t" >>"$TMP/notes-refused"
-        ;;
-      403)
-        warn "the agent $HARNESS on $(computer 'its computer') can only read, so the changes in $NOTES stay here."
-        nu_stopped=1
-        ;;
-      000)
-        warn "can't reach Context Locker, so the changes in $NOTES wait for the next sync."
-        nu_stopped=1
-        ;;
-      *)
-        warn "Context Locker answered $nu_code, so the changes in $NOTES wait for the next sync."
-        nu_stopped=1
-        ;;
-    esac
-  done 4<"$TMP/notes-up"
-  if [ "$nu_waiting" -gt 0 ] && [ "$nu_stopped" = 0 ]; then
-    if [ "$nu_waiting" = 1 ]; then
-      warn "1 more file in $NOTES waits for the next sync, which saves up to $NOTES_PER_SYNC."
-    else
-      warn "$nu_waiting more files in $NOTES wait for the next sync, which saves up to $NOTES_PER_SYNC."
-    fi
-  fi
+# The line naming the files left in the notes folder that hold what Context
+# Locker doesn't have, and how to save them, or nothing when there are none
+notes_named_line() {
+  nn_count=$(wc -l <"$TMP/notes-named" | tr -d ' ')
+  case $nn_count in
+    '' | 0) return 1 ;;
+    1) nn_what="1 file in $PROJECT_ROOT/$NOTES holds" nn_them=it ;;
+    *) nn_what="$nn_count files in $PROJECT_ROOT/$NOTES hold" nn_them=each ;;
+  esac
+  printf "%s what Context Locker doesn't have, and no sync reads them: %s. Save what's needed with \`%s notes %s write\`, then delete %s." \
+    "$nn_what" "$(short_list "$TMP/notes-named")" "$RUN" "$HARNESS" "$nn_them"
 }
 
-# Writes the folder's list of what Context Locker last wrote there, from
-# records where the last one for each file counts and "forget" drops one,
-# with what Context Locker couldn't take at this sync
-notes_write_list() {
-  [ "$NOTES_OK" = 1 ] || return 0
-  awk '$1 == "forget" { gone[$2] = 1; next }
-    $1 == "wrote" { if (!($4 in seen)) { seen[$4] = 1; order[++n] = $4 } last[$4] = $0; gone[$4] = 0 }
-    END { for (i = 1; i <= n; i++) if (!gone[order[i]]) print last[order[i]] }' "$1" >"$TMP/notes-final"
-  nw_list=$PROJECT_ROOT/$NOTES/.ctx-managed
-  {
-    printf 'context-locker-notes 1 %s\n' "$PROJECT_ID"
-    printf '%s\n' "# What Context Locker last wrote in this folder, so the sync of each app on the computer can tell an edit from an update. Leave it as it is."
-    cat "$TMP/notes-final" "$TMP/notes-refused"
-  } >"$TMP/notes-list"
-  # Nothing has been written here, and nothing waits
-  [ -s "$TMP/notes-final" ] || [ -s "$TMP/notes-refused" ] || [ -f "$nw_list" ] || return 0
-  [ -f "$nw_list" ] && [ "$(sha_file "$nw_list")" = "$(sha_file "$TMP/notes-list")" ] && return 0
-  if [ -L "$nw_list" ] || { [ -e "$nw_list" ] && [ ! -f "$nw_list" ]; }; then
-    warn "left $nw_list alone: it isn't a file of Context Locker's."
-    return 1
-  fi
-  keep_out_of_git
-  write_file "$nw_list" "$TMP/notes-list" && return 0
-  warn "couldn't write $nw_list, the list of what Context Locker wrote in the notes folder."
-  return 1
+# A project's sync takes out what a sync left in its notes folder, once, and
+# names what stays at every sync, for the session start
+notes_cleanup() {
+  notes_left take ||
+    warn "couldn't take every copy of a note out of $PROJECT_ROOT/$NOTES. The next sync tries again."
+  nc_line=$(notes_named_line) || return 0
+  printf 'Context Locker: %s\n' "$nc_line" >>"$TMP/said"
+  # The person running the sync sees it once, as it takes the copies out
+  [ -s "$TMP/notes-gone" ] && warn "$nc_line"
+  return 0
 }
 
 # --- An app's own memory files (G1-299) ------------------------------------
 
 # Once the person brings them in, each of the app's own memory files syncs
-# both ways with one note in its connection's memory, as the notes folder's
-# files do: an edit here goes up, a change there comes down after a backup,
-# and a file the app deleted archives its note. Until then, the global sync
-# tells Context Locker once what it found, which asks the person, and leaves
-# the files as they are, as it does when they're kept on the computer.
+# both ways with one note in its connection's memory: an edit here goes up,
+# a change there comes down after a backup, and a file the app deleted
+# archives its note. Until then, the global sync tells Context Locker once
+# what it found, which asks the person, and leaves the files as they are,
+# as it does when they're kept on the computer.
 #
 # Where each app keeps its own memory, as MEMORY_PLACES in
 # packages/compilers/src/memory-places.ts has it, which a test keeps the same:
@@ -1917,11 +1835,10 @@ openclaw file {openclaw}/MEMORY.md'
 MEMORY_ENDINGS='.md .markdown .mdx .mdc .txt'
 # The longest target a memory note keeps, as items_memory_path_check has it
 MEMORY_TARGET_MAX=512
-# What the sync last wrote of the app's memory files, as the notes folder's
-# list has it: a header with the workspace, the connection the global
-# manifest names and a key of the app's folders, then "wrote memory <sha256>
-# <target> <note> <version>", "refused <sha256> <target>" and "held <sha256>
-# <target> <note> <version>" lines
+# What the sync last wrote of the app's memory files: a header with the
+# workspace, the connection the global manifest names and a key of the app's
+# folders, then "wrote memory <sha256> <target> <note> <version>", "refused
+# <sha256> <target>" and "held <sha256> <target> <note> <version>" lines
 MEMORY_RECORDS=$APP_DIR/memory-files
 # The connection the global manifest names, whose records these are
 MEMORY_CONNECTION=
@@ -2199,8 +2116,8 @@ memory_moved() {
 # What to do with each of the app's memory files, a line each, sorted:
 # "<what> <target> <how> <S> <note> <version> <R> <note> <version> <L>
 # <bytes>", from what Context Locker keeps of it (S), what the sync
-# last wrote (R) and what's here now (L), as the notes folder's sync has
-# them. What's on record goes in $TMP/mem-wrote first, what Context Locker
+# last wrote (R) and what's here now (L). What's on record goes in
+# $TMP/mem-wrote first, what Context Locker
 # couldn't take, while it's as it was, in $TMP/mem-refused, and a clash a
 # quiet run left as it is, while neither side changed since, in
 # $TMP/mem-clash.
@@ -2648,47 +2565,67 @@ memory_sync() {
   memory_records_write || FAILED=1
 }
 
-# --- A project's pointers to paths in its repo ------------------------------
+# --- A project's links to paths in its repo ---------------------------------
 
-# Whether a path in the repo is there, under the folder $1 (with no link in
-# its own path), going through no link that leads out of it
-path_here() {
-  ph_root=$1 ph_rest=$2 ph_cur=$1 ph_hops=0
-  while [ -n "$ph_rest" ]; do
-    ph_part=${ph_rest%%/*}
-    case $ph_rest in */*) ph_rest=${ph_rest#*/} ;; *) ph_rest= ;; esac
-    case $ph_part in
-      '' | .) continue ;;
-      ..) return 1 ;;
-    esac
-    ph_next=$ph_cur/$ph_part
-    # A link is followed only while it stays in the folder
-    while [ -L "$ph_next" ]; do
-      ph_hops=$((ph_hops + 1))
-      [ "$ph_hops" -le 16 ] && have readlink || return 1
-      ph_to=$(readlink "$ph_next") || return 1
-      case $ph_to in /*) ;; *) ph_to=${ph_next%/*}/$ph_to ;; esac
-      if [ -d "$ph_to" ]; then
-        ph_next=$(cd -P "$ph_to" 2>/dev/null && pwd -P) || return 1
-      else
-        ph_dir=$(cd -P "${ph_to%/*}/" 2>/dev/null && pwd -P) || return 1
-        ph_next=${ph_dir%/}/${ph_to##*/}
-      fi
-      case $ph_next/ in "$ph_root"/*) ;; *) return 1 ;; esac
-    done
-    [ -e "$ph_next" ] || return 1
-    ph_cur=$ph_next
-  done
-  return 0
+# The default branch the checkout at $1 last fetched, as origin/HEAD names it,
+# such as origin/main; nothing when it has none (CLK-420)
+default_branch() {
+  have git || return 1
+  (
+    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
+    cd "$1" 2>/dev/null || exit 1
+    git rev-parse -q --verify 'refs/remotes/origin/HEAD^{commit}' >/dev/null 2>&1 || exit 1
+    git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || printf 'origin/HEAD\n'
+  )
 }
 
-# Checks the project's pointers to paths in its repo, from the manifest's
-# link lines, and says in one line which ones aren't in the folder
+# Whether a path in the repo, from the folder $1, is in the default branch
+# its checkout last fetched
+in_default_branch() {
+  (
+    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
+    cd "$1" 2>/dev/null || exit 1
+    git cat-file -e "refs/remotes/origin/HEAD:./$2" 2>/dev/null
+  )
+}
+
+# Whether the project's folder is its repo (CLK-420): its .contextlocker.json
+# names the project, or its git remote is the project's repository, as
+# Context Locker answers. Only there are the project's links checked, as
+# another folder can't say whether a file is in the repo.
+repo_folder() {
+  [ "$LAYER" = repo ] && return 0
+  repo_answer "$PROJECT_ID" "$PROJECT_ROOT"
+  [ "$REPO_ANSWER" = yes ]
+}
+
+# What Context Locker says of the folder $2 and the project $1, in
+# REPO_ANSWER: yes when the folder's git remote is the project's repository,
+# no when it isn't, and unknown when it couldn't say. REPO_HAS is the
+# project's repository, or nothing when it has none. Asked once a run for
+# each folder and project.
+REPO_ASKED= REPO_ANSWER= REPO_HAS=
+repo_answer() {
+  [ "$REPO_ASKED" = "$1 $2" ] && return 0
+  REPO_ASKED="$1 $2" REPO_ANSWER=unknown REPO_HAS=
+  ra_url=$(origin_remote "$2") || ra_url=
+  printf '%s' "$ra_url" >"$TMP/remote"
+  [ "$(status_of "$(http POST "/v1/sync/repo?project=$1" "$TMP/repo-reply" "$TMP/remote" text/plain '' '' '')")" = 200 ] || return 0
+  REPO_HAS=$(reply_field git_remote "$TMP/repo-reply" | clean)
+  if grep -q '"repo":true' "$TMP/repo-reply"; then REPO_ANSWER=yes; else REPO_ANSWER=no; fi
+}
+
+# Checks the project's links to paths in its repo, from the manifest's link
+# lines, in the default branch the checkout last fetched rather than the
+# files on disk, so a checkout of another branch neither raises nor hides a
+# missing file (CLK-420). Says in one line which ones aren't there. With no
+# default branch to look in, it checks none.
 check_links() {
-  LINKS_CHECKED=0
   : >"$TMP/missing"
   : >"$TMP/missing-paths"
   cl_root=$(cd -P "$PROJECT_ROOT" 2>/dev/null && pwd -P) || return 0
+  cl_branch=$(default_branch "$cl_root") || return 0
+  LINKS_CHECKED=0
   while IFS= read -r cl_line; do
     case $cl_line in 'link '*) ;; *) continue ;; esac
     cl_rest=${cl_line#link }
@@ -2697,7 +2634,7 @@ check_links() {
     printf '%s\n' "$cl_id" | grep -q "^$UUID\$" || continue
     [ "$cl_path" != "$cl_rest" ] && [ -n "$cl_path" ] || continue
     LINKS_CHECKED=$((LINKS_CHECKED + 1))
-    path_here "$cl_root" "$cl_path" && continue
+    in_default_branch "$cl_root" "$cl_path" && continue
     printf 'missing %s\n' "$cl_id" >>"$TMP/missing"
     { printf '%s' "$cl_path" | clean; printf '\n'; } >>"$TMP/missing-paths"
   done <"$TMP/entries"
@@ -2705,10 +2642,11 @@ check_links() {
   cl_count=$(wc -l <"$TMP/missing-paths" | tr -d ' ')
   cl_names=$(head -n 5 "$TMP/missing-paths" | awk '{ printf "%s%s", (NR > 1 ? ", " : ""), $0 }')
   [ "$cl_count" -gt 5 ] && cl_names="$cl_names and $((cl_count - 5)) more"
+  cl_where="$cl_branch, the default branch $PROJECT_ROOT last fetched"
   if [ "$cl_count" = 1 ]; then
-    warn "1 of this project's pointers points to a path that isn't in $PROJECT_ROOT: $cl_names. If it moved, change the pointer's address in Context Locker."
+    warn "1 of this project's links leads to a path that isn't on $cl_where: $cl_names. If it moved, change the link's address in Context Locker."
   else
-    warn "$cl_count of this project's pointers point to paths that aren't in $PROJECT_ROOT: $cl_names. If they moved, change their addresses in Context Locker."
+    warn "$cl_count of this project's links lead to paths that aren't on $cl_where: $cl_names. If they moved, change their addresses in Context Locker."
   fi
 }
 
@@ -2759,12 +2697,15 @@ PART_BYTES=4194304
 # can't be reached, it fails, with the step's HTTP status in
 # $TMP/upload-status and Context Locker's answer in $TMP/upload-reply.
 upload_parts() {
-  up_purpose=$1 up_file=$2
+  up_purpose=$1 up_file=$2 up_name=${3:-}
   up_bytes=$(wc -c <"$up_file" | tr -d ' ')
   up_parts=$(((up_bytes + PART_BYTES - 1) / PART_BYTES))
   : >"$TMP/upload-reply"
-  printf '{"purpose":"%s","parts":%s,"bytes":%s,"sha256":"%s"}' \
-    "$up_purpose" "$up_parts" "$up_bytes" "$(sha_file "$up_file")" >"$TMP/upload-start"
+  # A project file goes with the name it arrives with (CLK-368)
+  up_named=
+  [ -n "$up_name" ] && up_named=",\"name\":\"$(json_text "$up_name")\""
+  printf '{"purpose":"%s","parts":%s,"bytes":%s,"sha256":"%s"%s}' \
+    "$up_purpose" "$up_parts" "$up_bytes" "$(sha_file "$up_file")" "$up_named" >"$TMP/upload-start"
   up_code=$(status_of "$(http POST /v1/uploads "$TMP/upload-reply" "$TMP/upload-start" application/json '' '' '' text/plain)")
   printf '%s' "$up_code" >"$TMP/upload-status"
   [ "$up_code" = 201 ] || return 1
@@ -2779,6 +2720,32 @@ upload_parts() {
     up_part=$((up_part + 1))
   done
   printf '%s' "$up_id"
+}
+
+# Sends a file on this computer in parts, as a project file's upload, and
+# prints the upload's id for files write, or says why it can't (CLK-368).
+# Nothing is kept on the computer: the file stays where it is.
+send_file() {
+  sf_path=$1
+  if [ ! -f "$sf_path" ] || [ ! -r "$sf_path" ]; then
+    printf "Context Locker: %s isn't a file this agent can read, so nothing was sent.\n" "$sf_path" >&2
+    return 1
+  fi
+  if [ ! -s "$sf_path" ]; then
+    printf "Context Locker: %s is empty, so there's nothing to keep.\n" "$sf_path" >&2
+    return 1
+  fi
+  if sf_id=$(upload_parts file "$sf_path" "$(basename "$sf_path")"); then
+    printf '%s' "$sf_id"
+    return 0
+  fi
+  sf_code=$(cat "$TMP/upload-status" 2>/dev/null)
+  case $sf_code in
+    401) gone_reply "$TMP/upload-reply" ;;
+    000 | '') printf "Context Locker: can't reach %s, so the file wasn't sent.\n" "$API" >&2 ;;
+    *) printf 'Context Locker: %s\n' "$(said_or "$TMP/upload-reply" "Context Locker answered $sf_code, so the file wasn't sent. Try again in a minute.")" >&2 ;;
+  esac
+  return 1
 }
 
 reply_field() {
@@ -2847,8 +2814,8 @@ send_edit() {
 # (G1-299). Prints the hash of its list when it does, and fails when it
 # doesn't.
 files_change() {
-  grep -E '^(block|skill|file|note|memory) ' "$1" | LC_ALL=C sort >"$TMP/fc-new"
-  sed -n 's/^entry //p' "$2" 2>/dev/null | grep -E '^(block|skill|file|note|memory) ' | LC_ALL=C sort >"$TMP/fc-old"
+  grep -E '^(block|skill|memory) ' "$1" | LC_ALL=C sort >"$TMP/fc-new"
+  sed -n 's/^entry //p' "$2" 2>/dev/null | grep -E '^(block|skill|memory) ' | LC_ALL=C sort >"$TMP/fc-old"
   fc_new=$(sha_file "$TMP/fc-new")
   [ "$fc_new" != "$(sha_file "$TMP/fc-old")" ] || return 1
   printf '%s' "$fc_new"
@@ -2898,7 +2865,6 @@ count_change() {
   case $1 in
     block) W_BLOCKS=$((W_BLOCKS + 1)) ;;
     skill) W_SKILLS=$((W_SKILLS + 1)) ;;
-    note) W_NOTES=$((W_NOTES + 1)) ;;
   esac
 }
 
@@ -3033,7 +2999,10 @@ cleanup_project() {
   while read -r cp_tag cp_kind cp_hash cp_target cp_item cp_item_version <&7; do
     [ "$cp_tag" = wrote ] || continue
     case $cp_target in '{project}/'*) ;; *) continue ;; esac
-    allowed "$cp_target" "$cp_kind" || { cp_failed=1; continue; }
+    case $cp_kind in
+      note | file) note_target_ok "$cp_target" || { cp_failed=1; continue; } ;;
+      *) allowed "$cp_target" "$cp_kind" || { cp_failed=1; continue; } ;;
+    esac
     inside_project "$cp_target" || { cp_failed=1; continue; }
     cp_path=$(resolve "$cp_target") || { cp_failed=1; continue; }
     [ -e "$cp_path" ] || continue
@@ -3117,8 +3086,8 @@ sync_scope() {
   old_etag=$(sed -n "s/^etag \\($HASH\\)\$/\\1/p" "$lockfile" | head -n 1)
   # A plan always looks at the whole manifest
   [ "$MODE" = plan ] && old_etag=
-  # What the last check of the project's pointers found
-  grep -E '^(links|missing) ' "$lockfile" >"$TMP/links-before" 2>/dev/null
+  # What the last check of the project's links found
+  grep -E '^(repo-links|repo-remote|missing) ' "$lockfile" >"$TMP/links-before" 2>/dev/null
 
   code=$(status_of "$(http GET "/v1/sync$query" "$TMP/manifest" '' '' "$old_etag" '' '')")
   fresh=0
@@ -3207,87 +3176,60 @@ sync_scope() {
       return $?
     fi
     pr_generation=$(sed -n 's/^project-generation \([0-9]\{1,9\}\)$/\1/p' "$TMP/entries" | head -n 1)
-    if [ "$MODE" = sync ] && [ -n "$pr_generation" ]; then
+    # A plain link's folder gets nothing written into it (CLK-423)
+    if [ "$MODE" = sync ] && [ -n "$pr_generation" ] && [ "$PLAIN" = 0 ]; then
       link_folder "$PROJECT_ID" "$PROJECT_ROOT"
       inside_project '{project}/.context-locker/project-generation' || return 1
       mkdir -p "$PROJECT_ROOT/.context-locker" || return 1
       pr_current=$(cat "$PROJECT_ROOT/.context-locker/project-generation" 2>/dev/null)
       if is_number "$pr_current" && [ "$pr_current" -gt "$pr_generation" ]; then return 1; fi
+      [ "$pr_current" = "$pr_generation" ] || keep_out_of_git
       printf '%s\n' "$pr_generation" >"$PROJECT_ROOT/.context-locker/project-generation"
     fi
   fi
 
   cleanup_scope
 
-  # A project's notes folder, when this sync keeps it: what's in it and what
-  # Context Locker last wrote there. Edited notes and new files go up before
-  # anything is written. A folder this sync doesn't keep is left as it is.
-  : >"$TMP/notes-records"
-  : >"$TMP/notes-local"
-  : >"$TMP/notes-wrote"
-  : >"$TMP/notes-refused"
-  NOTES_OK=0 NOTES_SAVED=0 NOTES_RESCAN=0
-  if [ "$SCOPE" = project ] && [ "$MODE" = sync ] && notes_synced; then
-    if notes_folder_ok; then
-      NOTES_OK=1
-      notes_records
-      notes_scan
-      notes_up "$query"
-      if [ "$NOTES_SAVED" = 1 ]; then
-        # The playbook changed, so the manifest did too
-        code=$(status_of "$(http GET "/v1/sync$query" "$TMP/manifest" '' '' '' '' '')")
-        if [ "$code" = 200 ] && [ "$(head -n 1 "$TMP/manifest")" = 'context-locker-sync 1' ]; then
-          tail -n +2 "$TMP/manifest" >"$TMP/entries"
-        else
-          : >"$TMP/entries"
-        fi
-        if ! notes_synced; then
-          warn "couldn't fetch the latest files after saving the notes, so the next sync finishes the job."
-          FAILED=1
-          notes_write_list "$TMP/notes-records"
-          return 1
-        fi
-        etag=$(sha_file "$TMP/manifest")
-        fresh=1
-        notes_scan
-      elif [ "$NOTES_RESCAN" = 1 ]; then
-        # An edit kept beside its note took the note's file away
-        notes_scan
-      fi
-    else
-      warn "left $PROJECT_ROOT/.context-locker alone: part of its path is a link, and links in a project aren't followed."
-    fi
-  fi
+  # What a sync left in the project's notes folder, as computers keep no
+  # copies of notes (CLK-423)
+  [ "$SCOPE" = project ] && [ "$MODE" = sync ] && [ "$PLAIN" = 0 ] && notes_cleanup
 
-  # Whether the project's pointers to paths in its repo are there
+  # Whether the project's links to paths in its repo are there, checked only
+  # in a folder that is its repo (CLK-420)
   LINKS_CHECKED=
   : >"$TMP/missing"
-  [ "$SCOPE" = project ] && [ "$MODE" = sync ] && check_links
+  # The folder's remote goes with every project report, for Context Locker
+  # to tell whether the folder is the project's repo: its links' findings
+  # count only then (CLK-420), and so does the sync for taking a task
+  # (CLK-423)
+  FOLDER_REMOTE=
+  if [ "$SCOPE" = project ] && [ "$MODE" = sync ] && [ "$PLAIN" = 0 ]; then
+    FOLDER_REMOTE=$(origin_remote "$PROJECT_ROOT") || FOLDER_REMOTE=
+    printf '%s' "$FOLDER_REMOTE" | LC_ALL=C grep -q '^[!-~]*$' || FOLDER_REMOTE=
+  fi
+  [ "$SCOPE" = project ] && [ "$MODE" = sync ] && [ "$PLAIN" = 0 ] && grep -q '^link ' "$TMP/entries" &&
+    repo_folder && check_links
 
   # One line per target: what the manifest says, what this script last wrote,
-  # edits waiting for approval, edits the API refused, and for the notes
-  # folder, the note and version last written and the file's hash now
+  # edits waiting for approval and edits the API refused. A manifest's lines
+  # for a project's notes folder, from before computers kept no copies of
+  # notes, are left out (CLK-423).
   awk '
-    function here(t, k) { return (k == "note" || k == "file") ? (t in L ? L[t] : "none") : "?" }
-    FILENAME == ARGV[1] && ($1 == "block" || $1 == "skill" || $1 == "file" || $1 == "note") {
+    FILENAME == ARGV[1] && ($1 == "block" || $1 == "skill") {
       kind[$3] = $1; S[$3] = $2; order[++n] = $3
-      item[$3] = ($1 == "skill" || $1 == "note" ? $4 : "-"); ver[$3] = ($1 == "skill" || $1 == "note" ? $5 : "-")
+      item[$3] = ($1 == "skill" ? $4 : "-"); ver[$3] = ($1 == "skill" ? $5 : "-")
       next
     }
     FILENAME == ARGV[1] && $1 == "hold" { H[$3] = (H[$3] == "" ? $2 : H[$3] "," $2); next }
     FILENAME == ARGV[2] && $1 == "wrote" && ($2 == "block" || $2 == "skill") { R[$4] = $3; rk[$4] = $2; next }
     FILENAME == ARGV[2] && $1 == "refused" { F[$3] = (F[$3] == "" ? $2 : F[$3] "," $2); next }
-    FILENAME == ARGV[3] && $1 == "wrote" { R[$4] = $3; rk[$4] = $2; ri[$4] = $5; rv[$4] = $6; next }
-    FILENAME == ARGV[4] { L[$2] = $1; next }
     END {
       for (i = 1; i <= n; i++) {
         t = order[i]; seen[t] = 1
-        print t, kind[t], S[t], (t in R ? R[t] : "-"), (t in H ? H[t] : "-"), (t in F ? F[t] : "-"), item[t], ver[t],
-          (t in ri ? ri[t] : "-"), (t in rv ? rv[t] : "-"), here(t, kind[t])
+        print t, kind[t], S[t], (t in R ? R[t] : "-"), (t in H ? H[t] : "-"), (t in F ? F[t] : "-"), item[t], ver[t], "-", "-", "?"
       }
-      for (t in R) if (!(t in seen)) print t, rk[t], "-", R[t], (t in H ? H[t] : "-"), (t in F ? F[t] : "-"), "-", "-",
-        (t in ri ? ri[t] : "-"), (t in rv ? rv[t] : "-"), here(t, rk[t])
-    }' "$TMP/entries" "$lockfile" "$TMP/notes-records" "$TMP/notes-local" >"$TMP/plan"
+      for (t in R) if (!(t in seen)) print t, rk[t], "-", R[t], (t in H ? H[t] : "-"), (t in F ? F[t] : "-"), "-", "-", "-", "-", "?"
+    }' "$TMP/entries" "$lockfile" >"$TMP/plan"
 
   : >"$TMP/actions"
   : >"$TMP/wrote"
@@ -3300,49 +3242,6 @@ sync_scope() {
       warn "skipped $t: it isn't a file $HARNESS's sync may write."
       planned "Skip $t: it isn't a file $APP_NAME's sync may write."
       printf 'skipped not-allowed %s\n' "$t" >>"$TMP/skipped"
-      continue
-    fi
-    if [ "$kind" = note ] || [ "$kind" = file ]; then
-      # What Context Locker last wrote here stays on record, unless this
-      # sync writes or removes it
-      [ "$R" != - ] && printf 'wrote %s %s %s %s %s\n' "$kind" "$R" "$t" "$rid" "$rver" >>"$TMP/notes-wrote"
-      [ "$NOTES_OK" = 1 ] || continue
-      path=$PROJECT_ROOT${t#\{project\}}
-      if [ -L "$path" ]; then
-        warn "left $path alone: it's a link, and links in a project aren't followed."
-        printf 'skipped link %s\n' "$t" >>"$TMP/skipped"
-        continue
-      fi
-      if [ -e "$path" ] && [ ! -f "$path" ]; then
-        warn "left $path alone: it isn't a file."
-        printf 'skipped not-a-file %s\n' "$t" >>"$TMP/skipped"
-        continue
-      fi
-      if [ "$S" = - ]; then
-        # Gone from the folder in Context Locker: take it away unless it
-        # changed here. A note edited here went up before this, and stays.
-        if [ "$L" = none ]; then
-          printf 'forget %s\n' "$t" >>"$TMP/notes-wrote"
-        elif [ "$L" = "$R" ]; then
-          printf 'remove %s %s - - - 0 %s\n' "$t" "$kind" "$L" >>"$TMP/actions"
-        elif [ "$kind" = file ]; then
-          printf 'untrack %s %s - - - 0 -\n' "$t" "$kind" >>"$TMP/actions"
-        fi
-        continue
-      fi
-      if [ "$L" = "$S" ]; then
-        printf 'wrote %s %s %s %s %s\n' "$kind" "$S" "$t" "$item" "$ver" >>"$TMP/notes-wrote"
-      elif [ "$L" = none ]; then
-        # New here, or deleted here: it comes back
-        printf 'write %s %s %s %s %s 0 none\n' "$t" "$kind" "$S" "$item" "$ver" >>"$TMP/actions"
-      elif [ "$R" = - ] || [ "$L" = "$R" ] || [ "$kind" = file ]; then
-        # Written over: a file the sync has no record of writing, or the
-        # README edited here, is kept in the backups first
-        if [ "$L" = "$R" ]; then keep=0; else keep=1; fi
-        printf 'write %s %s %s %s %s %s %s\n' "$t" "$kind" "$S" "$item" "$ver" "$keep" "$L" >>"$TMP/actions"
-      fi
-      # Otherwise it's a note edited here, which went up before this and
-      # stays until Context Locker saves it
       continue
     fi
     if ! path=$(resolve "$t"); then
@@ -3555,7 +3454,7 @@ sync_scope() {
   if [ -n "$old_etag" ]; then
     sed -n 's/^entry //p' "$lockfile" >"$TMP/old-entries"
     awk '
-      $1 != "block" && $1 != "skill" && $1 != "file" && $1 != "note" { next }
+      $1 != "block" && $1 != "skill" { next }
       FILENAME == ARGV[1] { old[$0] = $3; next }
       { if ($0 in old) delete old[$0]; else print $3 }
       END { for (line in old) print old[line] }' "$TMP/old-entries" "$TMP/entries" >"$TMP/playbook-changed"
@@ -3611,7 +3510,6 @@ sync_scope() {
         [ -n "$(find "$TMP/blobs" ! -type f ! -type d | head -n 1)" ]; then
         warn "couldn't fetch the latest files, so $HARNESS keeps the ones it has. The next sync tries again."
         FAILED=1
-        [ "$NOTES_OK" = 1 ] && notes_write_list "$TMP/notes-wrote"
         return 1
       fi
     done
@@ -3718,57 +3616,8 @@ sync_scope() {
       'untrack block')
         warn "the Context Locker block in $path is no longer synced here. You'd changed it, so it stays as it is."
         ;;
-      'write note' | 'write file')
-        if [ "$(sha_file "$TMP/blobs/$hash")" != "$hash" ]; then
-          warn "the new content for $path didn't match its hash, so it wasn't written. The next sync tries again."
-          complete=0
-          continue
-        fi
-        if [ -f "$path" ]; then
-          if [ "$keep" = 1 ]; then
-            if ! backup "$path" "$t"; then
-              warn "couldn't keep a copy of $path, so it wasn't written over."
-              complete=0
-              continue
-            fi
-            [ "$kind" = note ] &&
-              warn "replaced $path with the note from Context Locker, as the sync has no record of writing it there. A copy is in $CL_HOME/backups."
-          elif [ "$(sha_file "$path")" != "$expect" ]; then
-            # Changed since this sync looked, so it's an edit for the next one
-            continue
-          fi
-        fi
-        keep_out_of_git
-        if write_file "$path" "$TMP/blobs/$hash"; then
-          WRITTEN=$((WRITTEN + 1))
-          count_change "$kind" "$t"
-          printf 'wrote %s %s %s %s %s\n' "$kind" "$hash" "$t" "$item" "$ver" >>"$TMP/notes-wrote"
-        else
-          warn "couldn't write $path."
-          complete=0
-        fi
-        ;;
-      'remove note' | 'remove file')
-        # Only while it's still as Context Locker wrote it, and a copy is kept
-        [ -f "$path" ] && [ "$(sha_file "$path")" = "$expect" ] || continue
-        if backup "$path" "$t" && rm -f "$path"; then
-          count_change "$kind" "$t"
-          printf 'forget %s\n' "$t" >>"$TMP/notes-wrote"
-        else
-          complete=0
-        fi
-        ;;
-      'untrack file')
-        printf 'forget %s\n' "$t" >>"$TMP/notes-wrote"
-        warn "$path is no longer from Context Locker. You'd changed it, so it stays as it is."
-        ;;
     esac
   done 3<"$TMP/actions"
-
-  # The notes folder's own list of what Context Locker wrote there
-  if [ "$NOTES_OK" = 1 ]; then
-    notes_write_list "$TMP/notes-wrote" || complete=0
-  fi
 
   # The app's own memory files, after its block, as one file can hold both
   # (G1-299)
@@ -3789,9 +3638,14 @@ sync_scope() {
     fi
   fi
 
-  # What this check of the pointers found, kept to tell when it changes
+  # What this check of the links found, with the folder's remote, kept to
+  # tell when it changes
   : >"$TMP/links-now"
-  [ -n "$LINKS_CHECKED" ] && { printf 'links %s\n' "$LINKS_CHECKED"; cat "$TMP/missing"; } >"$TMP/links-now"
+  {
+    [ -n "$LINKS_CHECKED" ] && printf 'repo-links %s\n' "$LINKS_CHECKED"
+    [ -n "$FOLDER_REMOTE" ] && printf 'repo-remote %s\n' "$FOLDER_REMOTE"
+    [ -n "$LINKS_CHECKED" ] && cat "$TMP/missing"
+  } >"$TMP/links-now"
 
   {
     printf 'context-locker-lock 1\n'
@@ -3802,13 +3656,15 @@ sync_scope() {
   } >"$lockfile.tmp" && mv -f "$lockfile.tmp" "$lockfile"
 
   [ "$complete" = 1 ] || FAILED=1
-  # The report goes with a new manifest, and when the missing paths changed
+  # The report goes with a new manifest, and when what the links check found
+  # changed, even to nothing, as a sync in a folder that isn't the repo
+  # replaces what this agent found before (CLK-420)
   if [ "$complete" = 1 ] && { [ "$fresh" = 1 ] ||
-    { [ -n "$LINKS_CHECKED" ] && [ "$(sha_file "$TMP/links-now")" != "$(sha_file "$TMP/links-before")" ]; }; }; then
+    [ "$(sha_file "$TMP/links-now")" != "$(sha_file "$TMP/links-before")" ]; }; then
     {
       printf 'manifest %s\nwritten %s\nheld %s\n' "$etag" "$WRITTEN" "$HELD"
       head -n 100 "$TMP/skipped"
-      head -n 101 "$TMP/links-now"
+      head -n 102 "$TMP/links-now"
     } >"$TMP/report"
     http POST "/v1/sync/done$query" "$TMP/done-reply" "$TMP/report" text/plain '' '' '' >/dev/null
   fi
@@ -3854,19 +3710,23 @@ detect_project() {
     dir=$(dirname "$dir")
   done
 
-  # Folders linked on the computer only: "<project id> <folder>" per line.
+  # Folders linked on the computer only: "<project id> <folder>" per line
+  # for a checkout, and "plain <project id> <folder>" for a plain link.
   # A folder matches by the path it was linked with or the one with no links.
+  PLAIN=0
   [ -f "$CL_HOME/projects" ] || return 1
   real=$(cd -P "$start" 2>/dev/null && pwd -P) || real=$start
   best=
   while IFS= read -r line; do
+    dp_plain=0
+    case $line in 'plain '*) line=${line#plain } dp_plain=1 ;; esac
     id=${line%% *} folder=${line#* }
     case $start/ in
       "$folder"/*) ;;
       *) case $real/ in "$folder"/*) ;; *) continue ;; esac ;;
     esac
     if [ "${#folder}" -gt "${#best}" ]; then
-      best=$folder PROJECT_ID=$id
+      best=$folder PROJECT_ID=$id PLAIN=$dp_plain
     fi
   done <"$CL_HOME/projects"
   [ -n "$best" ] || return 1
@@ -3880,13 +3740,17 @@ flag_project() {
   PROJECT_ID=$PROJECT_FLAG
   PROJECT_ROOT=$(git_top "$START") || PROJECT_ROOT=$START
   LAYER=personal
-  fp_json=$PROJECT_ROOT/.contextlocker.json
-  if [ -f "$fp_json" ] && [ -n "$WORKSPACE_ID" ] &&
-    [ "$(sed -n "s/.*\"workspace\"[[:space:]]*:[[:space:]]*\"\\($UUID\\)\".*/\\1/p" "$fp_json" | head -n 1)" = "$WORKSPACE_ID" ] &&
-    [ "$(sed -n "s/.*\"project\"[[:space:]]*:[[:space:]]*\"\\($UUID\\)\".*/\\1/p" "$fp_json" | head -n 1)" = "$PROJECT_ID" ]; then
-    LAYER=repo
-  fi
+  declares_project "$PROJECT_ROOT" "$PROJECT_ID" && LAYER=repo
   return 0
+}
+
+# Whether the folder $1's .contextlocker.json names this workspace and the
+# project $2: such a folder is the project's by its own file
+declares_project() {
+  dp_json=$1/.contextlocker.json
+  [ -f "$dp_json" ] && [ -n "$WORKSPACE_ID" ] &&
+    [ "$(sed -n "s/.*\"workspace\"[[:space:]]*:[[:space:]]*\"\\($UUID\\)\".*/\\1/p" "$dp_json" | head -n 1)" = "$WORKSPACE_ID" ] &&
+    [ "$(sed -n "s/.*\"project\"[[:space:]]*:[[:space:]]*\"\\($UUID\\)\".*/\\1/p" "$dp_json" | head -n 1)" = "$2" ]
 }
 
 # The origin remote of the repo whose top folder is $1, without a user name,
@@ -3927,13 +3791,24 @@ origin_remote() {
   printf '%s' "$or_url"
 }
 
-# Links the folder $2 to the project $1, for the computer only
+# Links the folder $2 to the project $1, for the computer only, as a
+# checkout, or with "plain" as $3 as a plain link, in place of any link the
+# folder had
 link_folder() {
   touch "$CL_HOME/projects"
-  FOLDER=$2 awk '{ f = $0; sub(/^[^ ]* /, "", f); if (f != ENVIRON["FOLDER"]) print }' \
+  FOLDER=$2 awk '{ f = $0; sub(/^plain /, "", f); sub(/^[^ ]* /, "", f); if (f != ENVIRON["FOLDER"]) print }' \
     "$CL_HOME/projects" >"$CL_HOME/projects.tmp"
-  printf '%s %s\n' "$1" "$2" >>"$CL_HOME/projects.tmp"
+  if [ "${3:-}" = plain ]; then
+    printf 'plain %s %s\n' "$1" "$2" >>"$CL_HOME/projects.tmp"
+  else
+    printf '%s %s\n' "$1" "$2" >>"$CL_HOME/projects.tmp"
+  fi
   mv -f "$CL_HOME/projects.tmp" "$CL_HOME/projects"
+}
+
+# Whether the folder $2 has a plain link to the project $1
+plain_linked() {
+  [ -f "$CL_HOME/projects" ] && grep -qxF "plain $1 $2" "$CL_HOME/projects"
 }
 
 link_project() {
@@ -3942,12 +3817,103 @@ link_project() {
     FAILED=1
     return 1
   }
-  root=$(git_top "$START") || root=$START
+  # A checkout is linked only when it's a checkout of the project's
+  # repository (CLK-420), or, on the person's word with --link-folder, when
+  # the project has none, whose remote it then records. A folder outside any
+  # repo gets a plain link on the person's word, which writes nothing into
+  # it (CLK-423). Any other folder gets none of the project's files, and the
+  # project can be read for one call instead.
+  if root=$(git_top "$START"); then lp_in_repo=1; else root=$START lp_in_repo=0; fi
+  # A folder whose .contextlocker.json names the project is its folder by its
+  # own file, found without a link, and gets the project's files
+  declares_project "$root" "$PROJECT_FLAG" && return 0
+  repo_answer "$PROJECT_FLAG" "$root"
+  lp_once="\`$RUN context $HARNESS --project $PROJECT_FLAG\`"
+  lp_plain="link this folder for this computer only, writing nothing into it, with --project and --link-folder, only on the person's word"
+  case $REPO_ANSWER in
+    yes) ;;
+    unknown)
+      warn "didn't link $root to the project, as Context Locker couldn't say whether it's a checkout of the project's repository. Try --project again once Context Locker answers."
+      FAILED=1
+      return 1
+      ;;
+    *)
+      if [ "$lp_in_repo" = 0 ]; then
+        if plain_linked "$PROJECT_FLAG" "$root"; then
+          PLAIN=1
+          return 0
+        fi
+        if [ "$LINK_FOLDER" = 1 ]; then
+          link_folder "$PROJECT_FLAG" "$root" plain
+          PLAIN=1
+          warn "linked $root to the project for this computer only: the sync writes nothing into it and checks none of its links, and a session started there gets the project at its start."
+          return 0
+        fi
+        if [ -n "$REPO_HAS" ]; then
+          warn "didn't link $root to the project: it isn't a checkout of $REPO_HAS, the project's repository. Read the project for one call instead with $lp_once, or $lp_plain."
+        else
+          warn "didn't link $root to the project, which has no repository. Read it for one call with $lp_once, or $lp_plain."
+        fi
+        return 1
+      fi
+      if [ -n "$REPO_HAS" ]; then
+        warn "didn't link $root to the project: it isn't a checkout of $REPO_HAS, the project's repository. Run --project in a checkout of it, or read the project for one call instead with $lp_once."
+        FAILED=1
+        return 1
+      fi
+      if [ "$LINK_FOLDER" = 0 ]; then
+        warn "didn't link $root to the project, which has no repository, so no folder gets its files. Read it with $lp_once. To link this folder, which records its git remote as the project's repository, run --project with --link-folder, only on the person's word."
+        return 1
+      fi
+      if ! origin_remote "$root" >/dev/null; then
+        warn "didn't link $root to the project: it's a repo with no git remote, which would become the project's repository. Read the project with $lp_once."
+        FAILED=1
+        return 1
+      fi
+      ;;
+  esac
   link_folder "$PROJECT_FLAG" "$root"
 }
 
+# Takes the folder $2's link to the project $1 off the computer
+unlink_folder() {
+  [ -f "$CL_HOME/projects" ] || return 0
+  FOLDER=$2 awk -v id="$1" '{ f = $0; sub(/^[^ ]* /, "", f); if (!($1 == id && f == ENVIRON["FOLDER"])) print }' \
+    "$CL_HOME/projects" >"$CL_HOME/projects.tmp" &&
+    mv -f "$CL_HOME/projects.tmp" "$CL_HOME/projects"
+}
+
+# Whether a folder linked on the computer may still have its project's
+# files: only a checkout of the project's repository (CLK-423). An older
+# script linked any folder --project named, so a sync unlinks one that isn't,
+# with a line saying how to read the project instead, and writes nothing
+# there. When Context Locker can't say, the link stays and this sync skips
+# the project.
+linked_folder_ok() {
+  [ "$LAYER" = personal ] && [ "$PLAIN" = 0 ] || return 0
+  repo_answer "$PROJECT_ID" "$PROJECT_ROOT"
+  case $REPO_ANSWER in
+    yes) return 0 ;;
+    unknown)
+      warn "didn't sync the project into $PROJECT_ROOT, as Context Locker couldn't say whether it's a checkout of the project's repository. The next sync asks again."
+      return 1
+      ;;
+  esac
+  unlink_folder "$PROJECT_ID" "$PROJECT_ROOT"
+  lf_project=$PROJECT_ID
+  # Nor does the session start give the project there any more
+  PROJECT_ID= PROJECT_ROOT= LAYER=
+  if [ -n "$REPO_HAS" ]; then
+    lf_why="it isn't a checkout of $REPO_HAS, the project's repository"
+  else
+    lf_why="the project has no repository"
+  fi
+  warn "unlinked ${REPO_ASKED#* } from its project, as $lf_why, so it gets none of the project's files. Read the project with \`$RUN context $HARNESS --project $lf_project\`."
+  return 1
+}
+
 unlink_project() {
-  awk -v id="$1" '$1 != id' "$CL_HOME/projects" >"$CL_HOME/projects.tmp" &&
+  awk -v id="$1" '$1 != id && !($1 == "plain" && $2 == id)' "$CL_HOME/projects" >"$CL_HOME/projects.tmp" &&
     mv -f "$CL_HOME/projects.tmp" "$CL_HOME/projects"
 }
 
@@ -4015,6 +3981,7 @@ daily_projects() {
     PROJECT_ID= PROJECT_ROOT= LAYER=
     detect_project "$dp_folder" || continue
     [ "$HARNESS" = hermes ] && [ "$LAYER" != repo ] && continue
+    linked_folder_ok || continue
     grep -qxF "$PROJECT_ID $PROJECT_ROOT" "$TMP/linked-done" && continue
     printf '%s %s\n' "$PROJECT_ID" "$PROJECT_ROOT" >>"$TMP/linked-done"
     SCOPE=project EXCLUDED=0
@@ -5704,7 +5671,8 @@ linked_doctor() {
 }
 
 # The project this folder belongs to: what the last sync wrote in its repo,
-# as the global sync's files are checked, then its notes folder
+# as the global sync's files are checked, then what a sync left in its notes
+# folder
 project_doctor() {
   WORKSPACE_ID=$(sed -n "s/^entry workspace \\($UUID\\)\$/\\1/p" "$APP_DIR/global.lock" 2>/dev/null | head -n 1)
   detect_project || return 0
@@ -5713,61 +5681,20 @@ project_doctor() {
   notes_doctor
 }
 
-# The project's notes folder, in a line or two: how many notes it holds, the
-# files waiting to be saved or that weren't saved at the last sync, and any
-# Context Locker wrote that are missing
+# The project's notes folder, as a sync left it: copies of notes the next
+# sync takes out, and files that hold what Context Locker doesn't have, as
+# computers keep no copies of notes (CLK-423)
 notes_doctor() {
-  case $HARNESS in
-    openclaw) return 0 ;;
-    hermes) [ "$LAYER" = repo ] || return 0 ;;
-  esac
-  nd_where=$PROJECT_ROOT/$NOTES
+  [ -d "$PROJECT_ROOT/$NOTES" ] || return 0
   if ! notes_folder_ok; then
-    check_warn "Part of the path to $nd_where is a link, so syncs leave the notes folder alone."
+    check_warn "Part of the path to $PROJECT_ROOT/$NOTES is a link, so syncs leave the notes folder alone."
     return 0
   fi
-  notes_records
-  if ! grep -q '^wrote ' "$TMP/notes-records"; then
-    check_warn "Nothing has synced to $nd_where yet. The next sync in this project writes it."
-    return 0
-  fi
-  notes_scan
-  # A recorded note that changed here waits to be saved, as does a new file,
-  # unless the last sync couldn't take it as it is now
-  awk -v readme="$NOTES_TARGET/README.md" '
-    FILENAME == ARGV[1] && $1 == "wrote" { R[$4] = $3; rk[$4] = $2; next }
-    FILENAME == ARGV[1] && $1 == "refused" { F[$3] = $2; next }
-    FILENAME == ARGV[2] { L[$2] = $1; next }
-    END {
-      for (t in L) {
-        if (t == readme || ((t in R) && rk[t] != "note")) continue
-        if (t in R) notes++
-        if ((t in R) && L[t] == R[t]) continue
-        print ((t in F) && F[t] == L[t] ? "refused" : "waiting"), t
-      }
-      print "notes", notes + 0
-    }' "$TMP/notes-records" "$TMP/notes-local" >"$TMP/notes-doctor"
-  while IFS= read -r nd_name; do
-    printf 'refused %s/%s\n' "$NOTES_TARGET" "$nd_name" >>"$TMP/notes-doctor"
-  done <"$TMP/notes-misnamed"
-  check_pass "$nd_where holds $(plural "$(sed -n 's/^notes //p' "$TMP/notes-doctor")" note notes)."
-  # What Context Locker wrote there that's gone, which the next sync writes again
-  nd_missing=$(awk '
-    FILENAME == ARGV[1] && $1 == "wrote" { R[$4] = 1; next }
-    FILENAME == ARGV[2] { L[$2] = 1; next }
-    END { for (t in R) if (!(t in L)) n++; print n + 0 }' "$TMP/notes-records" "$TMP/notes-local")
-  [ "$nd_missing" -gt 0 ] &&
-    check_warn "$(plural "$nd_missing" 'file Context Locker wrote in the notes folder is' 'files Context Locker wrote in the notes folder are') missing. The next sync in this project writes them again."
-  nd_waiting=$(grep -c '^waiting ' "$TMP/notes-doctor")
-  [ "$nd_waiting" -gt 0 ] &&
-    check_warn "$(plural "$nd_waiting" 'file in the notes folder waits' 'files in the notes folder wait') to be saved at the next sync."
-  nd_refused=$(grep -c '^refused ' "$TMP/notes-doctor")
-  if [ "$nd_refused" -gt 0 ]; then
-    nd_names=$(sed -n "s|^refused {project}/$NOTES/||p" "$TMP/notes-doctor" | LC_ALL=C sort | head -n 3 |
-      awk '{ printf "%s%s", (NR > 1 ? ", " : ""), $0 }')
-    [ "$nd_refused" -gt 3 ] && nd_names="$nd_names and $((nd_refused - 3)) more"
-    check_warn "$(plural "$nd_refused" "file in the notes folder wasn't" 'files in the notes folder weren'"'"'t') saved at the last sync: $nd_names. A sync in this project says why."
-  fi
+  notes_left
+  nd_gone=$(wc -l <"$TMP/notes-gone" | tr -d ' ')
+  [ "$nd_gone" -gt 0 ] &&
+    check_warn "$PROJECT_ROOT/$NOTES holds $(plural "$nd_gone" 'copy of a note' 'copies of notes') that the next sync in this project takes out. Read notes with \`$RUN notes $HARNESS read\`."
+  nd_line=$(notes_named_line) && check_warn "$nd_line"
   return 0
 }
 
@@ -5888,6 +5815,14 @@ map() {
 # --- Tickets: server-owned work, never a local board ------------------------
 
 tickets_mode() {
+  # files upload sends a file for a note to show, and says its id (CLK-368)
+  if [ "$MODE" = files ] && [ "$TICKET_COMMAND" = upload ]; then
+    fu_id=$(send_file "$TICKET_FILE") || return 1
+    fu_name=$(basename "$TICKET_FILE" | tr -d '[]')
+    printf 'Sent %s as upload %s. Show it in a note'"'"'s text as ![%s](file:%s) with notes write, or keep it as a project file with files write, upload set to %s.\n' \
+      "$fu_name" "$fu_id" "$fu_name" "$fu_id" "$fu_id"
+    return 0
+  fi
   if [ -n "$TICKET_FILE" ]; then
     [ -f "$TICKET_FILE" ] || finish_early "the request must be a UTF-8 JSON file."
     tk_size=$(wc -c <"$TICKET_FILE" | tr -d ' ')
@@ -5901,11 +5836,17 @@ tickets_mode() {
   find_project ask && tk_query="?project=$PROJECT_ID"
   tk_accept=text/plain
   [ "$TICKET_JSON" = 1 ] && tk_accept=application/json
+  # files write --file sends the file in parts first, and names its upload
+  # in the request's address (CLK-368)
+  if [ -n "$FILE_PATH" ]; then
+    tk_upload=$(send_file "$FILE_PATH") || return 1
+    tk_query="${tk_query:-?}${tk_query:+&}upload=$tk_upload"
+  fi
   tk_path=/v1/sync/$MODE/$TICKET_COMMAND
   # Tasks keep the API's own address for them, which every release knows
   case $MODE in
     tasks) tk_path=/v1/sync/tickets/$TICKET_COMMAND ;;
-    suggest | remember | message | context | whoami) tk_path=/v1/sync/$MODE ;;
+    suggest | remember | message | context | whoami | table) tk_path=/v1/sync/$MODE ;;
   esac
   tk_code=$(status_of "$(http POST "$tk_path$tk_query" "$TMP/ticket-reply" "$TMP/ticket-body" application/json '' '' '' "$tk_accept")")
   case $tk_code in
@@ -7291,24 +7232,6 @@ notes_move_out() {
   done
   mo_dest=$mo_root/$mo_rel
 
-  # A note edited in the notes folder, or a new one there, goes to Context
-  # Locker before the notes move, so no change is left behind. The notes that
-  # apply everywhere don't move, so their edits can wait.
-  if [ -d "$PROJECT_ROOT/$NOTES" ] && notes_folder_ok; then
-    notes_records
-    notes_scan
-    awk -v readme="$NOTES_TARGET/README.md" -v everywhere="$NOTES_TARGET/everywhere/" '
-      FILENAME == ARGV[1] && $1 == "wrote" { R[$4] = $3; rk[$4] = $2; next }
-      FILENAME == ARGV[2] && $2 != readme && index($2, everywhere) != 1 &&
-        (!($2 in R) || (rk[$2] == "note" && R[$2] != $1)) { print $2 }' \
-      "$TMP/notes-records" "$TMP/notes-local" | sed 's|^{project}/||' | LC_ALL=C sort >"$TMP/notes-unsaved"
-    if [ -s "$TMP/notes-unsaved" ]; then
-      printf "Context Locker: nothing moved, as some of %s isn't saved in Context Locker yet: %s. Sync first, with: %s %s\n" \
-        "$NOTES" "$(short_list "$TMP/notes-unsaved")" "$RUN" "$HARNESS" >&2
-      return 1
-    fi
-  fi
-
   # The project's notes, as the repo will keep them
   code=$(status_of "$(http GET "/v1/sync/move-out?project=$PROJECT_ID" "$TMP/move.tar" '' '' '' '' '')")
   case $code in
@@ -7502,10 +7425,9 @@ notes_move_out() {
     fi
   fi
   [ "$mo_count" -gt 0 ] || return 1
-  if [ -d "$PROJECT_ROOT/$NOTES" ]; then
-    printf 'The next sync in this project takes the moved notes out of %s, keeping a copy of each in %s.\n' \
-      "$NOTES" "$(home_path "$CL_HOME/backups")"
-  fi
+  # Files a sync left in the notes folder hold what didn't move (CLK-423)
+  notes_left
+  mo_left=$(notes_named_line) && printf '%s\n' "$mo_left"
   return 0
 }
 
@@ -7532,7 +7454,6 @@ what_changed() {
   wc_parts=
   [ "$W_BLOCKS" -gt 0 ] && wc_parts="its instructions"
   [ "$W_SKILLS" -gt 0 ] && wc_parts="$wc_parts${wc_parts:+|}$(plural "$W_SKILLS" skill skills)"
-  [ "$W_NOTES" -gt 0 ] && wc_parts="$wc_parts${wc_parts:+|}$(plural "$W_NOTES" note notes)"
   [ -n "$wc_parts" ] || return 1
   printf '%s' "$wc_parts" | awk -F '|' '{
     for (i = 1; i <= NF; i++) printf "%s%s", (i == 1 ? "" : (i == NF ? " and " : ", ")), $i
@@ -7657,10 +7578,26 @@ fs.renameSync(file + ".ctx-tmp", file);
 ' "$1" "$INSTALLED" 2>/dev/null
 }
 
+# What a sync left in a project's notes folder: the copies of notes, which
+# go, and the files that hold what Context Locker doesn't have, which stay
+# (CLK-423)
+rm_notes() {
+  if [ "$YES" != 1 ]; then
+    notes_left
+  elif ! notes_left take; then
+    printf "copies of notes in %s, which couldn't all be taken out\n" "$PROJECT_ROOT/$NOTES" >>"$TMP/remove-failed"
+  fi
+  rn_gone=$(wc -l <"$TMP/notes-gone" | tr -d ' ')
+  [ "$rn_gone" -gt 0 ] &&
+    printf '%s in %s\n' "$(plural "$rn_gone" 'copy of a note' 'copies of notes')" "$PROJECT_ROOT/$NOTES" >>"$TMP/remove-taken"
+  rn_line=$(notes_named_line) && printf '%s\n' "$rn_line" >>"$TMP/remove-kept"
+  return 0
+}
+
 # Each thing a lock file says the sync wrote, as "<kind> <hash> <target>":
-# blocks and skills, and a project's notes and their README
+# blocks and skills
 rm_written() {
-  awk '$1 == "wrote" && ($2 == "block" || $2 == "skill" || $2 == "note" || $2 == "file") &&
+  awk '$1 == "wrote" && ($2 == "block" || $2 == "skill") &&
     $3 ~ /^[0-9a-f]+$/ && length($3) == 64 && $4 ~ /^[{][a-z]+[}]\// && $4 !~ /[.][.]/ { print $2, $3, $4 }' "$1" 2>/dev/null
 }
 
@@ -7683,10 +7620,8 @@ rm_local() {
 }
 
 # Takes out, or with no --yes only names, what one lock says the sync wrote
-# that's still as it wrote it. A project's notes stay while another app here
-# syncs that project.
+# that's still as it wrote it
 rm_lock() {
-  rl_shared=$2
   rm_written "$1" >"$TMP/remove-items"
   while read -r rk_kind rk_hash rk_target; do
     case $rk_target in
@@ -7702,10 +7637,6 @@ rm_lock() {
       skill) rk_what="the skill ${rk_target##*/} at $rk_path" ;;
       *) rk_what=$rk_path ;;
     esac
-    if [ "$rl_shared" = 1 ] && { [ "$rk_kind" = note ] || [ "$rk_kind" = file ]; }; then
-      printf '%s, as another app on %s syncs that project\n' "$rk_what" "$(computer 'the computer')" >>"$TMP/remove-kept"
-      continue
-    fi
     rk_local=$(rm_local "$rk_kind" "$rk_path")
     [ "$rk_local" = none ] && continue
     if [ "$rk_local" != "$rk_hash" ]; then
@@ -7798,7 +7729,7 @@ remove_mode() {
 
   # What the sync wrote for the app itself, then in each project linked here
   PROJECT_ROOT= PROJECT_ID=
-  rm_lock "$APP_DIR/global.lock" 0
+  rm_lock "$APP_DIR/global.lock"
   if [ -f "$CL_HOME/projects" ]; then
     while read -r rm_id rm_folder; do
       [ -f "$APP_DIR/projects/$rm_id.lock" ] && [ -d "$rm_folder" ] || continue
@@ -7807,7 +7738,8 @@ remove_mode() {
         [ -f "$CL_HOME/$rm_app/projects/$rm_id.lock" ] && rm_shared=1
       done
       PROJECT_ROOT=$rm_folder PROJECT_ID=$rm_id
-      rm_lock "$APP_DIR/projects/$rm_id.lock" "$rm_shared"
+      rm_lock "$APP_DIR/projects/$rm_id.lock"
+      rm_notes
       if [ "$YES" = 1 ] && [ "$rm_shared" = 0 ]; then
         rmdir "$rm_folder/.context-locker/notes/everywhere" "$rm_folder/.context-locker/notes" \
           "$rm_folder/.context-locker" 2>/dev/null || :
@@ -7878,7 +7810,7 @@ if [ "$MODE" != sync ]; then
     daily-job) daily_job_mode ;;
     update) update_mode ;;
     remove) remove_mode ;;
-    tasks | requests | notes | suggest | remember | message | context | versions | projects | skills | whoami) tickets_mode ;;
+    tasks | requests | notes | suggest | remember | message | context | versions | projects | skills | whoami | files | table) tickets_mode ;;
   esac
   exit $?
 fi
@@ -7890,14 +7822,17 @@ global_ok=$?
 global_failed=$FAILED
 
 if [ "$DAILY" = 0 ]; then
-  [ -n "$PROJECT_FLAG" ] && link_project
   # Without the global manifest, use the workspace from the last one
   [ -z "$WORKSPACE_ID" ] &&
     WORKSPACE_ID=$(sed -n "s/^entry workspace \\($UUID\\)\$/\\1/p" "$APP_DIR/global.lock" 2>/dev/null | head -n 1)
+  # A folder --project doesn't link gets none of the project's files (CLK-420)
+  linked_ok=1
+  if [ -n "$PROJECT_FLAG" ]; then link_project || linked_ok=0; fi
   # Context Locker is asked about the git remote only once it has answered
   how=local
   [ "$global_ok" = 0 ] && how=link
-  if find_project "$how" && [ "$global_ok" = 0 ]; then
+  if [ "$linked_ok" = 1 ] && find_project "$how" && [ "$global_ok" = 0 ] &&
+    { [ "$FOUND_BY" != local ] || linked_folder_ok; }; then
     SCOPE=project
     sync_scope "?project=$PROJECT_ID&layer=$LAYER" "$APP_DIR/projects/$PROJECT_ID"
     if [ $? = 3 ]; then

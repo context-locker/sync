@@ -10,6 +10,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -77,7 +78,13 @@ class FakeLocker {
   /** The room each request said the app's global file leaves (G1-309) */
   globalRooms: Array<{ path: string; room: string | undefined }> = [];
   /** What each kind of request sent, in order */
-  sent: Record<string, string[]> = { find: [], record: [], map: [], done: [] };
+  sent: Record<string, string[]> = {
+    find: [],
+    record: [],
+    map: [],
+    done: [],
+    repo: [],
+  };
   blobs = new Map<string, Blob>();
 
   add(project: Omit<FakeProject, "id"> & { id?: string }): FakeProject {
@@ -138,8 +145,6 @@ class FakeLocker {
           : {}),
         preferences: project.preferences ?? [],
         skills: [],
-        notes: [],
-        tags: [],
       }).outputs,
       holds: [],
       links: project.links ?? [],
@@ -214,6 +219,23 @@ describe("a project in the sync", () => {
             project: { id: project.id, name: project.name },
             git_remote: FakeLocker.normal(project.remote as string),
           });
+        } else if (route === "POST /v1/sync/repo") {
+          // Whether a folder is the project's repo, by its remote (CLK-420)
+          fake.sent.repo?.push(`${url.searchParams.get("project")} ${body}`);
+          const project = fake.projects.get(
+            url.searchParams.get("project") ?? "",
+          );
+          if (!project) return json(404, { error: "not_found" });
+          json(200, {
+            repo: Boolean(
+              project.remote &&
+              body &&
+              FakeLocker.normal(project.remote) === FakeLocker.normal(body),
+            ),
+            git_remote: project.remote
+              ? FakeLocker.normal(project.remote)
+              : null,
+          });
         } else if (route === "PUT /v1/sync/remote") {
           fake.sent.record?.push(`${url.searchParams.get("project")} ${body}`);
           json(200, { status: "recorded" });
@@ -277,6 +299,43 @@ describe("a project in the sync", () => {
       spawnSync("git", ["-C", dir, "remote", "add", "origin", origin]);
     return dir;
   }
+
+  const git = (dir: string, ...args: string[]) =>
+    spawnSync("git", ["-C", dir, ...args], { encoding: "utf8" });
+  /** Commits these paths in the folder, or all it holds, as Nova */
+  const commit = (dir: string, ...paths: string[]) => {
+    git(dir, "add", ...(paths.length > 0 ? ["--", ...paths] : ["-A"]));
+    git(
+      dir,
+      "-c",
+      "user.name=Nova",
+      "-c",
+      "user.email=nova@example.com",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "Docs",
+    );
+  };
+  /**
+   * Makes the folder's last commit origin's default branch, main, as a clone
+   * that just fetched it has it (CLK-420)
+   */
+  const fetched = (dir: string) => {
+    git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
+    git(
+      dir,
+      "symbolic-ref",
+      "refs/remotes/origin/HEAD",
+      "refs/remotes/origin/main",
+    );
+  };
+  /** A report's lines about links */
+  const linkLines = (report: string | undefined) =>
+    (report ?? "")
+      .split("\n")
+      .filter((line) => /^(repo-links|repo-remote|missing) /.test(line));
 
   const linkFile = (dir: string, project: string) =>
     writeFileSync(
@@ -575,7 +634,8 @@ describe("a project in the sync", () => {
           // Outside a git work tree too
           const plain = join(machine.home, "plain");
           mkdirSync(plain);
-          assert.equal((await run(shell, machine, { cwd: plain })).status, 0);
+          const outside = await run(shell, machine, { cwd: plain });
+          assert.equal(outside.status, 0, outside.stderr);
           assert.deepEqual(fake.sent.find, []);
           assert.deepEqual(projectSyncs(), []);
           assert.equal(linked(machine.home), "");
@@ -612,11 +672,16 @@ describe("a project in the sync", () => {
             `GET /v1/sync?project=${byFile.id}&layer=repo`,
           ]);
 
-          // --project wins over the file, and records the remote on its project
+          // --project wins over the file, and, on the person's word for a
+          // project with no repository, records the remote on it (CLK-423)
           fake.requests = [];
           const flagged = await run(shell, machine, {
             cwd: sub,
-            args: [shell === "pwsh" ? "-Project" : "--project", byFlag.id],
+            args: [
+              shell === "pwsh" ? "-Project" : "--project",
+              byFlag.id,
+              shell === "pwsh" ? "-LinkFolder" : "--link-folder",
+            ],
           });
           assert.equal(flagged.status, 0, flagged.stderr);
           assert.deepEqual(projectSyncs(), [
@@ -634,8 +699,9 @@ describe("a project in the sync", () => {
             `GET /v1/sync?project=${byFile.id}&layer=repo`,
           ]);
 
-          // Then the link
+          // Then the link, to a checkout of the project's repository
           rmSync(join(clone, ".contextlocker.json"));
+          byLink.remote = "github.com/acme/docs";
           writeFileSync(
             join(machine.home, ".contextlocker", "projects"),
             `${byLink.id} ${clone}\n`,
@@ -647,6 +713,7 @@ describe("a project in the sync", () => {
           ]);
 
           // And last the remote, which links the folder
+          delete byLink.remote;
           rmSync(join(machine.home, ".contextlocker", "projects"));
           fake.requests = [];
           const found = await run(shell, machine, { cwd: sub });
@@ -660,80 +727,369 @@ describe("a project in the sync", () => {
           assert.equal(fake.sent.find?.length, 1);
         });
 
-        it("checks the project's pointers to paths in its repo, says which are missing in one line, and reports them", async () => {
+        it("checks the project's links in the default branch the checkout last fetched, says which are missing in one line, and reports them with its remote (CLK-420)", async () => {
           const machine = computer();
-          const ids = Array.from({ length: 6 }, () => randomUUID());
+          const ids = Array.from({ length: 7 }, () => randomUUID());
+          const at = (index: number) => ids[index] as string;
           const docs = fake.add({
             name: "Docs site",
             links: [
-              { id: ids[0] as string, path: "docs/runbook.md" },
-              { id: ids[1] as string, path: "docs/missing.md" },
-              { id: ids[2] as string, path: "docs/outside.md" },
-              { id: ids[3] as string, path: "docs/inside.md" },
-              { id: ids[4] as string, path: "design/first draft.md" },
-              { id: ids[5] as string, path: "shared/notes.md" },
+              { id: at(0), path: "docs/runbook.md" },
+              { id: at(1), path: "docs/missing.md" },
+              { id: at(2), path: "docs/feature.md" },
+              { id: at(3), path: "docs/gone-here.md" },
+              { id: at(4), path: "design/first draft.md" },
+              { id: at(5), path: "docs/inside.md" },
+              { id: at(6), path: "shared/notes.md" },
             ],
           });
-          const clone = repo(machine.home, "docs");
+          const clone = repo(
+            machine.home,
+            "docs",
+            "git@github.com:acme/docs.git",
+          );
           linkFile(clone, docs.id);
           mkdirSync(join(clone, "docs"));
           mkdirSync(join(clone, "design"));
           writeFileSync(join(clone, "docs", "runbook.md"), "Run it.\n");
+          writeFileSync(join(clone, "docs", "gone-here.md"), "Here.\n");
           writeFileSync(join(clone, "design", "first draft.md"), "Draft.\n");
-          // A link to a file inside the repo counts; one out of it doesn't
+          // A link in the repo to a file in it counts, as GitHub lists it; a
+          // path through a folder that's a link doesn't
           symlinkSync("runbook.md", join(clone, "docs", "inside.md"));
-          writeFileSync(join(machine.home, "secret.md"), "Not the repo's.\n");
-          symlinkSync(
-            join(machine.home, "secret.md"),
-            join(clone, "docs", "outside.md"),
-          );
-          // Nor does a folder that leads out of it
           mkdirSync(join(machine.home, "elsewhere"));
           writeFileSync(
             join(machine.home, "elsewhere", "notes.md"),
             "Elsewhere.\n",
           );
           symlinkSync(join(machine.home, "elsewhere"), join(clone, "shared"));
+          commit(clone);
+          fetched(clone);
+          // A feature branch's file doesn't count, and one gone from the
+          // disk but on the default branch is still there
+          git(clone, "checkout", "-q", "-b", "feature");
+          writeFileSync(join(clone, "docs", "feature.md"), "Feature.\n");
+          commit(clone, "docs/feature.md");
+          rmSync(join(clone, "docs", "gone-here.md"));
 
           const first = await run(shell, machine, { cwd: clone });
           assert.equal(first.status, 0, first.stderr);
           assert.equal(
             first.stderr,
-            `Context Locker: 3 of this project's pointers point to paths that aren't in ${clone}: docs/missing.md, docs/outside.md, shared/notes.md. If they moved, change their addresses in Context Locker.\n`,
+            `Context Locker: 3 of this project's links lead to paths that aren't on origin/main, the default branch ${clone} last fetched: docs/feature.md, docs/missing.md, shared/notes.md. If they moved, change their addresses in Context Locker.\n`,
           );
-          const report = fake.sent.done?.at(-1) ?? "";
-          assert.match(report, /^links 6$/m);
-          assert.deepEqual(
-            report.split("\n").filter((line) => line.startsWith("missing ")),
-            // In the manifest's order, by path
-            [`missing ${ids[1]}`, `missing ${ids[2]}`, `missing ${ids[5]}`],
-          );
+          // In the manifest's order, by path, with the folder's remote for
+          // Context Locker to check, without its user name
+          assert.deepEqual(linkLines(fake.sent.done?.at(-1)), [
+            "repo-links 7",
+            "repo-remote github.com:acme/docs.git",
+            `missing ${at(2)}`,
+            `missing ${at(1)}`,
+            `missing ${at(6)}`,
+          ]);
 
           // Nothing changed, so nothing more is reported
-          const reports = fake.sent.done?.length;
+          const reports = fake.sent.done?.length ?? 0;
           const second = await run(shell, machine, { cwd: clone });
           assert.equal(second.status, 0);
           assert.equal(fake.sent.done?.length, reports);
 
-          // A file that comes back is reported, even with the same manifest
+          // Files the default branch gets are reported, even with the same
+          // manifest
           writeFileSync(join(clone, "docs", "missing.md"), "Back.\n");
+          commit(clone, "docs/missing.md");
+          fetched(clone);
           const third = await run(shell, machine, { cwd: clone });
           assert.match(
             third.stderr,
-            /2 of this project's pointers point to paths that aren't in .*: docs\/outside\.md, shared\/notes\.md\./,
+            /1 of this project's links leads to a path that isn't on origin\/main, the default branch .* last fetched: shared\/notes\.md\. If it moved, change the link's address in Context Locker\./,
           );
-          assert.equal(fake.sent.done?.length, (reports ?? 0) + 1);
-          assert.deepEqual(
-            (fake.sent.done?.at(-1) ?? "")
-              .split("\n")
-              .filter((line) => /^(links|missing) /.test(line)),
-            ["links 6", `missing ${ids[2]}`, `missing ${ids[5]}`],
-          );
-          // And nothing in the repo changed
+          assert.equal(fake.sent.done?.length, reports + 1);
+          assert.deepEqual(linkLines(fake.sent.done?.at(-1)), [
+            "repo-links 7",
+            "repo-remote github.com:acme/docs.git",
+            `missing ${at(6)}`,
+          ]);
+
+          // With no default branch to look in, it checks none, and reports
+          // that it found nothing, so what it found before goes; the folder's
+          // remote still goes with it (CLK-423)
+          git(clone, "symbolic-ref", "-d", "refs/remotes/origin/HEAD");
+          const fourth = await run(shell, machine, { cwd: clone });
+          assert.equal(fourth.status, 0, fourth.stderr);
+          assert.equal(fourth.stderr, "");
+          assert.equal(fake.sent.done?.length, reports + 2);
+          assert.deepEqual(linkLines(fake.sent.done?.at(-1)), [
+            "repo-remote github.com:acme/docs.git",
+          ]);
+          // And nothing outside the repo changed
           assert.equal(
-            readFileSync(join(machine.home, "secret.md"), "utf8"),
-            "Not the repo's.\n",
+            readFileSync(join(machine.home, "elsewhere", "notes.md"), "utf8"),
+            "Elsewhere.\n",
           );
+        });
+
+        it("links a folder to a project only when it's a checkout of the project's repository, and a sync anywhere else checks none of its links and clears what it found (CLK-420)", async () => {
+          const machine = computer();
+          const id = randomUUID();
+          const docs = fake.add({
+            name: "Docs site",
+            remote: "github.com/acme/docs",
+            links: [{ id, path: "docs/missing.md" }],
+          });
+          const flag = shell === "pwsh" ? "-Project" : "--project";
+
+          // A clone of the project's repository checks them and reports them
+          const clone = repo(
+            machine.home,
+            "docs",
+            "git@github.com:acme/docs.git",
+          );
+          writeFileSync(join(clone, "README.md"), "Docs.\n");
+          commit(clone);
+          fetched(clone);
+          const right = await run(shell, machine, {
+            cwd: clone,
+            args: [flag, docs.id],
+          });
+          assert.equal(right.status, 0, right.stderr);
+          assert.match(
+            right.stderr,
+            /1 of this project's links leads to a path that isn't on origin\/main, the default branch .* last fetched: docs\/missing\.md\./,
+          );
+          assert.equal(linked(machine.home), `${docs.id} ${clone}\n`);
+          assert.deepEqual(linkLines(fake.sent.done?.at(-1)), [
+            "repo-links 1",
+            "repo-remote github.com:acme/docs.git",
+            `missing ${id}`,
+          ]);
+          // The remote goes without its user name, as every remote does
+          assert.ok(
+            fake.sent.repo?.includes(`${docs.id} github.com:acme/docs.git`),
+            JSON.stringify(fake.sent.repo),
+          );
+
+          // A folder of another repo isn't linked, gets none of the
+          // project's files, and hears how to read the project for one call
+          const other = repo(
+            machine.home,
+            "other",
+            "https://github.com/acme/other.git",
+          );
+          fake.requests = [];
+          const wrong = await run(shell, machine, {
+            cwd: other,
+            args: [flag, docs.id],
+          });
+          assert.equal(wrong.status, 0, wrong.stderr);
+          assert.match(
+            wrong.stderr,
+            new RegExp(
+              `^Context Locker: didn't link ${other.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} to the project: it isn't a checkout of github\\.com/acme/docs, the project's repository\\. Run ${flag} in a checkout of it, or read the project for one call instead with \`.+ context claude-code ${flag} ${docs.id}\`\\.$`,
+              "m",
+            ),
+          );
+          assert.equal(linked(machine.home), `${docs.id} ${clone}\n`);
+          assert.deepEqual(projectSyncs(), []);
+          assert.equal(existsSync(join(other, ".context-locker")), false);
+          assert.equal(existsSync(join(other, "CLAUDE.md")), false);
+
+          // Nor is a folder with no repo at all
+          const plain = join(machine.home, "plain");
+          mkdirSync(plain);
+          const bare = await run(shell, machine, {
+            cwd: plain,
+            args: [flag, docs.id],
+          });
+          assert.match(
+            bare.stderr,
+            /didn't link .* to the project: it isn't a checkout of github\.com\/acme\/docs/,
+          );
+          // And when Context Locker can't say, nothing is linked either
+          const unknown = await run(shell, machine, {
+            cwd: plain,
+            args: [flag, randomUUID()],
+          });
+          assert.match(
+            unknown.stderr,
+            /didn't link .* to the project, as Context Locker couldn't say whether it's a checkout of the project's repository\./,
+          );
+          assert.equal(linked(machine.home), `${docs.id} ${clone}\n`);
+
+          // A folder an older script linked is unlinked at the next sync,
+          // gets none of the project's files and sends nothing, so what this
+          // agent found in the clone stands (CLK-423)
+          writeFileSync(
+            join(machine.home, ".contextlocker", "projects"),
+            `${docs.id} ${clone}\n${docs.id} ${other}\n`,
+          );
+          const reports = fake.sent.done?.length ?? 0;
+          fake.requests = [];
+          const before = await run(shell, machine, { cwd: other });
+          assert.equal(before.status, 0, before.stderr);
+          assert.match(
+            before.stderr,
+            new RegExp(
+              `^Context Locker: unlinked ${other.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} from its project, as it isn't a checkout of github\\.com/acme/docs, the project's repository, so it gets none of the project's files\\. Read the project with \`.+ context claude-code ${flag} ${docs.id}\`\\.$`,
+              "m",
+            ),
+          );
+          assert.equal(linked(machine.home), `${docs.id} ${clone}\n`);
+          assert.deepEqual(projectSyncs(), []);
+          assert.equal(fake.sent.done?.length, reports);
+          assert.equal(existsSync(join(other, "CLAUDE.md")), false);
+        });
+
+        it("links a folder to a project with no repository only on the person's word, which records the folder's remote, and sends the folder's remote with every project report (CLK-423)", async () => {
+          const machine = computer();
+          const site = fake.add({ name: "Site" });
+          const flag = shell === "pwsh" ? "-Project" : "--project";
+          const linkFlag = shell === "pwsh" ? "-LinkFolder" : "--link-folder";
+          const clone = repo(
+            machine.home,
+            "site",
+            "https://github.com/acme/site.git",
+          );
+
+          // Named alone, the project is read for one call: nothing is linked
+          // and nothing written
+          const named = await run(shell, machine, {
+            cwd: clone,
+            args: [flag, site.id],
+          });
+          assert.equal(named.status, 0, named.stderr);
+          assert.match(
+            named.stderr,
+            new RegExp(
+              `^Context Locker: didn't link ${clone.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} to the project, which has no repository, so no folder gets its files\\. Read it with \`.+ context claude-code ${flag} ${site.id}\`\\. To link this folder, which records its git remote as the project's repository, run ${flag} with ${linkFlag}, only on the person's word\\.$`,
+              "m",
+            ),
+          );
+          assert.equal(linked(machine.home), "");
+          assert.deepEqual(projectSyncs(), []);
+          assert.equal(existsSync(join(clone, "CLAUDE.md")), false);
+
+          // A repo with no remote can't be linked, as it has none to record
+          const local = repo(machine.home, "local");
+          const bare = await run(shell, machine, {
+            cwd: local,
+            args: [flag, site.id, linkFlag],
+          });
+          assert.match(
+            bare.stderr,
+            /didn't link .* to the project: it's a repo with no git remote, which would become the project's repository\. Read the project with `.+ context claude-code/,
+          );
+          assert.equal(linked(machine.home), "");
+
+          // On the person's word, the checkout is linked, synced and its
+          // remote recorded on the project
+          const linkedNow = await run(shell, machine, {
+            cwd: clone,
+            args: [flag, site.id, linkFlag],
+          });
+          assert.equal(linkedNow.status, 0, linkedNow.stderr);
+          assert.equal(linked(machine.home), `${site.id} ${clone}\n`);
+          assert.ok(
+            fake.sent.record?.includes(
+              `${site.id} https://github.com/acme/site.git`,
+            ),
+            JSON.stringify(fake.sent.record),
+          );
+          // With no links to check, the report still carries the remote
+          assert.deepEqual(linkLines(fake.sent.done?.at(-1)), [
+            "repo-remote https://github.com/acme/site.git",
+          ]);
+        });
+
+        it("links a folder outside any repo to a project for this computer only, on the person's word, writing nothing into it while a session there gets the project at its start (CLK-423)", async () => {
+          const machine = computer();
+          const project = fake.add({
+            name: "Scratch",
+            remote: "github.com/acme/scratch",
+            preferences: projectPreferences,
+            links: [{ id: randomUUID(), path: "docs/plan.md" }],
+          });
+          const flag = shell === "pwsh" ? "-Project" : "--project";
+          const linkFlag = shell === "pwsh" ? "-LinkFolder" : "--link-folder";
+          const esc = (text: string) =>
+            text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const plain = join(machine.home, "scratch");
+          mkdirSync(plain);
+
+          // Named alone, nothing is linked, and the line offers the plain link
+          const named = await run(shell, machine, {
+            cwd: plain,
+            args: [flag, project.id],
+          });
+          assert.equal(named.status, 0, named.stderr);
+          assert.match(
+            named.stderr,
+            new RegExp(
+              `didn't link ${esc(plain)} to the project: it isn't a checkout of github\\.com/acme/scratch, the project's repository\\. Read the project for one call instead with \`.+ context claude-code ${flag} ${project.id}\`, or link this folder for this computer only, writing nothing into it, with ${flag} and ${linkFlag}, only on the person's word\\.$`,
+              "m",
+            ),
+          );
+          assert.equal(linked(machine.home), "");
+
+          // On the person's word it's a plain link, kept apart from a
+          // checkout's, and the project comes at the session's start
+          fake.requests = [];
+          const linkedNow = await run(shell, machine, {
+            cwd: plain,
+            args: [flag, project.id, linkFlag],
+          });
+          assert.equal(linkedNow.status, 0, linkedNow.stderr);
+          assert.match(
+            linkedNow.stderr,
+            /linked .* to the project for this computer only: the sync writes nothing into it and checks none of its links, and a session started there gets the project at its start\./,
+          );
+          assert.equal(linked(machine.home), `plain ${project.id} ${plain}\n`);
+          assert.deepEqual(projectSyncs(), [
+            `GET /v1/sync?project=${project.id}&layer=personal`,
+          ]);
+          assert.deepEqual(readdirSync(plain), []);
+          assert.match(
+            linkedNow.stdout,
+            /Context Locker preferences for Scratch/,
+          );
+
+          // A session started there, or in a folder in it, gets the project
+          // at its start, checks no links, and the link stays
+          const sub = join(plain, "drafts");
+          mkdirSync(sub);
+          fake.requests = [];
+          const later = await run(shell, machine, { cwd: sub });
+          assert.equal(later.status, 0, later.stderr);
+          assert.equal(later.stderr, "");
+          assert.match(later.stdout, /Context Locker preferences for Scratch/);
+          assert.deepEqual(projectSyncs(), [
+            `GET /v1/sync?project=${project.id}&layer=personal`,
+          ]);
+          assert.ok(
+            !fake.requests.some((request) =>
+              request.startsWith("POST /v1/sync/repo"),
+            ),
+            JSON.stringify(fake.requests),
+          );
+          assert.deepEqual(readdirSync(plain), ["drafts"]);
+          assert.deepEqual(readdirSync(sub), []);
+          assert.equal(linked(machine.home), `plain ${project.id} ${plain}\n`);
+
+          // A checkout of another repo is never linked that way
+          const other = repo(
+            machine.home,
+            "other",
+            "https://github.com/acme/other.git",
+          );
+          const refused = await run(shell, machine, {
+            cwd: other,
+            args: [flag, project.id, linkFlag],
+          });
+          assert.match(
+            refused.stderr,
+            /didn't link .* to the project: it isn't a checkout of github\.com\/acme\/scratch, the project's repository\. Run .* in a checkout of it/,
+          );
+          assert.equal(linked(machine.home), `plain ${project.id} ${plain}\n`);
         });
 
         it("prints the project's map for the folder it runs in, or every entry with --all", async () => {
@@ -789,11 +1145,20 @@ describe("a project in the sync", () => {
 
         it("syncs the projects linked on this computer in a daily run, quietly, as far as each app works in projects", async () => {
           const machine = computer(["codex", "hermes", "openclaw"]);
-          const one = fake.add({ name: "One" });
-          const two = fake.add({ name: "Two" });
+          // Each linked folder is a checkout of its project's repository
+          const one = fake.add({ name: "One", remote: "github.com/acme/one" });
+          const two = fake.add({ name: "Two", remote: "github.com/acme/two" });
           const inRepo = fake.add({ name: "In a repo" });
-          const first = repo(machine.home, "one");
-          const second = repo(machine.home, "two");
+          const first = repo(
+            machine.home,
+            "one",
+            "https://github.com/acme/one.git",
+          );
+          const second = repo(
+            machine.home,
+            "two",
+            "https://github.com/acme/two.git",
+          );
           const third = repo(machine.home, "three");
           linkFile(third, inRepo.id);
           writeFileSync(

@@ -40,11 +40,7 @@ import {
 
 const GOLDEN = join(dirname(fileURLToPath(import.meta.url)), "golden");
 
-/**
- * A readable dump of what a compile produced, compared with a fixed file. The
- * notes folder's files are listed by where they go; their own fixed files
- * hold what they say.
- */
+/** A readable dump of what a compile produced, compared with a fixed file. */
 function dump(compiled: Compiled): string {
   const parts: string[] = [];
   for (const output of compiled.outputs) {
@@ -56,9 +52,7 @@ function dump(compiled: Compiled): string {
       parts.push(
         `== skill ${output.target}\nitem: ${output.item.id}@${output.item.version}\nfiles: ${output.files.map((f) => f.path).join(", ")}\n`,
       );
-    } else if (output.kind === "file") {
-      parts.push(`== file ${output.target}\n`);
-    } else if (output.kind === "note" || output.kind === "memory") {
+    } else if (output.kind === "memory") {
       parts.push(
         `== ${output.kind} ${output.target}\nitem: ${output.item.id}@${output.item.version}\n`,
       );
@@ -395,7 +389,8 @@ describe("compiled output", () => {
       TEXT.docsHomeHeading,
       TEXT.docsHomePlace("[docs/decisions](docs/decisions)"),
       TEXT.docsHomeNotes,
-      TEXT.notesFolder,
+      TEXT.notesWrite,
+      TEXT.notesWriteChosen,
       TEXT.docsHomeLeftOut,
     ];
     for (const text of fixed)
@@ -559,44 +554,53 @@ describe("a project's map in its block", () => {
     );
   });
 
-  it("names a Start here note with its file in the notes folder, or by its title with how to read it", () => {
-    const note = startHere.find((entry) => entry.address === null)!;
+  it("links a Start here path in the repo to its page on the web, which every device opens, naming the path (CLK-422)", () => {
+    const guide = {
+      ...startHere[0]!,
+      webAddress:
+        "https://github.com/scrollport/docs/blob/HEAD/Old%20notes%20(v1).md",
+      address: "Old notes (v1).md",
+    };
     assert.equal(
-      startHereLine(note, { notesFolder: true }),
-      "- [Release plan](.context-locker/notes/release-plan.md) (plan): What ships in the Q4 release of the docs site, and when.",
+      startHereLine(guide, { ids: true }),
+      "- [Agent guide](https://github.com/scrollport/docs/blob/HEAD/Old%20notes%20%28v1%29.md) (onboarding, Old notes (v1).md in the repo): How to build, test and ship the docs site. Id: b1111111-1111-4111-8111-111111111111.",
     );
+    // A page a block can't link to leaves the path as it was
+    assert.equal(
+      startHereLine({ ...guide, webAddress: "javascript:alert(1)" }),
+      "- [Agent guide](Old%20notes%20%28v1%29.md) (onboarding): How to build, test and ship the docs site.",
+    );
+  });
+
+  it("names a Start here note by its title, with how to read it and, in an app's files, its id", () => {
+    const note = startHere.find((entry) => entry.address === null)!;
     assert.equal(
       startHereLine(note),
       "- Release plan (plan): What ships in the Q4 release of the docs site, and when. Read it with read_note, if you have it.",
     );
-    // A summary without a full stop still ends its sentence, and a name
-    // Windows keeps gets part of the note's id, as its file does
+    // A summary without a full stop still ends its sentence
     assert.equal(
-      startHereLine({ ...note, summary: "Who decides", name: "con" }),
+      startHereLine({ ...note, summary: "Who decides" }),
       "- Release plan (plan): Who decides. Read it with read_note, if you have it.",
-    );
-    assert.equal(
-      startHereLine({ ...note, name: "con" }, { notesFolder: true }),
-      "- [Release plan](.context-locker/notes/con-d1111111.md) (plan): What ships in the Q4 release of the docs site, and when.",
     );
     // With ids, for an app that opens entries by their id
     assert.equal(
       startHereLine(startHere[0]!, { ids: true }),
       "- [Agent guide](AGENTS.md) (onboarding): How to build, test and ship the docs site. Id: b1111111-1111-4111-8111-111111111111.",
     );
-    // Every app that writes a project's block mirrors its notes folder, so
-    // its files name the note's file
+    // A computer keeps no copies of notes, so every app's files name the
+    // note with how to read it and its id, for the notes command (CLK-423)
     for (const harness of COMPILED_HARNESSES) {
       for (const layer of ["repo", "personal"] as const) {
         for (const output of compile(mapped(harness, layer)).outputs) {
           if (output.kind !== "block" && output.kind !== "context") continue;
           assert.ok(
             output.text.includes(
-              "- [Release plan](.context-locker/notes/release-plan.md) (plan): ",
+              `- Release plan (plan): What ships in the Q4 release of the docs site, and when. ${TEXT.readNote("sync")} Id: ${note.id}.\n`,
             ),
             `${harness} ${layer}`,
           );
-          assert.ok(!output.text.includes(TEXT.readNote("sync")), harness);
+          assert.ok(!output.text.includes(".context-locker/notes"), harness);
         }
       }
     }
@@ -665,7 +669,7 @@ describe("a project's map in its block", () => {
       .split("\n");
     assert.match(
       section[2] ?? "",
-      /^- \[Lessons\]\(\.context-locker\/notes\/lessons\.md\) \(guide\): What agents worked out here\./,
+      /^- Lessons \(guide\): What agents worked out here\. Read it with the sync script's `notes <app> read`\. Id: c0de0000-6a7e-4e00-8000-0000000004e5\.$/,
     );
     assert.equal(
       section.filter((line) => line.startsWith("- [Guide ")).length,
@@ -701,10 +705,10 @@ describe("a project's map in its block", () => {
       assert.ok(!rule(none).includes(TEXT.docsHomeHeading));
       assert.doesNotMatch(rule(none), /docs home|lasting docs/i);
     }
-    // An app that only reads its files saves lasting docs in the notes folder
+    // An agent that reads its files saves lasting docs with the notes command
     assert.ok(
       rule({ kind: "notes" }).includes(
-        `${TEXT.docsHomeHeading}\n\n${TEXT.docsHomeNotes} ${TEXT.notesFolder}\n`,
+        `${TEXT.docsHomeHeading}\n\n${TEXT.docsHomeNotes} ${TEXT.notesWrite}\n`,
       ),
     );
     // A place: a folder in the repo, or a web address such as a Notion space
@@ -791,8 +795,8 @@ describe("a project's map in its block", () => {
         ...projectPreferences.map(({ id }) => id),
       ],
     );
-    // A project with nothing of its own and no map still gets no block, only
-    // its notes folder's README
+    // A project with nothing of its own and no map gets nothing, as a
+    // computer keeps no copies of notes (CLK-423)
     assert.deepEqual(
       compile({
         harness: "codex",
@@ -800,7 +804,7 @@ describe("a project's map in its block", () => {
         preferences: [],
         skills: [],
       }).outputs.map((output) => output.kind),
-      ["file"],
+      [],
     );
   });
 

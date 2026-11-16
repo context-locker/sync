@@ -103,5 +103,5 @@ test("a Start here link or a documentation location says when only one app can o
     rule,
     /- Dashboard: http:\/\/localhost:3000\/ \(only the computer that serves it can open it\)/,
   );
-  assert.match(rule, /- Notes \(default\): Context Locker Notes$/m);
+  assert.match(rule, /- Notes \(default\): Context Locker Docs$/m);
 });

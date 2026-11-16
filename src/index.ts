@@ -21,9 +21,12 @@ export {
   OPENCLAW_USER_MD,
   ROOM_MEASURED,
   TARGETS,
+  allProjectsSize,
   compile,
-  notesSynced,
+  projectSize,
+  teamPreferencesSize,
 } from "./compile.js";
+export type { PlaybookSize } from "./compile.js";
 export {
   IMPORT_PLAN_EXAMPLE,
   IMPORT_SKILL_DESCRIPTION,
@@ -75,23 +78,11 @@ export type {
   ScriptShell,
 } from "./manifest.js";
 export {
-  EVERYWHERE_FOLDER,
-  NOTES_FOLDER,
-  NOTES_PATH,
-  NOTES_README,
   NOTE_FILE_RULES,
   NOTE_REPLY_HEADER,
-  README_TEXT,
-  isNoteFileName,
-  isReservedNoteName,
   noteFileName,
-  noteTarget,
-  notesFolderOutputs,
   parseNoteReply,
-  parseNoteTarget,
   renderNoteFile,
-  renderNotesReadme,
-  splitNoteFile,
   writeNoteReply,
   yamlString,
 } from "./notes.js";
@@ -99,7 +90,6 @@ export type { NoteReply } from "./notes.js";
 export {
   DOCS_LOCATIONS_RULE,
   NO_DOCS_LOCATIONS,
-  OLD_INTROS,
   START_HERE_MOST,
   startHereShown,
   TEXT,

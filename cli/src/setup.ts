@@ -49,7 +49,7 @@ export interface SetupOptions {
 export const DONE = 0;
 export const FAILED = 1;
 export const USAGE = 2;
-export const WAITING = 3;
+const WAITING = 3;
 
 const plural = (count: number, one: string, many: string) =>
   `${count} ${count === 1 ? one : many}`;

@@ -15,7 +15,5 @@ No preferences saved yet.
 
 ### Docs home
 
-Keep lasting docs in Context Locker Notes, this project's docs home. Save each as a Markdown file in .context-locker/notes, with the front matter its README shows; the next sync saves it.
+Keep lasting docs in Context Locker Docs, this project's docs home. Save each with the sync script's `notes <app> write`.
 <!-- context-locker:end -->
-
-== file {project}/.context-locker/notes/README.md
