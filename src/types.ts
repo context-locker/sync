@@ -99,6 +99,11 @@ export interface NoteInput extends ItemRef {
   tags: string[];
   /** The note, in Markdown */
   text: string;
+  /**
+   * The address of the document it copies, kept somewhere else, when it
+   * copies one (CLK-442)
+   */
+  cameFrom?: string | null;
 }
 
 /**

@@ -460,7 +460,7 @@ export function projectSize(
 }
 
 /**
- * What a team's All projects adds to each of its projects whole: its
+ * What a Team context adds to each of its projects whole: its
  * heading, the line saying it's the team's and its preferences, the same
  * whatever the project, as it's read first in each (G1-329, CLK-415)
  */
@@ -475,7 +475,7 @@ export function teamPreferencesSize(
 }
 
 /**
- * The person's All projects whole, as each app's global file holds it after
+ * The person's Personal context whole, as each app's global file holds it after
  * the standing rules, against the smallest room the apps they sync files to
  * give it, or null when they sync files to none (CLK-415)
  */

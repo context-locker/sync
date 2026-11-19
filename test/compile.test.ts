@@ -1045,12 +1045,14 @@ describe("a team's project (G1-329)", () => {
     ]);
     assert.match(
       block.text,
-      /### All projects in Acme\n\nThe team's own, which its owners and admins change in Context Locker\. These lines aren't read back, so editing one here changes nothing\. [^\n]+\n\n- acme-is: Acme makes sites\.\n- team-voice: Write as Acme\.\n\n### Preferences\n\n- site-dates: Give dates with the year\.\n/,
+      /### Team context in Acme\n\nThe team's own, which its owners and admins change in Context Locker\. These lines aren't read back, so editing one here changes nothing\. [^\n]+\n\n- acme-is: Acme makes sites\.\n- team-voice: Write as Acme\.\n\n### Preferences\n\n- site-dates: Give dates with the year\.\n/,
     );
     assert.deepEqual(block.items, [{ id: "s1", version: 2 }]);
   });
 
   it("knows the team's heading, and the one it had before the word playbook was retired, so an old block's team lines still aren't read back (CLK-360)", () => {
+    assert.equal(isTeamHeading("### Team context in Acme"), true);
+    // As older blocks have it, until the next sync writes them again (CLK-474)
     assert.equal(isTeamHeading("### All projects in Acme"), true);
     assert.equal(isTeamHeading("### Acme's team playbook"), true);
     assert.equal(isTeamHeading("### Preferences"), false);

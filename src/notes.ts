@@ -65,6 +65,8 @@ export function renderNoteFile(
     typeof appliesTo === "string" || appliesTo.length === 1
       ? `applies_to: ${yamlString(typeof appliesTo === "string" ? appliesTo : (appliesTo[0] ?? ""))}`
       : `applies_to: [${appliesTo.map(yamlString).join(", ")}]`,
+    // Only a note that copies a document says where from (CLK-442)
+    ...(note.cameFrom ? [`came_from: ${yamlString(note.cameFrom)}`] : []),
     ...(options.ids === false
       ? []
       : [`id: ${yamlString(note.id)}`, `version: ${note.version}`]),

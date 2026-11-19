@@ -8,7 +8,7 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v69`](setup/v69), which runs `context-locker@0.1.18`, bundling script 40, then takes script 56, the newest, with `update`. The setup command 0.1.20, on npm since 10 Nov 2026, bundles script 49, and takes script 56 the same way. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for yourself, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
+Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v70`](setup/v70), which runs `context-locker@0.1.18`, bundling script 40, then takes script 57, the newest, with `update`. The setup command 0.1.20, on npm since 10 Nov 2026, bundles script 49, and takes script 57 the same way. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for yourself, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
 
 Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.20 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
 
@@ -157,7 +157,7 @@ The guide's version 9, and the files the compilers write, as Context Locker's ma
 
 Script 50, in setup 63, gives every one of Context Locker's MCP tools a twin in the sync script, so nothing an app can do over MCP is out of reach on a computer. One table, `TOOL_COMMANDS` in `src/tool-commands.ts`, pairs each tool with its command or says why it has none, and `test/tool-commands.test.ts` checks every command it names is in both scripts' help. Each command takes its tool's fields as a JSON file, as the app's own connection, and gives its reply:
 
-- `context <app> [request.json]`: get_context, for All projects, or with a project, in the project's folder or named in the request. It gives the same parts in the same order, naming the script's commands where get_context names tools.
+- `context <app> [request.json]`: get_context, for Personal context, or with a project, in the project's folder or named in the request. It gives the same parts in the same order, naming the script's commands where get_context names tools.
 - `notes <app> list|search|read|write`, `versions <app> list|read`, `projects <app> manage|docs-home`, `skills <app> source`, `requests <app> list|read|answer|decide` and `whoami <app>`, beside the `tasks`, `remember`, `suggest`, `message`, `map`, `fix` and `import-submit` commands from before.
 - get_skill needs none, as the sync puts every skill, the guide too, in the skills folder, and upload needs none, as the script sends a big import plan in parts itself.
 
@@ -166,6 +166,10 @@ A file with too little room for its block, or none, names `context <app>` in pla
 ## All projects and your context
 
 Script 51, in setup 64, retires the word playbook in everything an app reads, as Context Locker's tools and synced files do from the same release. All projects is the level above projects, whose entries apply in every project, for the person and for each team, and your context stands for preferences, skills and notes together. The script's help, the session start's line when something changed, export's reply and OpenClaw's hook file say so, as do the standing rules, the guide, version 13, and the Import skill, version 24. Requests name `all projects` where they named `my playbook`, and a notes list takes `include_all_projects`. A team's part of a project's block is headed `### All projects in <team>`, and the older heading is still read as one until the next sync writes the block again. Synced notes keep their `everywhere` folder. Setup 64 still runs the setup command 0.1.18, which saves script 40, then takes script 51 with `update`.
+
+## Personal context and Team context
+
+Script 57, in setup 70, names the level above projects Personal context for the person's own and Team context for a team's, where All projects named both, as Context Locker's tools and synced files do from the same release. The script's help, the session start's line when something changed and export's reply say so, as do the standing rules and the guide, version 38. Requests name `personal context` where they named `all projects`, and a new note names `team context` only beside its team. A team's part of a project's block is headed `### Team context in <team>`, and the readback still knows both earlier headings, so no team line is read back into the person's own. Only the script's words change, so earlier scripts take it in place with `update`.
 
 ## Links checked only in the repo
 
@@ -181,7 +185,7 @@ Script 54, in setup 67, brings a project into a folder only where that folder is
 
 ## Files and tables
 
-Script 55, in setup 68, gives a project's files and tables commands, as a computer keeps no copy of either: `files <app> write <request.json> --file <path>` sends a file in parts of up to 4 MB and keeps it, `files <app> upload <path>` sends one for a note to show as `file:<id>`, and `table <app> <request.json>` makes a table and finds, adds and changes its rows. A note, a file or a table is read by its id with `notes <app> read`. Script 56, in setup 69, says so in the notes command's help, which now names the list_docs and search_docs arguments it takes. Setups 65 to 69 still run the setup command 0.1.18, which saves script 40, then take the newest script with `update`.
+Script 55, in setup 68, gives a project's files and tables commands, as a computer keeps no copy of either: `files <app> write <request.json> --file <path>` sends a file in parts of up to 4 MB and keeps it, `files <app> upload <path>` sends one for a note to show as `file:<id>`, and `table <app> <request.json>` makes a table and finds, adds and changes its rows. A note, a file or a table is read by its id with `notes <app> read`. Script 56, in setup 69, says so in the notes command's help, which now names the list_docs and search_docs arguments it takes. Setups 65 to 70 still run the setup command 0.1.18, which saves script 40, then take the newest script with `update`.
 
 ## Skill file transfers
 
@@ -232,7 +236,7 @@ sh ~/.contextlocker/sync.sh map codex         # the project's map, for the folde
 sh ~/.contextlocker/sync.sh map codex --all   # the whole map
 ```
 
-Each app runs the sync on its own events: Claude Code and Codex when a session starts, resumes or clears, and after compaction; Hermes when a session starts and after compaction, from hooks in its `config.yaml`; and OpenClaw when its gateway starts, when a session starts or resets, and before compaction, from a hook in `~/.openclaw/hooks`. Each connection has its own selected projects and auto-sync control on its page in Agents. Selection restricts both reading and writing. With auto sync on, a sync brings in changes and sends edits within that selection. With it off, automatic sync does neither and the session start says once that changes are waiting. An explicit `--now` sync still uses only All projects and the projects that connection may use.
+Each app runs the sync on its own events: Claude Code and Codex when a session starts, resumes or clears, and after compaction; Hermes when a session starts and after compaction, from hooks in its `config.yaml`; and OpenClaw when its gateway starts, when a session starts or resets, and before compaction, from a hook in `~/.openclaw/hooks`. Each connection has its own selected projects and auto-sync control on its page in Agents. Selection restricts both reading and writing. With auto sync on, a sync brings in changes and sends edits within that selection. With it off, automatic sync does neither and the session start says once that changes are waiting. An explicit `--now` sync still uses only Personal context and the projects that connection may use.
 
 The script finds a folder's project in this order: the one `--project` names, the one a `.contextlocker.json` in the repo names, a folder linked on the computer, and then the project whose git remote is the repo's origin. A clone found by its remote is linked on the computer, as `--project` links it. Hermes's hooks sync the project of the folder Hermes runs in. A run with `--daily` also syncs the projects linked on the computer, as far as the app works in projects: OpenClaw doesn't, and Hermes only in repos with a `.contextlocker.json`. A daily run honours that connection's auto-sync pause in both directions.
 
@@ -268,7 +272,7 @@ What you pick moves, so the app doesn't read it twice. Each item names the exact
 Two more modes take things out:
 
 ```sh
-sh ~/.contextlocker/sync.sh export codex [--to <folder>]               # All projects and every project, as plain files
+sh ~/.contextlocker/sync.sh export codex [--to <folder>]               # Personal context and every project, as plain files
 sh ~/.contextlocker/sync.sh notes-move-out codex --to docs/decisions # a project's notes into its repo
 ```
 
@@ -293,7 +297,7 @@ Any mark can carry `--recap`, and a question with `--waiting` can carry two to f
 
 `fix` prints the list as Context Locker words it, each item with its id, the evidence, a fix and its risk, and how the app makes a change: in the files the sync writes, which the next sync sends back. The app reads requests immediately and resolves authorised work or proposes the concrete next step. Questions and temporary failures stay open. A revision responding to feedback waits for review by default, even with Auto-approve on. Only an explicit human instruction recorded for that response permits the normal approval checks; it never bypasses risk checks. Repeated submissions return the same linked revision. A configured scheduled agent follows the same workflow at its existing cadence and stays quiet when nothing needs attention. A plain file-sync job is not an agent. `--done` checks the item again at once, and `--skip` leaves it in Tidy-up with the app's reason.
 
-When changes wait for your approval, the script says so once at the start of a Claude Code or Codex session, with a link to your inbox, and again only when a newer one comes in. `map` and `fix` end with a line when All projects or a project changed since the app last synced, once for each change. When you ask the app to work through Tidy-up, the session start says so, with the `fix` command, for up to 24 hours. When a newer script is out, the session start and the doctor say so, and nothing changes on its own. From script 20, when only the script changed, they name one command, which the app runs once you say yes:
+When changes wait for your approval, the script says so once at the start of a Claude Code or Codex session, with a link to your inbox, and again only when a newer one comes in. `map` and `fix` end with a line when Personal context or a project changed since the app last synced, once for each change. When you ask the app to work through Tidy-up, the session start says so, with the `fix` command, for up to 24 hours. When a newer script is out, the session start and the doctor say so, and nothing changes on its own. From script 20, when only the script changed, they name one command, which the app runs once you say yes:
 
 ```sh
 sh ~/.contextlocker/sync.sh update codex     # takes the newest script, checked, keeping this one beside it
@@ -305,7 +309,7 @@ The scripts only write where an app reads its files, and refuse anything else th
 
 ## The compilers
 
-`compile()` in [`src`](src) turns one scope (All projects, everything that applies everywhere, or one project's own items) into the files for one app:
+`compile()` in [`src`](src) turns one scope (Personal context, everything that applies everywhere, or one project's own items) into the files for one app:
 
 | App         | Always-loaded preferences                                         | Skills             | Project files                                       |
 | ----------- | ----------------------------------------------------------------- | ------------------ | --------------------------------------------------- |
@@ -322,7 +326,7 @@ Facts in About come first, under `### About the user` in an app's own files and 
 
 Since setup 44, each app's own file, after its intro, asks it to speak to you in plain English: to say what is so and what you need to decide, in the present tense, with the main points only, and to leave ticket, change, version, requirement and section numbers out unless you ask or need one to act, giving one link to the detail. OpenClaw's whole block is in its workspace's `AGENTS.md`, where there's room, and `USER.md` is yours.
 
-Each app's global file gives Context Locker's standing rules after its intro, under `### Standing rules`: written once in [`src/standing-rules.ts`](src/standing-rules.ts), filled for device sync, and the same ones, filled for MCP, that open the server's instructions and `get_context`. They include what to do when a task is done, such as fixing a preference or skill that misled the app, and where a fact goes: what only that connection needs in its memory, what's about you or a project in the narrowest project that fits, or All projects, and how a repo's code works in the repo's own docs. Each app's own file also has `### This connection's memory`, the preferences only that connection keeps, from its memory in Context Locker. A project whose owner allows personal details says so in its block, with what an app may keep there; nothing scans for them.
+Each app's global file gives Context Locker's standing rules after its intro, under `### Standing rules`: written once in [`src/standing-rules.ts`](src/standing-rules.ts), filled for device sync, and the same ones, filled for MCP, that open the server's instructions and `get_context`. They include what to do when a task is done, such as fixing a preference or skill that misled the app, and where a fact goes: what only that connection needs in its memory, what's about you or a project in the narrowest project that fits, or Personal context, and how a repo's code works in the repo's own docs. Each app's own file also has `### This connection's memory`, the preferences only that connection keeps, from its memory in Context Locker. A project whose owner allows personal details says so in its block, with what an app may keep there; nothing scans for them.
 
 A managed block sits between `<!-- context-locker:start v1 -->` and `<!-- context-locker:end -->`, and nothing outside the markers changes. Each block has a size limit for its app (see `DEVICE_APPS` in [`src/device-apps.ts`](src/device-apps.ts), which holds each app's targets, block size, memory places and hooks as one entry, and `BUDGETS`). Preferences that don't fit are counted in a line saying where they are, and a repo's `AGENTS.md` block leaves out wording that Hermes would refuse, saying so in the block.
 

@@ -59,6 +59,22 @@ describe("a note's file, as an export and notes-move-out write it", () => {
     );
   });
 
+  it("says where a note that copies a document came from (CLK-442)", () => {
+    const copied = renderNoteFile(
+      { ...plan, cameFrom: "https://www.notion.so/acme/Release-plan" },
+      "Docs site",
+    );
+    assert.match(
+      copied,
+      /^applies_to: "Docs site"\ncame_from: "https:\/\/www\.notion\.so\/acme\/Release-plan"\nid: /m,
+    );
+    // One that copies nothing has no line for it
+    assert.doesNotMatch(
+      renderNoteFile({ ...plan, cameFrom: null }, "Docs site"),
+      /came_from/,
+    );
+  });
+
   it("quotes every string, so colons, quotes and backslashes can't break it", () => {
     assert.equal(yamlString('a: "b" \\ c'), '"a: \\"b\\" \\\\ c"');
     assert.equal(yamlString("tab\there\nline"), '"tab\\there\\nline"');

@@ -177,10 +177,15 @@ const SPELLING = new RegExp(`\\b(?:${AMERICAN.join("|")})\\b`, "gi");
 export const RETIRED_WORDS = Object.freeze([
   { word: "user", say: "the person" },
   { word: "owner", say: "the person, apart from a team's owner" },
-  { word: "Everywhere", say: "All projects" },
+  { word: "Everywhere", say: "Personal context" },
+  // The place's third name, which read as a list of everything (CLK-474)
+  {
+    word: "All projects",
+    say: "Personal context, or Team context for a team's",
+  },
   {
     word: "playbook",
-    say: "All projects, a project, or your context for preferences, skills and notes together",
+    say: "Personal context, a project, or your context for preferences, skills and notes together",
   },
   { word: "ticket", say: "a task" },
   { word: "AI app", say: "an agent", reader: "agents" },
@@ -217,10 +222,11 @@ const TEAM_OWNER = [
  * How often prose uses each retired word. Owner counts only where it isn't a
  * team's role. Playbook counts wherever it's said, My playbook, a team's and
  * a tool's or field's name such as include_my_playbook included (CLK-360).
- * Everywhere counts as the place, with its capital; everywhere as a plain
- * word stays. Inboxes counts as the inbox page's old name, with its capital;
- * inboxes as a plain word stays (CLK-362). AI app counts for agents, and a
- * bare app for people (CLK-411).
+ * Everywhere and All projects count as the place, with their capitals;
+ * everywhere and all projects as plain words stay (CLK-474). Inboxes counts
+ * as the inbox page's old name, with its capital; inboxes as a plain word
+ * stays (CLK-362). AI app counts for agents, and a bare app for people
+ * (CLK-411).
  */
 export function retiredWords(
   prose: string,
@@ -239,6 +245,7 @@ export function retiredWords(
     TEAM_OWNER.reduce((text, role) => text.replace(role, " "), prose),
   );
   count("Everywhere", /\bEverywhere\b/g);
+  count("All projects", /\bAll projects\b/g);
   // Playbook is retired everywhere people and agents read it (CLK-360)
   count("playbook", /\b\w*playbooks?\w*\b/gi);
   count("ticket", /\b\w*tickets?\w*\b/gi);
