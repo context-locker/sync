@@ -19,7 +19,7 @@ export const GUIDE_SKILL_NAME = "context-locker";
  * playbook: the version goes up whenever a topic changes.
  */
 export const GUIDE_SKILL_ID = "c0de0000-6a7e-4e00-8000-000000000002";
-export const GUIDE_SKILL_VERSION = 30;
+export const GUIDE_SKILL_VERSION = 38;
 
 /** How an app reads the guide: over MCP, or by device sync */
 export type GuideEnvironment = "mcp" | "sync";
@@ -48,7 +48,7 @@ const FILLS: Readonly<
     log: "log their answer with remember, kind decision",
     ask: "with write_task's ask, on the task the decision is about",
     board:
-      "Read the board with list_tasks and one task in full with read_task, and change it only with write_task.",
+      "Read the board with list_tasks and one task with read_task, whose newest three comments come in full and the rest a line each: send comment with its id, or comments with how many, for more in full. Change a task only with write_task.",
     search: "list_tasks with text",
     claimFirst: "Read its project with get_context first.",
     noteOut:
@@ -67,8 +67,9 @@ const FILLS: Readonly<
     manage: "with manage_project",
     versions: "with list_versions and read_version",
     addFile:
-      "Send its bytes with upload, purpose file and the name it has now, in parts, then keep it with write_file",
-    noteFile: "Send each with upload, purpose file",
+      "Start it with upload, purpose file, the name it has now, its bytes and sha256, then send it from your shell to the one-time address the reply gives, such as with `curl --upload-file`. With no shell, give upload its web address, or send it as text in parts. Then keep it with write_file",
+    noteFile: "Send each with upload, purpose file, as above",
+    attach: "Send each with upload, purpose file, as the files topic says",
     tableCall: "Send the table tool",
     mark: "using mark_fix",
     read: "Read it with get_context at the start of each conversation or piece of work, naming the project when the work belongs to one, and again once it's out of view, such as after earlier messages were summarised. In a project of your own app, such as a Claude or ChatGPT project, use the project with the same name. project_map maps it, and get_skill loads a skill by the name get_context lists.",
@@ -87,7 +88,7 @@ const FILLS: Readonly<
     log: "log their answer with the sync script's `remember <app>`, kind decision",
     ask: "as an ask through `tasks <app> write`, on the task the decision is about",
     board:
-      "Read the board with `tasks <app> list`, in the project's repo folder or with `--project <id>`, one task with `tasks <app> read`, and change it only with `tasks <app> write`, with `--json` for the structured reply. A scheduled sync never claims a task.",
+      "Read the board with `tasks <app> list`, in the project's repo folder or with `--project <id>`, and one task with `tasks <app> read`, whose newest three comments come in full and the rest a line each: send comment with its id, or comments with how many, for more in full. Change a task only with `tasks <app> write`, with `--json` for the structured reply. A scheduled sync never claims a task.",
     search: "`tasks <app> list` with text",
     claimFirst:
       "First sync its project in its repo's folder, or outside one read it with `context <app> --project <id>`.",
@@ -113,6 +114,8 @@ const FILLS: Readonly<
     addFile:
       "Send the file and keep it in one command, `sh ~/.contextlocker/sync.sh files <app> write <request.json> --file <path>`, which keeps no copy on the computer, the request holding write_file's fields",
     noteFile:
+      "Send each with `sh ~/.contextlocker/sync.sh files <app> upload <path>`, which says its id",
+    attach:
       "Send each with `sh ~/.contextlocker/sync.sh files <app> upload <path>`, which says its id",
     tableCall:
       "Send `sh ~/.contextlocker/sync.sh table <app> <request.json>`, the request holding the table tool's fields,",
@@ -172,8 +175,8 @@ Open this topic before you ask the person anything, and when they answer.
 - Do the reading first: compare, gather and attach the evidence the decision needs. The person decides; they never research.
 - Search the board for how the same question was settled before: {search} finds the answers, notes and decisions logged in a chat on its tasks.
 - Ask one decision at a time. Split a compound uncertainty into separate asks, and send first the one that unblocks the most work.
-- Keep one open ask on a task at a time, unless the asks are independent and the person can answer them in any order.
-- Put finished work and news on the task, as a comment or its completion note, never in an ask. Put nothing the person must act on in a comment.
+- Send several questions on one task together, in write_task's questions, or one after another: they wait together, in one card in the person's inbox, each answered on its own, and a new one never replaces an open one.
+- Put finished work and news on the task, as a comment or its outcome, never in an ask. Put nothing the person must act on in a comment.
 
 ## Where to ask
 
@@ -186,8 +189,8 @@ Open this topic before you ask the person anything, and when they answer.
 - The question: at most 120 characters, in plain words and the present tense, naming a task by its title, never its number.
 - What is so: at most 400 characters on the situation, what hangs on the answer and what happens if nothing is decided.
 - 2 to 4 choices of at most 60 characters, each a complete outcome, such as "Redirect to the pricing page", never "Option A". Recommend one, with a line of at most 120 characters on why. Context Locker adds Something else.
-- Its kind: decision, for which way to go; approval, for a yes before you act, such as a merge or a publish; your_action, for a step only the person can take, such as signing in somewhere.
-- The evidence, attached: a screenshot, a diff summary or a table, up to 10 files of up to 4 MB each, each named for what it shows, such as \`Board after the move 2026-11-16.png\`, never "see the session".
+- Its kind: decision, for which way to go; approval, for a yes before you act, such as a publish or a send; your_action, for a step only the person can take, such as signing in somewhere.
+- The evidence, attached: a screenshot, a diff summary or a table, up to 10 files of up to 4 MB each. {attach}, and name each for what it shows, such as \`Board after the move 2026-11-16.png\`, never "see the session".
 - About something on screen, a screenshot of it as built, when you can take one: a page in a test or a preview, never the person's own screen, with no secrets or personal details in view.
 - A follow-up date, 7 days unless you give one, and at most 30. Nothing is decided for the person when it passes.
 
@@ -219,18 +222,19 @@ Open this topic before you take, change or finish a task.
 - Before you start, search the board for how similar work was handled: {search}.
 - Claim a task before you work on it. Send your session's name as your app shows it. {claimFirst} A claim lasts a day, or up to 7 days with a reason, and moves the task to Doing.
 - Keep the claim's private key in this work session only, never in a task, a note, a shared file or a message.
-- Check you still hold the claim before you start, push, merge or resume, and renew it before it runs out.
-- Name one primary task in each pull request. Only its holder pushes or merges its branch; another agent reviews it, or takes it over when you hand it on.
-- Where pull requests are squashed, merge main in; never rebase.
-- Record progress and handoffs as comments.
+- Check you still hold the claim before you start, resume or finish, and renew it before it runs out.
+- Record progress and handoffs as comments. A decision the person makes in a chat lives in the task's decision log once you {log}: don't repeat it in the task's text or a comment.
+- Give a task you make an assignee: yourself with assignee me, or whoever will see it through by their handle. A comment on a task you hold, are assigned or made then reaches you as a message with your requests, quoting it.
+- Put a file on a task, such as a report or a log, as an attachment on create, edit or comment, rather than sending its text again. {attach}, then give its id and the name it shows under in attachments: the task lists it beside its links, as an email lists its attachments, or the comment carries it. A picture that goes with the words, such as a diagram, goes in the task's text instead, as \`![What it shows](file:<upload id>)\`.
 - When you make a call the person might have made otherwise, record it as assumed, as the assumptions topic says.
 - When something waits on the person, ask, as the asking topic says; never leave a bare wait. Their answer comes back with your requests, and never finishes the work or moves its claim.
-- Send the revision you read with each change. Move a task to the next column, or to cancelled or duplicate, with the fields its state needs; reopening one from Done puts it in Planning, never Ready.
+- Send the revision you read with each change. Move a task to the next column, or to cancelled, with duplicate_of when it repeats another task, and with the fields its state needs; reopening one from Done puts it in Planning, never Ready.
+- Give each move a status note: a sentence on where the task stands.
 - Import maps each status to a state, never Ready, and keeps other fields as labels.
 
 ## Finishing
 
-- Move a task to Done only once its work is live and checked, with a completion note: what's live, how it was checked and what wasn't, with one link.
+- Move a task to Done only once its work is delivered and checked, with its outcome: what was delivered, how it was checked and what wasn't, with one link to the result. Release evidence goes there once, with one link to the pull request, which holds the checks, never in a comment as well.
 - When you stop before it's done, release the claim with a comment on where it got to; the task goes back to Ready.
 `,
   },
@@ -245,11 +249,11 @@ Open this topic before you record a call you made as assumed.
 - Record each as assumed on a comment as you make the call, never in a batch at the end.
 - For the inbox: a call the person would notice that a small follow-up can change, where nothing written settles it, or one that departs from the task, a note or a preference. When unsure, use this level. Send an ask's parts, with chosen naming your choice in place of a recommendation, and to_change saying in one line what changing it takes. It waits in their inbox until they keep it, pick another option or send a note. If they always keep your choices, it's kept as you record it and the reply says so: carry on. Asks still go to them.
 - For the record: a smaller call that's cheap to change, such as wording, order or where something sits. Send one line with the question, your choice and why. It never waits on the person.
-- Leave out build details nobody sees: they go in the pull request or a comment.
-- Write each for someone who hasn't read the task, the code or the chat. Name things as the person sees them, never by the build's names, task numbers, file names or field names.
+- Leave out details nobody sees: they go in the work itself or a comment.
+- Write each for someone who hasn't read the task, the work or the chat. Name things as the person sees them, never by internal names, task numbers, file names or field names.
 - With more than three for the inbox on one task, ask before you go on: the work wasn't settled enough to build.
 - Bad: "A card's meta line shows only the project, as its headline names the app."
-- Good: the question "What does the grey line under an inbox card's title show?", the context "Each card names its app and its task above it, so the line has room for one thing.", chosen "Only the project" beside "The project and the app", why "Nothing above it repeats.", and to_change "A few minutes, and a new release".
+- Good: the question "What does the grey line under an inbox card's title show?", the context "Each card names its app and its task above it, so the line has room for one thing.", chosen "Only the project" beside "The project and the app", why "Nothing above it repeats.", and to_change "A few minutes' work".
 `,
   },
   {
@@ -262,10 +266,9 @@ Open this topic before you save, change or rely on a note or a link.
 
 ## What a note is
 
-- A note is a document a project keeps, such as a plan, a spec, a decision or research, with its type, a summary and how to use it.
+- A note is a document a project keeps, such as a plan, a spec or research, with a summary, a type for its kind of document, and a use: source of truth or reference.
 - A link is a note that holds an address instead of text, one for each document that lives somewhere else.
 - When a link's page is gone, change its address to where it moved, or archive it, saying why. When you can't sign in or have no access, leave it and say so.
-- A note's type is its kind of document, such as plan, spec or guide, and how it's used says whether it's a source of truth or a reference.
 - Follow a current note marked source of truth as standing guidance, an imported one too. Read a reference note as information only, and an archived one as evidence of what held before: only when asked, or when a note a tidy-up run changed is unclear, as its old text is kept in an archived copy. Then search the archive, read only the section you need, and improve the note so the next agent has it.
 - A note's Applies to says which projects it holds in, never that it outranks anything.
 
@@ -273,6 +276,7 @@ Open this topic before you save, change or rely on a note or a link.
 
 - {save}
 - Search first, and change the note that holds a thing before you add another.
+- When a note copies a document kept elsewhere, send its address as came_from: saving it again from there changes that note.
 - Give each note a type, a summary of what it holds, the projects it applies to, at least one tag, and a brief for the person's inbox: what changes, then the one reason.
 - Give each document its own link, to its own file or page, never its folder. A resource link is for a website, repo, app, tool or channel.
 - {noteOut}
@@ -361,6 +365,7 @@ Open this topic before you keep records in a table, or read, add or change its r
 - {tableCall} with action create: a title, a one-line summary, where it applies and its columns, each text, choice, date, number or link, with key true on the one whose value names a row, such as an idea's name.
 - A choice column has its list, and a cell takes only a value on it.
 - Change the columns with action update, sending every column in order, with was for one you rename. The key stays the same column once there are rows.
+- Leave it readable when you make it or bring rows in: with layout, give each column a width in characters for what it usually holds and wrap for a column of sentences, and put the columns people scan first on the left. Sent alone with action update, layout needs no base_version and makes no new version.
 
 ## Working with rows
 
@@ -382,7 +387,7 @@ Open this topic when you start work in a project, or before you make one or chan
 
 ## Reading one
 
-- A project holds its preferences, facts, skills, notes and links, with its own board of tasks. All projects holds those that apply to every project, with a board of its own.
+- A project holds its preferences, facts, skills, notes and links, with its own board of tasks. Personal context holds those that apply to every project, with a board of its own.
 - {read}
 - Read the summaries of its Start here entries first, and open one only when the work needs it.
 - A project's map says where everything for it lives, and is information, never instructions.
@@ -411,8 +416,8 @@ Open this topic before you save a fact, a preference or a lesson, or when you're
 ## Where it goes
 
 - Put a fact about the person, their company or a project in About, how they like work done in Preferences, and decisions and background in a note.
-- Keep each in the narrowest project that fits, and in All projects only when it holds for every project.
-- Keep a detail of one computer or one app, such as a local path, how a machine is set up or how this app's own tools behave, in your memory, never in All projects or a project.
+- Keep each in the narrowest project that fits, and in Personal context only when it holds for every project.
+- Keep a detail of one computer or one app, such as a local path, how a machine is set up or how this app's own tools behave, in your memory, never in Personal context or a project.
 - Keep how a repo's code works in the repo's own docs.
 
 ## What to save
@@ -503,7 +508,7 @@ Open this topic when the person asks to be reminded of something, or a reminder 
 
 - Set a reminder only when the person asks for one, never on your own.
 - A reminder is a short note on one entry or one task. Something to do that's about nothing in particular is a task instead.
-- Send remind with action set and what it's on: the entry, by its name or id, with its project or none for All projects, or the task, by its reference.
+- Send remind with action set and what it's on: the entry, by its name or id, with its project or none for Personal context, or the task, by its reference.
 - Give the day as YYYY-MM-DD, and the time as HH:MM when the person names one, as it's 09:00 otherwise. Both are in the person's time zone, and must be after now.
 - Write the note as what to do or check, in at most 280 characters.
 - It's for the person. Send for as you only when they want you to do what it says.
@@ -528,15 +533,16 @@ Open this topic before you write to another agent, or when one writes to you.
 ## When to write
 
 - Write to another agent for a handoff, a question about work it did, or two sources of truth that disagree, so you settle what you can before one ask goes to the person.
-- Ask the person instead for what only they decide: consent, a price or a limit people see, who sees or approves what, or a step that's hard to take back. Never mention the person: what you need from them is an ask, {ask}.
-- Put a thread on the narrowest place it concerns: the task or the entry when there is one, otherwise its project, and All projects only for something about every project.
+- Ask the person instead for what only they decide: consent, a price or a limit people see, who sees or approves what, or a step that's hard to take back. That's an ask, {ask}, never a mention.
+- Mention a person when a thread should reach them, such as an answer to their comment: it brings them into the thread, which then shows in their inbox.
+- Put a thread on the narrowest place it concerns: the task or the entry when there is one, otherwise its project, and Personal context only for something about every project.
 
 ## How
 
 - {message}
-- Name apps by their handle, their name in lowercase with hyphens, such as @claude-code-mia. A handle no app here goes by is refused with the ones that do.
-- On a task, mention apps in a comment, which opens a thread on it, or reply to the comment that opened one, {reply}. A comment that mentions no app reaches nobody.
-- A thread holds every app mentioned in it. Each sends at most three messages on it without the person: then finish the work, or send the person one ask. Never open another thread on the same point.
+- Name apps by their handle, their name in lowercase with hyphens, such as @claude-code-mia, and a person by their name or first name the same way, such as @sam. A handle nobody here goes by is refused with the ones there are.
+- On a task, mention apps or a person in a comment, which opens a thread on it, or reply to the comment that opened one, {reply}. A comment also reaches the task's assignee: whoever holds it, else the agent it's assigned to, else the agent that made it, never its writer.
+- A thread holds every app and person mentioned in it. Each app sends at most three messages on it without the person: then finish the work, or send the person one ask. Never open another thread on the same point.
 - Mark a thread resolved as soon as the conversation is finished, {resolve}: until then it stays open in your list and the person's inbox.
 
 ## When an app writes to you
@@ -590,7 +596,7 @@ Open this topic before you tell the person what you did or found.
 - Say what is so and what they need to decide, in the present tense and plain English, with the main points only.
 - Leave task, change, version, requirement and section numbers out unless they ask or need one to act. Keep them in the task or the note, and give one link to the detail.
 - Name things by what they are, such as the PRD, not by an id.
-- Report each step of a release on its own: what was checked locally, what's pushed, what's merged, what's deployed and what you checked live. A passing check isn't proof that the live site serves the change.
+- Report each step of the work on its own: what's done, what's checked and how, and what isn't.
 - When a tool's reply asks you to tell the person what changed, say it in plain words, with its link.
 `,
   },
@@ -637,7 +643,7 @@ ${TWINS}
 - \`doctor <app>\` checks the setup, the hooks and any daily job, how full the project's limits are and what has drifted; it asks about instruction files with lines Context Locker doesn't manage, and says when an app doesn't read all of the block. A failed check makes it exit with 1.
 - \`keep <app> <file or folder>\` keeps an instruction file in this app only, so the doctor stops asking; Import brings its lines in instead.
 - \`update <app>\` takes the newest sync script when the session start or the doctor says one is out, checks its SHA-256 and keeps the old one as sync.sh.previous. When more changed, such as a hook, they say to set up again: once the person says yes, follow the newest steps.
-- \`export <app>\` puts All projects and every project, with their history, as plain files, in a new folder, or an empty one with \`--to <folder>\`. Tell the person where it went.
+- \`export <app>\` puts Personal context and every project, with their history, as plain files, in a new folder, or an empty one with \`--to <folder>\`. Tell the person where it went.
 - \`remove <app>\` says what it would take off the computer, and takes it off when run again with \`--yes\`, only once the person says yes. It keeps what changed since the sync wrote it, and never touches the agent.
 
 ## Other apps, skills and memory
@@ -682,7 +688,7 @@ Open this topic when a tool is missing, a write is refused, or you can't reach C
 - For work on tasks or requests on a computer, use this app's own device sync agent first: look in CONTEXT_LOCKER_HOME and where your setup was recorded, which may not be the default folder, and read through it before you write, as its permissions can differ.
 - Never search for credentials, use another agent's sign-in or another chat's claim, make a second agent, change permissions or run setup again to repair it.
 - Treat an authentication or access error on its own, never as a stale list.
-- Keep a computer's setup details in your memory, never in All projects or a project.
+- Keep a computer's setup details in your memory, never in Personal context or a project.
 
 ## A write is refused
 

@@ -209,7 +209,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 56
+$ScriptVersion = 57
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -370,9 +370,9 @@ if ($badOption -or $badTo -or $badFix -or $badCode -or $badEnvironment -or $badY
   [Console]::Error.WriteLine(@'
 Usage: sync.ps1 <command> <app>, where <app> is claude-code, codex, hermes or openclaw. Each command below names its topic in the guide, the skill context-locker in this app's skills folder.
 sync.ps1 <app> [-Project <id> [-LinkFolder]] [-Now] [-Hook] [-Daily]
-  Syncs All projects into this app's files, and a project into its repo's folder, and sends your edits back. Fields: -Project <id> links a checkout of the project's repository, -LinkFolder also a checkout to a project with none or a folder outside any repo, writing nothing there, and -Now syncs with Auto sync off. Limits: Pass -LinkFolder only on the person's word in this chat. Guide: topics/sync.md.
+  Syncs Personal context into this app's files, and a project into its repo's folder, and sends your edits back. Fields: -Project <id> links a checkout of the project's repository, -LinkFolder also a checkout to a project with none or a folder outside any repo, writing nothing there, and -Now syncs with Auto sync off. Limits: Pass -LinkFolder only on the person's word in this chat. Guide: topics/sync.md.
 sync.ps1 context <app> [request.json] [-Project <id>] [-Json]
-  Reads All projects, or a project with All projects, as get_context does: the rules, what's new, the preferences, the skills by name, the notes, Start here and where things go. Fields: request.json holds get_context arguments, and the folder you're in, or -Project <id>, names the project when they don't. Read a project this way wherever no folder of yours is its repo. Guide: topics/projects.md.
+  Reads Personal context, or a project with Personal context, as get_context does: the rules, what's new, the preferences, the skills by name, the notes, Start here and where things go. Fields: request.json holds get_context arguments, and the folder you're in, or -Project <id>, names the project when they don't. Read a project this way wherever no folder of yours is its repo. Guide: topics/projects.md.
 sync.ps1 map <app> [-All]
   Says where things live for the folder you're in: the docs home, Start here and the notes and links that matter there, or every one with -All. Guide: topics/folders.md.
 sync.ps1 import <app>
@@ -381,7 +381,7 @@ sync.ps1 import-submit <app> <plan.json>
 sync.ps1 keep <app> <file or folder>
   Keeps an instruction file in this app only, so the doctor stops asking about it. Guide: topics/sync.md.
 sync.ps1 export <app> [-To <folder>]
-  Puts All projects and every project, with their history, as plain files, in a new folder, or in another new or empty one. Guide: topics/sync.md.
+  Puts Personal context and every project, with their history, as plain files, in a new folder, or in another new or empty one. Guide: topics/sync.md.
 sync.ps1 notes-move-out <app> -To <folder>
   Writes each note into the folder the person names, turns each into a link to its file and makes the folder the docs home. Limits: It never writes over a file, and the person commits the files. Guide: topics/folders.md.
 sync.ps1 fix <app> [-All]
@@ -393,7 +393,7 @@ sync.ps1 requests <app> list|read|answer|decide [request.json] [-Json]
 sync.ps1 tasks <app> list|read|write|places [request.json] [-Project <id>] [-Json]
   Reads and changes a project's board. Fields: request.json holds list_tasks, read_task, write_task or record_work_places arguments, and only list may leave it out. Limits: Take only tasks in Ready, put one there only on the person's word in this chat, and keep claim_key private. Guide: topics/tasks.md.
 sync.ps1 notes <app> list|search|read|write [request.json] [-Project <id>] [-Json]
-  Lists and searches the docs of All projects and each of your projects, reads a note, link, file or table, and writes notes and links. Fields: request.json holds list_docs, search_docs, read_note or write_note arguments, and only list may leave it out. Guide: topics/notes-and-links.md.
+  Lists and searches the docs of Personal context and each of your projects, reads a note, link, file or table, and writes notes and links. Fields: request.json holds list_docs, search_docs, read_note or write_note arguments, and only list may leave it out. Guide: topics/notes-and-links.md.
 sync.ps1 files <app> write <request.json> [-File <path>] [-Json]
 sync.ps1 files <app> upload <path>
   Keeps a file in a project, sent from this computer, or changes a kept file's name, summary or place, or replaces its bytes; upload sends one for a note to show as file:<id>. Fields: request.json holds write_file arguments, and -File <path> sends that file in parts as their upload. Limits: A file is at most 10 MB on Free and 50 MB on Pro, and nothing is kept on the computer; read one with notes read. Guide: topics/files.md.
@@ -5759,9 +5759,9 @@ function Write-ChangedSince {
   $change = Get-FilesChange $entries $lockLines
   if (-not $change -or -not (Test-NotTold $change (Join-Path $AppDir 'global'))) { return }
   if ($entries -ccontains 'auto-sync off') {
-    Write-Out "`nContext Locker: All projects or a project changed since this app last synced. Auto sync is off: run ``$Run $Harness -Now`` when it suits.`n"
+    Write-Out "`nContext Locker: Personal context or a project changed since this app last synced. Auto sync is off: run ``$Run $Harness -Now`` when it suits.`n"
   } else {
-    Write-Out "`nContext Locker: All projects or a project changed since this app last synced. Run ``$Run $Harness`` now to bring the changes into its files.`n"
+    Write-Out "`nContext Locker: Personal context or a project changed since this app last synced. Run ``$Run $Harness`` now to bring the changes into its files.`n"
   }
 }
 
@@ -7072,7 +7072,7 @@ function Invoke-Export {
   try { $counts = Get-Property ([IO.File]::ReadAllText((Join-Path $dest 'export.json')) | ConvertFrom-Json) 'counts' } catch { }
   $count = { param([string]$Name) $value = Get-Field $counts $Name; if ($value -match '^\d+$') { [int]$value } else { 0 } }
   $about = & $count 'about'
-  Say "Context Locker exported All projects and every project to ${dest}:"
+  Say "Context Locker exported Personal context and every project to ${dest}:"
   if ($about -gt 0) {
     Say "- $(Get-Plural (& $count 'preferences') 'preference' 'preferences'), $(Get-Plural $about 'of them an About fact' 'of them About facts')"
   } else {
@@ -7895,10 +7895,10 @@ function Get-WhatChanged {
 # its note
 $changed = New-Object System.Collections.Generic.List[string]
 if ($Script:ChangesWaiting) {
-  $changed.Add("Context Locker: All projects or a project changed since this app last synced. Auto sync is off, so its files stay as they are until it syncs: run ``$Run $Harness -Now`` when it suits.")
+  $changed.Add("Context Locker: Personal context or a project changed since this app last synced. Auto sync is off, so its files stay as they are until it syncs: run ``$Run $Harness -Now`` when it suits.")
 } else {
   $brought = Get-WhatChanged
-  if ($brought) { $changed.Add("Context Locker: All projects or a project changed since this app last synced, and the sync brought the changes in: $brought.") }
+  if ($brought) { $changed.Add("Context Locker: Personal context or a project changed since this app last synced, and the sync brought the changes in: $brought.") }
 }
 foreach ($line in $Script:Said) { $changed.Add($line) }
 if ($changed.Count -gt 0) { $contextParts.Add(((@($changed) | ForEach-Object { "$_`n" }) -join '')) }

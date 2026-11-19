@@ -118,10 +118,14 @@ describe("the checks of Writing for AI apps (G1-310)", () => {
     ]);
     assert.deepEqual(
       found(
-        "All projects applies everywhere, as your context does. The team's owner decides with admins: an owner, admins and members. Tasks, agents, projects and changes, by workspace_id and owner_id.",
+        "Personal context applies everywhere, as your context does. The team's owner decides with admins: an owner, admins and members. Tasks, agents, projects and changes, by workspace_id and owner_id.",
       ),
       [],
     );
+    // All projects, the place's third name, is retired too (CLK-474)
+    assert.deepEqual(found("All projects holds your preferences."), [
+      "All projects:1",
+    ]);
     // My playbook, a team's and yours are retired too, as is a field's name
     // that holds the word (CLK-360)
     assert.deepEqual(

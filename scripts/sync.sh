@@ -185,7 +185,7 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=56
+SCRIPT_VERSION=57
 FIX_OFFSET=0
 FIX_OFFSET_SET=0
 MODE=sync
@@ -372,9 +372,9 @@ usage() {
   cat >&2 <<'EOF'
 Usage: sh sync.sh <command> <app>, where <app> is claude-code, codex, hermes or openclaw. Each command below names its topic in the guide, the skill context-locker in this app's skills folder.
 sh sync.sh <app> [--project <id> [--link-folder]] [--now] [--hook] [--daily]
-  Syncs All projects into this app's files, and a project into its repo's folder, and sends your edits back. Fields: --project <id> links a checkout of the project's repository, --link-folder also a checkout to a project with none or a folder outside any repo, writing nothing there, and --now syncs with Auto sync off. Limits: Pass --link-folder only on the person's word in this chat. Guide: topics/sync.md.
+  Syncs Personal context into this app's files, and a project into its repo's folder, and sends your edits back. Fields: --project <id> links a checkout of the project's repository, --link-folder also a checkout to a project with none or a folder outside any repo, writing nothing there, and --now syncs with Auto sync off. Limits: Pass --link-folder only on the person's word in this chat. Guide: topics/sync.md.
 sh sync.sh context <app> [request.json] [--project <id>] [--json]
-  Reads All projects, or a project with All projects, as get_context does: the rules, what's new, the preferences, the skills by name, the notes, Start here and where things go. Fields: request.json holds get_context arguments, and the folder you're in, or --project <id>, names the project when they don't. Read a project this way wherever no folder of yours is its repo. Guide: topics/projects.md.
+  Reads Personal context, or a project with Personal context, as get_context does: the rules, what's new, the preferences, the skills by name, the notes, Start here and where things go. Fields: request.json holds get_context arguments, and the folder you're in, or --project <id>, names the project when they don't. Read a project this way wherever no folder of yours is its repo. Guide: topics/projects.md.
 sh sync.sh map <app> [--all]
   Says where things live for the folder you're in: the docs home, Start here and the notes and links that matter there, or every one with --all. Guide: topics/folders.md.
 sh sync.sh import <app>
@@ -383,7 +383,7 @@ sh sync.sh import-submit <app> <plan.json>
 sh sync.sh keep <app> <file or folder>
   Keeps an instruction file in this app only, so the doctor stops asking about it. Guide: topics/sync.md.
 sh sync.sh export <app> [--to <folder>]
-  Puts All projects and every project, with their history, as plain files, in a new folder, or in another new or empty one. Guide: topics/sync.md.
+  Puts Personal context and every project, with their history, as plain files, in a new folder, or in another new or empty one. Guide: topics/sync.md.
 sh sync.sh notes-move-out <app> --to <folder>
   Writes each note into the folder the person names, turns each into a link to its file and makes the folder the docs home. Limits: It never writes over a file, and the person commits the files. Guide: topics/folders.md.
 sh sync.sh fix <app> [--all]
@@ -395,7 +395,7 @@ sh sync.sh requests <app> list|read|answer|decide [request.json] [--json]
 sh sync.sh tasks <app> list|read|write|places [request.json] [--project <id>] [--json]
   Reads and changes a project's board. Fields: request.json holds list_tasks, read_task, write_task or record_work_places arguments, and only list may leave it out. Limits: Take only tasks in Ready, put one there only on the person's word in this chat, and keep claim_key private. Guide: topics/tasks.md.
 sh sync.sh notes <app> list|search|read|write [request.json] [--project <id>] [--json]
-  Lists and searches the docs of All projects and each of your projects, reads a note, link, file or table, and writes notes and links. Fields: request.json holds list_docs, search_docs, read_note or write_note arguments, and only list may leave it out. Guide: topics/notes-and-links.md.
+  Lists and searches the docs of Personal context and each of your projects, reads a note, link, file or table, and writes notes and links. Fields: request.json holds list_docs, search_docs, read_note or write_note arguments, and only list may leave it out. Guide: topics/notes-and-links.md.
 sh sync.sh files <app> write <request.json> [--file <path>] [--json]
 sh sync.sh files <app> upload <path>
   Keeps a file in a project, sent from this computer, or changes a kept file's name, summary or place, or replaces its bytes; upload sends one for a note to show as file:<id>. Fields: request.json holds write_file arguments, and --file <path> sends that file in parts as their upload. Limits: A file is at most 10 MB on Free and 50 MB on Pro, and nothing is kept on the computer; read one with notes read. Guide: topics/files.md.
@@ -5769,9 +5769,9 @@ changed_since() {
   [ "$cs_code" = 200 ] || return 0
   cs_new=$(files_change "$TMP/cs-manifest" "$APP_DIR/global.lock") && not_told "$cs_new" "$APP_DIR/global" || return 0
   if grep -qx 'auto-sync off' "$TMP/cs-manifest"; then
-    printf "\nContext Locker: All projects or a project changed since this app last synced. Auto sync is off: run \`%s %s --now\` when it suits.\n" "$RUN" "$HARNESS"
+    printf "\nContext Locker: Personal context or a project changed since this app last synced. Auto sync is off: run \`%s %s --now\` when it suits.\n" "$RUN" "$HARNESS"
   else
-    printf "\nContext Locker: All projects or a project changed since this app last synced. Run \`%s %s\` now to bring the changes into its files.\n" "$RUN" "$HARNESS"
+    printf "\nContext Locker: Personal context or a project changed since this app last synced. Run \`%s %s\` now to bring the changes into its files.\n" "$RUN" "$HARNESS"
   fi
 }
 
@@ -7126,7 +7126,7 @@ export_mode() {
     printf '%s' "${ec:-0}"
   }
   ex_about=$(ex_count about)
-  printf 'Context Locker exported All projects and every project to %s:\n' "$ex_dest"
+  printf 'Context Locker exported Personal context and every project to %s:\n' "$ex_dest"
   if [ "$ex_about" -gt 0 ]; then
     printf -- '- %s, %s\n' "$(plural "$(ex_count preferences)" preference preferences)" "$(plural "$ex_about" 'of them an About fact' 'of them About facts')"
   else
@@ -7906,9 +7906,9 @@ fi
 # its note
 : >"$TMP/changed"
 if [ "$CHANGES_WAITING" = 1 ]; then
-  printf "Context Locker: All projects or a project changed since this app last synced. Auto sync is off, so its files stay as they are until it syncs: run \`%s %s --now\` when it suits.\n" "$RUN" "$HARNESS" >"$TMP/changed"
+  printf "Context Locker: Personal context or a project changed since this app last synced. Auto sync is off, so its files stay as they are until it syncs: run \`%s %s --now\` when it suits.\n" "$RUN" "$HARNESS" >"$TMP/changed"
 elif brought=$(what_changed); then
-  printf "Context Locker: All projects or a project changed since this app last synced, and the sync brought the changes in: %s.\n" "$brought" >"$TMP/changed"
+  printf "Context Locker: Personal context or a project changed since this app last synced, and the sync brought the changes in: %s.\n" "$brought" >"$TMP/changed"
 fi
 cat "$TMP/said" >>"$TMP/changed"
 if [ -s "$TMP/changed" ]; then

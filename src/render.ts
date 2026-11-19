@@ -33,7 +33,7 @@ const PERSONAL_DETAILS =
  * sync script's tickets help; the standing rules say it in two sentences.
  */
 export const ASK_PROTOCOL =
-  "Assume first: if a reasonable assumption settles an uncertainty, the result wouldn't change much and no preference says to ask, decide, do the work and record it with write_ticket's assumed. One decision per ask, one open ask per task: split compound uncertainties, asking first what unblocks most. Do the reading and attach the evidence; the user decides, never researches. Choices are outcomes, one recommended with why; for a yes or their own step, use kind approval or your_action. Finished work and news go on the task, never in an ask; nothing they must act on goes in a comment. Answer Something else with the work or a revised ask. After the same answer three times, suggest it as a preference.";
+  "Assume first: if a reasonable assumption settles an uncertainty, the result wouldn't change much and no preference says to ask, decide, do the work and record it with write_ticket's assumed. One decision per ask; a task's asks wait together: split compound uncertainties, asking first what unblocks most. Do the reading and attach the evidence; the user decides, never researches. Choices are outcomes, one recommended with why; for a yes or their own step, use kind approval or your_action. Finished work and news go on the task, never in an ask; nothing they must act on goes in a comment. Answer Something else with the work or a revised ask. After the same answer three times, suggest it as a preference.";
 
 /**
  * What an app does with an answer the user gives in a chat (G1-300): it
@@ -70,9 +70,9 @@ export const TEXT = {
    * The heading over a team's preferences in its project's block, read only
    * there (G1-329), and what it says under it
    */
-  teamHeading: (team: string) => `### All projects in ${team}`,
+  teamHeading: (team: string) => `### Team context in ${team}`,
   teamIntro:
-    "The team's own, which its owners and admins change in Context Locker. These lines aren't read back, so editing one here changes nothing. Where this project, or the person's own All projects, has one of the same name, that one applies instead.",
+    "The team's own, which its owners and admins change in Context Locker. These lines aren't read back, so editing one here changes nothing. Where this project, or the person's own Personal context, has one of the same name, that one applies instead.",
   preferencesHeading: "### Preferences",
   projectTitle: (name: string) => `## Context Locker: ${name}`,
   projectIntro:
@@ -308,9 +308,9 @@ export function workPlacesRule(places: WorkPlace[], budget = 3000): string {
       : line;
   });
   // The inbox holds decisions only, so news goes on the task (G1-284), and
-  // finished work is its completion note, sent with the move to Done (G1-293)
+  // finished work is its outcome, sent with the move to Done (G1-293)
   const online =
-    "Read Context Locker's board online with list_tasks over MCP, or the sync script's tasks <app> list command. Change it through write_task or tasks <app> write <request.json>. Take only ready tasks, claim one before work, and never edit a board in synced files. Record news on the task as a comment, and finished work as its completion note with the move to Done, never as an ask: the person's inbox holds decisions only.";
+    "Read Context Locker's board online with list_tasks over MCP, or the sync script's tasks <app> list command. Change it through write_task or tasks <app> write <request.json>. Take only ready tasks, claim one before work, and never edit a board in synced files. Record news on the task as a comment, and finished work as its outcome with the move to Done, never as an ask: the person's inbox holds decisions only.";
   const full = [
     rule,
     ...lines,
@@ -516,9 +516,11 @@ function aboutFirst(preferences: PreferenceInput[]): PreferenceInput[] {
 
 /** Whether a line is the heading over a team's preferences, which nothing reads back (G1-329) */
 export function isTeamHeading(line: string): boolean {
-  // As it was before the word playbook was retired too, until the next sync
-  // writes the block again (CLK-360)
+  // As it was before the place was named Team context, and before the word
+  // playbook was retired, until the next sync writes the block again
+  // (CLK-360, CLK-474)
   return (
+    /^### Team context in .+$/.test(line) ||
     /^### All projects in .+$/.test(line) ||
     /^### .+'s team playbook$/.test(line)
   );
