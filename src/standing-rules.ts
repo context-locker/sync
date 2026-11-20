@@ -76,7 +76,7 @@ export const RULE_FILLS: Readonly<
     assume: "say the assumption in your reply",
     where: "in the conversation",
     fix: "tell the person, who changes it in Context Locker",
-    guide: "at context.locker/docs",
+    guide: "at context.locker/docs/guide",
   }),
 });
 

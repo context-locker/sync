@@ -61,7 +61,7 @@ export function renderNoteFile(
     `type: ${yamlString(note.kind)}`,
     `use_as: ${yamlString(note.useAs)}`,
     `summary: ${yamlString(note.summary)}`,
-    `tags: [${note.tags.map(yamlString).join(", ")}]`,
+    `labels: [${note.tags.map(yamlString).join(", ")}]`,
     typeof appliesTo === "string" || appliesTo.length === 1
       ? `applies_to: ${yamlString(typeof appliesTo === "string" ? appliesTo : (appliesTo[0] ?? ""))}`
       : `applies_to: [${appliesTo.map(yamlString).join(", ")}]`,

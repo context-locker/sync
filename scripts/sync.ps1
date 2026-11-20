@@ -1,4 +1,4 @@
-# Context Locker sync, version 56. MIT licence.
+# Context Locker sync, version 58. MIT licence.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 <app> [-Project <id> [-LinkFolder]] [-Now] [-Hook] [-Daily]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 map <app> [-All]
@@ -67,7 +67,7 @@
 # and compaction, as the table under "When each app syncs" lists. With auto
 # sync on, the default, a sync brings in what changed and says so in a line.
 # With it off, a sync that finds changes says so and leaves the files as they
-# are until the app syncs with -Now. A project can have its own setting.
+# are until the app syncs with -Now.
 #
 # -Project <id> links the current folder to a project, for the computer
 #               only, when it's a checkout of the project's repository or
@@ -209,7 +209,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 57
+$ScriptVersion = 58
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -5530,7 +5530,7 @@ function Invoke-Doctor {
   if (@('none', 'asked', 'on', 'off') -cnotcontains $memoryState -or $Script:MemoryConnection -cnotmatch $Uuid) { $memoryState = '' }
   Write-UnmanagedDoctor $memoryState
 
-  $promptOffLine = "Hearing of new asks while a session runs is off for you, on your page in Agents, so the per-prompt hook asks nothing and a new ask shows when the next session starts."
+  $promptOffLine = "Hearing of new asks while a session runs is off for you, on your page in Context Locker, so the per-prompt hook asks nothing and a new ask shows when the next session starts."
   switch ($Harness) {
     'claude-code' {
       $settings = Join-Path (Get-RootDir 'claude') 'settings.json'
@@ -7740,7 +7740,7 @@ function Invoke-Remove {
     foreach ($line in $lists.Failed) { Say "- $line" }
   }
   foreach ($line in $lists.Manual) { Say "Still to do: $line" }
-  Say "The backups stay in $backups. The agent stays in Context Locker: revoke or remove it from its page in Agents if you like."
+  Say "The backups stay in $backups. The agent stays in Context Locker: revoke or remove it from its page there if you like."
   if ($lists.Failed.Count) { return 1 }
   return 0
 }
