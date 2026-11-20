@@ -188,6 +188,8 @@ export const RETIRED_WORDS = Object.freeze([
     say: "Personal context, a project, or your context for preferences, skills and notes together",
   },
   { word: "ticket", say: "a task" },
+  // A doc's labels were its tags until one word took both (CLK-499)
+  { word: "tag", say: "a label" },
   { word: "AI app", say: "an agent", reader: "agents" },
   {
     word: "app",
@@ -249,6 +251,8 @@ export function retiredWords(
   // Playbook is retired everywhere people and agents read it (CLK-360)
   count("playbook", /\b\w*playbooks?\w*\b/gi);
   count("ticket", /\b\w*tickets?\w*\b/gi);
+  // A label, on a task or a doc, never a tag (CLK-499)
+  count("tag", /\b(?:un)?tag(?:s|ged)?\b/gi);
   if (reader === "agents") count("AI app", /\bAI\s+apps?(?:'s|s')?\b/gi);
   else count("app", BARE_APP);
   count("AI inbox", /\bAI\s+inbox(?:es|'s)?\b/gi);

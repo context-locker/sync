@@ -1,5 +1,5 @@
 #!/bin/sh
-# Context Locker sync, version 56. MIT licence.
+# Context Locker sync, version 58. MIT licence.
 #
 #   sh sync.sh <app> [--project <id>] [--now] [--hook] [--daily]
 #   sh sync.sh map <app> [--all]
@@ -69,7 +69,7 @@
 # and compaction, as the table under "When each app syncs" lists. With auto
 # sync on, the default, a sync brings in what changed and says so in a line.
 # With it off, a sync that finds changes says so and leaves the files as they
-# are until the app syncs with --now. A project can have its own setting.
+# are until the app syncs with --now.
 #
 # --project <id> links the current folder to a project, for the computer
 #                only, when it's a checkout of the project's repository or
@@ -185,7 +185,7 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=57
+SCRIPT_VERSION=58
 FIX_OFFSET=0
 FIX_OFFSET_SET=0
 MODE=sync
@@ -5546,7 +5546,7 @@ doctor() {
   case $memory_state in none | asked | on | off) ;; *) memory_state= ;; esac
   unmanaged_doctor "$memory_state"
 
-  prompt_off_line="Hearing of new asks while a session runs is off for you, on your page in Agents, so the per-prompt hook asks nothing and a new ask shows when the next session starts."
+  prompt_off_line="Hearing of new asks while a session runs is off for you, on your page in Context Locker, so the per-prompt hook asks nothing and a new ask shows when the next session starts."
   case $HARNESS in
     claude-code)
       settings=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
@@ -7786,7 +7786,7 @@ remove_mode() {
     sed 's/^/- /' "$TMP/remove-failed"
   fi
   [ -s "$TMP/remove-manual" ] && sed 's/^/Still to do: /' "$TMP/remove-manual"
-  printf 'The backups stay in %s. The agent stays in Context Locker: revoke or remove it from its page in Agents if you like.\n' \
+  printf 'The backups stay in %s. The agent stays in Context Locker: revoke or remove it from its page there if you like.\n' \
     "$CL_HOME/backups"
   [ -s "$TMP/remove-failed" ] && return 1
   return 0

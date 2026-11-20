@@ -212,7 +212,7 @@ Run Import again whenever the person wants: what the project already holds is le
       "kind": "profile",
       "summary": "Acme Corp, the studio's biggest customer, and who to talk to there.",
       "text": "# Acme Corp\n\nBuys the Pro plan. Sam Lee runs design there.",
-      "tags": [
+      "labels": [
         "customers"
       ],
       "applies_to": "personal context",
@@ -277,8 +277,8 @@ Run Import again whenever the person wants: what the project already holds is le
   - `skill`: `name` and `files`, each with `path`, `content` and optional `encoding` (`utf8` by default, or `base64` for binary bytes). Preserve file bytes and paths, including empty files. A new skill needs SKILL.md, with front matter whose name matches. For a skill the project already has, send only the files to add or replace. Its sources have no `lines`, as the sync replaces a skill whole.
   - A `preference`, `about` or `skill` the rules couldn't settle has an `ask`: one question of up to 200 characters that picking it answers yes to. The inbox shows it.
   - For a `preference`, `about` or `skill` the project already has: `base_version`, the version you read.
-  - `pointer`, for a link: `title`, `kind` (plan, spec, decision, research, idea, log, profile, design, runbook, onboarding, code, run-test or channel), `address` (an http or https address, or a path in the repo: a document's own file or page, never its folder) and `summary` (one line of up to 200 characters). It can also have `use_as` (source-of-truth or reference), `area`, `start_here` and `tags`.
-  - `note`: `title`, `kind` (plan, spec, decision, research, idea, log, profile, design, runbook or onboarding), `summary` (one line), `text` (Markdown, up to 512 KB) and 1 to 20 `tags`. Draw a diagram in the text as a `mermaid` code block, which Context Locker draws, rather than a line saying where it was. Use tags the project already has where one fits. It can also have `use_as` (source-of-truth or reference), `area` and `start_here`.
+  - `pointer`, for a link: `title`, `kind` (plan, spec, decision, research, idea, log, profile, design, runbook, onboarding, code, run-test or channel), `address` (an http or https address, or a path in the repo: a document's own file or page, never its folder) and `summary` (one line of up to 200 characters). It can also have `use_as` (source-of-truth or reference), `area`, `start_here` and `labels`.
+  - `note`: `title`, `kind` (plan, spec, decision, research, idea, log, profile, design, runbook or onboarding), `summary` (one line), `text` (Markdown, up to 512 KB) and 1 to 20 `labels`. Draw a diagram in the text as a `mermaid` code block, which Context Locker draws, rather than a line saying where it was. Use labels the project already has where one fits. It can also have `use_as` (source-of-truth or reference), `area` and `start_here`.
 - `left_out`: up to 300 entries, each with `summary`, `reason` and `sources`, without `lines`, as what's left out stays where it is. The summary says what it was in a few words that don't repeat it, such as "A personal detail about family": never the detail itself, and never a secret. The reason is personal, secret, transcript, stale, memory, memory_files, local, duplicate, conflict, over_cap, unreachable, declined or other, and other needs a `detail`. Put alike drops in one entry, with all their sources.
 
 ## Whole-package transfer and verification
