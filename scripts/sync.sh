@@ -15,6 +15,7 @@
 #   sh sync.sh plan|doctor|readback|daily-job <app>
 #   sh sync.sh prompt <app>
 #   sh sync.sh update <app>
+#   sh sync.sh version
 #   sh sync.sh remove <app> [--yes]
 #   sh sync.sh context <app> [request.json] [--project <id>] [--json]
 #   sh sync.sh tasks <app> list|read|write|places [request.json] [--project <id>] [--json]
@@ -142,13 +143,16 @@
 # person a question back, which they answer in one press, or with something
 # else, and the answer comes back in the next fix.
 #
-# update takes the newest sync script, once the person says yes, when Context
-# Locker says this one can. It downloads it from where setup publishes it, at
-# context.locker/setup, checks its SHA-256 against the one Context Locker
-# gives, that it's the version it says and that sh can read it, keeps this one
-# beside it as sync.sh.previous and puts the new one in its place. It changes
-# nothing else. When the newest script needs more than the script, such as a
-# new hook, it says to offer to set Context Locker up again instead.
+# A sync that hears of a newer sync script this one can take takes it once
+# its own work is done, asking nobody (CLK-531). It downloads it from where
+# setup publishes it, at context.locker/setup, checks its SHA-256 against the
+# one Context Locker gives, that it's the version it says, that sh can read it
+# and that it starts here, keeps this one beside it as sync.sh.previous and
+# puts the new one in its place. It changes nothing else, and a failed one
+# leaves this script as it is and is said once. update does the same by hand.
+# When the newest script needs more than the script, such as a new hook, the
+# session start says to offer to set Context Locker up again instead.
+# version says the script's version and does nothing else.
 #
 # For setup (see context.locker/setup):
 #   signin    connects the app with a code you approve in your browser. The
@@ -185,7 +189,13 @@ set -u
 UMASK_WAS=$(umask)
 umask 077
 
-SCRIPT_VERSION=58
+SCRIPT_VERSION=60
+# A newer script is started with version before it takes this one's place,
+# to show it runs here: it says its version and does nothing else (CLK-531)
+if [ "${1:-}" = version ]; then
+  printf '%s\n' "$SCRIPT_VERSION"
+  exit 0
+fi
 FIX_OFFSET=0
 FIX_OFFSET_SET=0
 MODE=sync
@@ -398,7 +408,7 @@ sh sync.sh notes <app> list|search|read|write [request.json] [--project <id>] [-
   Lists and searches the docs of Personal context and each of your projects, reads a note, link, file or table, and writes notes and links. Fields: request.json holds list_docs, search_docs, read_note or write_note arguments, and only list may leave it out. Guide: topics/notes-and-links.md.
 sh sync.sh files <app> write <request.json> [--file <path>] [--json]
 sh sync.sh files <app> upload <path>
-  Keeps a file in a project, sent from this computer, or changes a kept file's name, summary or place, or replaces its bytes; upload sends one for a note to show as file:<id>. Fields: request.json holds write_file arguments, and --file <path> sends that file in parts as their upload. Limits: A file is at most 10 MB on Free and 50 MB on Pro, and nothing is kept on the computer; read one with notes read. Guide: topics/files.md.
+  Keeps a file in a project, sent from this computer, or changes a kept file's name, description or place, or replaces its bytes; upload sends one for a note to show as file:<id>. Fields: request.json holds write_file arguments, and --file <path> sends that file in parts as their upload. Limits: A file is at most 10 MB on Free and 50 MB on Pro, and nothing is kept on the computer; read one with notes read. Guide: topics/files.md.
 sh sync.sh table <app> <request.json> [--json]
   Makes a table, and finds, adds, changes and takes out its rows by their key. Fields: request.json holds table arguments. Limits: Rows come from the request, never from a copy on the computer. Guide: topics/tables.md.
 sh sync.sh versions <app> list|read <request.json> [--json]
@@ -801,10 +811,10 @@ case $MODE in
 esac
 
 # The global manifest names the newest sync script, and when this one can
-# take it with update, where it's published and its SHA-256 (G1-112). A newer
-# one than this gets a line at session start and in the doctor; nothing
-# changes on its own. When more than the script changed, the app offers to
-# set Context Locker up again, as it offers to update (G1-258).
+# take it, where it's published and its SHA-256 (G1-112). A sync takes one it
+# can once its own work is done (CLK-531). When more than the script changed,
+# the session start and the doctor say so, for the app to offer to set
+# Context Locker up again (G1-258).
 NEWER_LINE="a newer version of its sync script is out. When it suits the person, offer to set Context Locker up again for them: once they say yes, $SETUP_STEPS. The one installed keeps working until then."
 # The newest script's lines: from this sync's answer when Context Locker gave
 # one, as a sync with auto sync off can leave the lock as it was, or else
@@ -5454,7 +5464,7 @@ doctor() {
   fi
   if newer_script; then
     if can_update; then
-      check_warn "Version $sv_newest of the sync script is out, and updating to it changes only the script. When it suits you, run: $RUN update $HARNESS"
+      check_warn "Version $sv_newest of the sync script is out, and the next sync takes it, changing only the script. To take it now, run: $RUN update $HARNESS"
     else
       # Offered, as the session start does (G1-258)
       check_warn "A newer version of the sync script is out. When it suits the person, offer to set Context Locker up again for them: once they say yes, $SETUP_STEPS. This one keeps working until then."
@@ -7474,13 +7484,98 @@ short_list() {
 
 # --- Update ---------------------------------------------------------------
 
-# Takes the newest sync script, when Context Locker says this one can, from
-# setup's folder for its release and nowhere else, as setup would save it: it
-# must match the SHA-256 Context Locker gives, say it's the version Context
-# Locker names and read as a shell script. This one stays beside it as
-# sync.sh.previous, and the new one takes its place in one step, so a hook
-# that starts meanwhile runs one or the other, and a sync running now keeps
-# reading the one it started with. Nothing else changes (G1-112).
+# How long taking a newer script may hold up a sync, in seconds, so a session
+# starts after no more than a moment (CLK-531)
+UPDATE_MAX_TIME=15
+
+# Takes version $1 of the sync script, whose SHA-256 is $2, from setup's
+# folder for release $3 and nowhere else, as setup would save it, within $4
+# seconds: it must match the SHA-256, say it's that version, read as a shell
+# script and start here. This one stays beside it as sync.sh.previous, and the
+# new one takes its place in one step, so a hook that starts meanwhile runs
+# one or the other, and a sync running now keeps reading the one it started
+# with. Nothing else changes (G1-112, CLK-531). Fails with why in TS_WHY: 2
+# when the site couldn't be reached, 1 for anything else.
+take_script() {
+  TS_WHY=
+  TS_URL=$SITE/setup/v$3/sync.sh
+  # Straight from the site, without the connection's token, which only
+  # Context Locker's API is sent
+  ts_code=$(curl -sS --connect-timeout 5 --max-time "$4" -o "$TMP/sync.sh.new" -w '%{http_code}' \
+    -A "context-locker-sync/$SCRIPT_VERSION ($HARNESS; sh)" "$TS_URL" 2>>"$TMP/curl-errors") || ts_code=000
+  case $ts_code in
+    200) ;;
+    *000)
+      TS_WHY="couldn't download version $1 of the sync script from $TS_URL"
+      return 2
+      ;;
+    *)
+      TS_WHY="$TS_URL answered $ts_code"
+      return 1
+      ;;
+  esac
+  ts_why() { TS_WHY="the sync script from $TS_URL $1"; return 1; }
+  [ "$(sha_file "$TMP/sync.sh.new")" = "$2" ] ||
+    ts_why "doesn't match the SHA-256 Context Locker gives for version $1" || return 1
+  [ "$(sed -n 's/^SCRIPT_VERSION=\([0-9]*\)$/\1/p' "$TMP/sync.sh.new" | head -n 1)" = "$1" ] ||
+    ts_why "isn't version $1" || return 1
+  sh -n "$TMP/sync.sh.new" 2>/dev/null ||
+    ts_why "doesn't read as a shell script here" || return 1
+  # It has to start here too, so one that can't run here never takes the
+  # place of one that can (CLK-531)
+  [ "$(sh "$TMP/sync.sh.new" version 2>/dev/null)" = "$1" ] ||
+    ts_why "doesn't start here" || return 1
+
+  # The new one takes the old one's permissions, and the old one stays beside it
+  { cp -p "$INSTALLED" "$TMP/sync.sh.next" && cat "$TMP/sync.sh.new" >"$TMP/sync.sh.next"; } 2>/dev/null || {
+    TS_WHY="couldn't make the new sync script ready in $CL_HOME"
+    return 1
+  }
+  { rm -f "$INSTALLED.previous" && cp -p "$INSTALLED" "$INSTALLED.previous"; } 2>/dev/null || {
+    TS_WHY="couldn't keep a copy of the sync script at $INSTALLED.previous"
+    return 1
+  }
+  mv -f "$TMP/sync.sh.next" "$INSTALLED" 2>/dev/null || {
+    TS_WHY="couldn't put the new sync script in place"
+    return 1
+  }
+}
+
+# A sync takes the newest script once its own work is done, when this one can
+# take it, asking nobody and saying nothing (CLK-531): the next sync runs it.
+# Only the script at its place updates, as a hook runs it, and only while it's
+# this one, as another app on the computer may have taken the newest already.
+# One that fails, other than the network being away, is noted, for the
+# session start to say once; a later sync tries again.
+self_update() {
+  [ -f "$INSTALLED" ] && [ ! -L "$INSTALLED" ] || return 0
+  [ "$(sed -n 's/^SCRIPT_VERSION=\([0-9]*\)$/\1/p' "$INSTALLED" | head -n 1)" = "$SCRIPT_VERSION" ] || return 0
+  su_take=$(script_lines | sed -n "s/^entry update \($HASH\) \([0-9]\{1,6\}\)\$/\1 \2/p" | head -n 1)
+  [ -n "$su_take" ] || return 0
+  take_script "$sv_newest" "${su_take% *}" "${su_take#* }" "$UPDATE_MAX_TIME"
+  case $? in
+    0) rm -f "$CL_HOME/update-failed" ;;
+    2) ;;
+    *) printf '%s %s\n' "$sv_newest" "$TS_WHY" >"$CL_HOME/update-failed" 2>/dev/null ;;
+  esac
+  return 0
+}
+
+# The line a session start reads once for a newer script this computer
+# couldn't take, with why, and for nothing else (CLK-531)
+failed_update_line() {
+  [ -f "$CL_HOME/update-failed" ] || return 1
+  fu_line=$(head -n 1 "$CL_HOME/update-failed")
+  fu_version=${fu_line%% *}
+  is_number "$fu_version" && [ "$fu_version" -gt "$SCRIPT_VERSION" ] || return 1
+  [ "$(head -n 1 "$CL_HOME/update-said" 2>/dev/null)" = "$fu_version" ] && return 1
+  printf '%s\n' "$fu_version" >"$CL_HOME/update-said" 2>/dev/null
+  printf "Context Locker: version %s of the sync script is out, but this computer's stays at version %s, as %s. It keeps working. Tell the person why, or offer to set Context Locker up again for them: once they say yes, %s.\n" \
+    "$fu_version" "$SCRIPT_VERSION" "${fu_line#* }" "$SETUP_STEPS"
+}
+
+# update takes the newest sync script by hand, when Context Locker says this
+# one can, as a sync does once its own work is done (CLK-531)
 update_mode() {
   [ -f "$INSTALLED" ] || [ -L "$INSTALLED" ] ||
     finish_early "the sync script isn't at $INSTALLED, where the $TRIGGER $TRIGGER_RUNS it, so there's nothing to update. Set Context Locker up again from https://context.locker/setup."
@@ -7514,32 +7609,15 @@ update_mode() {
   [ -n "$up_hash" ] && is_number "$up_setup" ||
     finish_early "version $up_newest of the sync script needs more than the script, such as a new hook, so update can't take it. Offer to set Context Locker up again for the person: once they say yes, $SETUP_STEPS."
 
-  # Straight from the site, without the connection's token, which only
-  # Context Locker's API is sent
-  up_url=$SITE/setup/v$up_setup/sync.sh
-  up_code=$(curl -sS --connect-timeout 5 --max-time "$HTTP_MAX_TIME" -o "$TMP/sync.sh.new" -w '%{http_code}' \
-    -A "context-locker-sync/$SCRIPT_VERSION ($HARNESS; sh)" "$up_url" 2>>"$TMP/curl-errors") || up_code=000
-  case $up_code in
-    200) ;;
-    *000) finish_early "couldn't download version $up_newest of the sync script from $up_url, so the script stays as it is. Try again later." ;;
-    *) finish_early "$up_url answered $up_code, so the sync script stays as it is. Try again later." ;;
+  take_script "$up_newest" "$up_hash" "$up_setup" "$HTTP_MAX_TIME"
+  case $? in
+    0) ;;
+    2) finish_early "$TS_WHY, so the sync script stays as it is. Try again later." ;;
+    *) finish_early "$TS_WHY, so the sync script stays as it is." ;;
   esac
-  [ "$(sha_file "$TMP/sync.sh.new")" = "$up_hash" ] ||
-    finish_early "the sync script from $up_url doesn't match the SHA-256 Context Locker gives for version $up_newest, so it wasn't used, and the script stays as it is."
-  [ "$(sed -n 's/^SCRIPT_VERSION=\([0-9]*\)$/\1/p' "$TMP/sync.sh.new" | head -n 1)" = "$up_newest" ] ||
-    finish_early "the sync script from $up_url isn't version $up_newest, so it wasn't used, and the script stays as it is."
-  sh -n "$TMP/sync.sh.new" 2>/dev/null ||
-    finish_early "the sync script from $up_url doesn't read as a shell script here, so it wasn't used, and the script stays as it is."
-
-  # The new one takes the old one's permissions, and the old one stays beside it
-  { cp -p "$INSTALLED" "$TMP/sync.sh.next" && cat "$TMP/sync.sh.new" >"$TMP/sync.sh.next"; } 2>/dev/null ||
-    finish_early "couldn't make the new sync script ready in $CL_HOME, so the script stays as it is."
-  { rm -f "$INSTALLED.previous" && cp -p "$INSTALLED" "$INSTALLED.previous"; } 2>/dev/null ||
-    finish_early "couldn't keep a copy of the sync script at $INSTALLED.previous, so the script stays as it is."
-  mv -f "$TMP/sync.sh.next" "$INSTALLED" 2>/dev/null ||
-    finish_early "couldn't put the new sync script in place, so the script stays as it is."
+  rm -f "$CL_HOME/update-failed"
   printf 'Context Locker: the sync script is now version %s, from %s. Version %s is kept at %s, and nothing else changed.\n' \
-    "$up_newest" "$up_url" "$SCRIPT_VERSION" "$INSTALLED.previous"
+    "$up_newest" "$TS_URL" "$SCRIPT_VERSION" "$INSTALLED.previous"
 }
 
 # --- Taking Context Locker off the computer (G1-260) -------------------------
@@ -7862,6 +7940,10 @@ ack_project_removals
 # a day has passed, after a sync that worked. A daily run says so as it ends.
 [ "$DAILY" = 0 ] && [ "$global_ok" = 0 ] && [ "$FAILED" = 0 ] && report_schedule check
 
+# A newer script this one can take comes in now, the sync's own work done
+# (CLK-531)
+[ "$global_ok" = 0 ] && newer_script && can_update && self_update
+
 # What the app reads at the start of a session: when the sync couldn't get
 # Context Locker's answer, why and what to offer (G1-258); then a line about
 # changes waiting for the owner, then a project's preferences when they
@@ -7883,7 +7965,7 @@ for part in "$APP_DIR/global.context" ${PROJECT_ID:+"$APP_DIR/projects/$PROJECT_
   cat "$part" >>"$TMP/context"
   context_file=$TMP/context
 done
-if [ "$UNUSABLE" = 0 ] && newer_script; then
+if [ "$UNUSABLE" = 0 ] && newer_script && ! can_update; then
   [ -n "$context_file" ] && printf '\n' >>"$TMP/context"
   # Without Context Locker's answer this time, the newest script is the one
   # the last answer named, so the line says when that was, and a stale lock
@@ -7893,12 +7975,14 @@ if [ "$UNUSABLE" = 0 ] && newer_script; then
     ns_day=$(last_sync_day)
     [ -n "$ns_day" ] && ns_as_of="as of the last sync, on $ns_day, "
   fi
-  if can_update; then
-    printf 'Context Locker: %sversion %s of its sync script is out. When it suits the person, offer to update it, and once they say yes, run `%s update %s`. That changes only the script, and the one installed keeps working until then.\n' \
-      "$ns_as_of" "$sv_newest" "$RUN" "$HARNESS" >>"$TMP/context"
-  else
-    printf 'Context Locker: %s%s\n' "$ns_as_of" "$NEWER_LINE" >>"$TMP/context"
-  fi
+  printf 'Context Locker: %s%s\n' "$ns_as_of" "$NEWER_LINE" >>"$TMP/context"
+  context_file=$TMP/context
+fi
+# A newer script this computer couldn't take, said once (CLK-531), where the
+# app reads it
+if [ "$UNUSABLE" = 0 ] && [ "$DAILY" = 0 ] && [ "$QUIET" = 0 ] && fu_said=$(failed_update_line); then
+  [ -n "$context_file" ] && printf '\n' >>"$TMP/context"
+  printf '%s\n' "$fu_said" >>"$TMP/context"
   context_file=$TMP/context
 fi
 # Then what changed since the last sync, in a line: what the sync brought in,

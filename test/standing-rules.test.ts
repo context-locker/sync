@@ -62,7 +62,15 @@ describe("the standing rules (G1-309)", () => {
     assert.match(regardless!, /cleanup request .* the person's own decision/);
     // What the person's preferences can change: where to ask, how to report
     assert.match(defaults!, /in the chat while the person is there|\{where\}/);
-    assert.match(defaults!, /When you report to the person/);
+    assert.match(
+      defaults!,
+      /Report what is so and what the person needs to decide/,
+    );
+    // What waits on an agent is dealt with, and resolved once finished (CLK-506)
+    assert.match(
+      defaults!,
+      /Deal with each request and thread waiting on you: .* resolve it once finished, never before/,
+    );
   });
 
   it("say how each environment keeps a fact and asks", () => {

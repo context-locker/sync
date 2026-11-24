@@ -50,13 +50,16 @@ interface Answer {
 class Fake {
   /** What GET /v1/sync answers, unless it's the manifest */
   sync: Answer | null = null;
-  /** The global manifest */
+  /**
+   * The global manifest, naming a newer script that needs Context Locker set
+   * up again, as one a script can take in place it takes by itself
+   * (CLK-531)
+   */
   manifest = buildManifest({
     workspaceId: WORKSPACE,
     outputs: [],
     holds: [],
     script: NEXT,
-    update: { hash: "c".repeat(64), setup: 999 },
   }).text;
   /** What every other route answers */
   other: Answer | null = null;
@@ -283,7 +286,7 @@ describe("a session start when the sync can't get Context Locker's answer", () =
           offline.stdout,
           `Context Locker: can't reach Context Locker, so Codex's files are as they were on 26 Oct 2026. The next sync tries again. If it keeps happening, offer to look into it with \`${runLine(shell)} doctor codex\`.\n` +
             "\n" +
-            `Context Locker: as of the last sync, on 26 Oct 2026, version ${NEXT} of its sync script is out. When it suits the person, offer to update it, and once they say yes, run \`${runLine(shell)} update codex\`. That changes only the script, and the one installed keeps working until then.\n`,
+            "Context Locker: as of the last sync, on 26 Oct 2026, a newer version of its sync script is out. When it suits the person, offer to set Context Locker up again for them: once they say yes, download the newest steps with `curl -fsSL https://context.locker/setup/SKILL.md` and follow them. The one installed keeps working until then.\n",
         );
         assert.match(offline.stderr, /can't reach Context Locker/);
 
@@ -302,7 +305,7 @@ describe("a session start when the sync can't get Context Locker's answer", () =
         const back = await run(shell, machine, ["codex"]);
         assert.equal(
           back.stdout,
-          `Context Locker: version ${NEXT} of its sync script is out. When it suits the person, offer to update it, and once they say yes, run \`${runLine(shell)} update codex\`. That changes only the script, and the one installed keeps working until then.\n`,
+          "Context Locker: a newer version of its sync script is out. When it suits the person, offer to set Context Locker up again for them: once they say yes, download the newest steps with `curl -fsSL https://context.locker/setup/SKILL.md` and follow them. The one installed keeps working until then.\n",
         );
       });
 

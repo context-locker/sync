@@ -90,12 +90,15 @@ export interface StartHereInput extends ItemRef {
  */
 export interface NoteInput extends ItemRef {
   title: string;
-  /** plan, spec, decision, research, guide, record or profile */
-  kind: string;
+  /**
+   * plan, spec, decision, research, guide, record or profile, or null while
+   * it's unfinished, as its description is (CLK-525)
+   */
+  kind: string | null;
   /** How AI apps should use it: source-of-truth or reference */
   useAs: string;
-  /** What it holds, in one line */
-  summary: string;
+  /** What it holds and when to open it, in one line */
+  summary: string | null;
   tags: string[];
   /** The note, in Markdown */
   text: string;

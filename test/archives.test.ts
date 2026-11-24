@@ -110,7 +110,8 @@ describe("the blob archive", () => {
       1_760_000_000,
     );
     const dir = mkdtempSync(join(work, "tar-"));
-    execFileSync("tar", ["-xmof", "-", "-C", dir], { input: archive });
+    // Check the permissions stored in the archive even when the runner has a private umask.
+    execFileSync("tar", ["-xmpof", "-", "-C", dir], { input: archive });
 
     assert.deepEqual(readFileSync(join(dir, sha256(block))), block);
     assert.equal(

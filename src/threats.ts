@@ -148,14 +148,20 @@ export function injectionMatches(text: string): string[] {
   return found;
 }
 
-/** One occurrence of each matched rule, with offsets in the original text. */
+/** A matched rule with offsets in the original text. */
 export interface InjectionEvidence {
   id: string;
   start: number;
   end: number;
 }
 
-export function injectionEvidence(text: string): InjectionEvidence[] {
+export function injectionEvidence(
+  text: string,
+  options?: {
+    all: true;
+    rules: Readonly<Record<string, { narrower?: RegExp }>>;
+  },
+): InjectionEvidence[] {
   const source = text.slice(0, 65_536);
   let normalized = source.normalize("NFKC");
   let starts: number[] | null = null;
@@ -180,11 +186,19 @@ export function injectionEvidence(text: string): InjectionEvidence[] {
   }
   normalized = normalized.slice(0, 65_536);
   return PATTERNS.flatMap(([id, pattern]) => {
-    const match = pattern.exec(normalized);
-    if (!match) return [];
-    const start = starts?.[match.index] ?? match.index;
-    const last = match.index + match[0].length;
-    const end = ends?.[last - 1] ?? last;
-    return [{ id, start, end }];
+    const rule = options?.rules[id];
+    if (options && !rule) return [];
+    if (rule?.narrower && !pattern.test(normalized)) return [];
+    const target = rule?.narrower ?? pattern;
+    const hits: InjectionEvidence[] = [];
+    for (const match of normalized.matchAll(
+      new RegExp(target.source, target.flags + "g"),
+    )) {
+      const start = starts?.[match.index] ?? match.index;
+      const last = match.index + match[0].length;
+      hits.push({ id, start, end: ends?.[last - 1] ?? last });
+      if (!options?.all) break;
+    }
+    return hits;
   });
 }

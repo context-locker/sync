@@ -58,9 +58,10 @@ export function renderNoteFile(
 ): string {
   const front = [
     `title: ${yamlString(note.title)}`,
-    `type: ${yamlString(note.kind)}`,
+    // An unfinished note has neither yet (CLK-525)
+    ...(note.kind ? [`type: ${yamlString(note.kind)}`] : []),
     `use_as: ${yamlString(note.useAs)}`,
-    `summary: ${yamlString(note.summary)}`,
+    ...(note.summary ? [`description: ${yamlString(note.summary)}`] : []),
     `labels: [${note.tags.map(yamlString).join(", ")}]`,
     typeof appliesTo === "string" || appliesTo.length === 1
       ? `applies_to: ${yamlString(typeof appliesTo === "string" ? appliesTo : (appliesTo[0] ?? ""))}`

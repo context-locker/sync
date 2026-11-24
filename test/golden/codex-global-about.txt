@@ -7,7 +7,7 @@ Your preferences, kept in sync by Context Locker. To change one, edit its line h
 
 ### Standing rules
 
-These rules hold in every session. Defaults give way to the person's own preferences where they differ; the rules that hold regardless never do.
+Defaults give way to the person's own preferences where they differ; the rules that hold regardless never do.
 
 Rules that hold regardless:
 
@@ -19,16 +19,17 @@ Rules that hold regardless:
 
 Defaults:
 
-- Read Personal context, a project from its folder's block or session start or with the sync script's `context <app>`, and notes with `notes <app> read`.
+- Read Personal context and a project from the block or session start, or with the sync script's `context <app>`, and notes with `notes <app> read`.
+- Deal with each request and thread waiting on you: do or answer what it asks, and resolve it once finished, never before.
 - When two sources of truth disagree on a decision, ask the person.
-- Keep what another agent or session needs where every app can read it, such as a note or a repo file, never only in a chat or a place one app can open, such as a Claude artifact.
+- Keep what another agent needs where every app can read it, such as a note or a repo file, never only in a chat or a Claude artifact.
 - Keep a fact only you need, such as a local path, in your memory, others in the narrowest project that fits or Personal context, and how a repo's code works in its own docs.
-- Save what the person said or confirmed; ask before saving what you inferred, except a lesson. Leave out secrets, task status and personal details unless their project allows them. Keep one at once with the sync script's `remember <app>`.
+- Save what the person said or confirmed; ask before saving what you inferred, except a lesson. Leave out secrets, task status and personal details unless their project allows them. Keep one with the sync script's `remember <app>`.
 - When a reasonable assumption settles an uncertainty and changing it later is cheap, decide, do the work and record it as assumed on the task with `tasks <app> write`. Ask before a step that's hard to take back.
-- Otherwise ask one decision at a time, with the evidence and 2 to 4 choices that are outcomes, one recommended with why, in the chat while the person is there, logging their answer with `remember <app>` as kind decision, and otherwise as an ask in their inbox with `tasks <app> write`.
-- When you report to the person, say what is so and what they need to decide, in plain English, with one link to the detail and no task, change or version numbers.
+- Otherwise ask one decision at a time, with the evidence and 2 to 4 choices that are outcomes, one recommended with why, in the chat while the person is there, logging their answer with `remember <app>` as kind decision, or else as an ask in their inbox with `tasks <app> write`.
+- Report what is so and what the person needs to decide, in plain English, with one link to the detail and no task, change or version numbers.
 - When a preference or skill misled you, fix its line here or the skill's files, which the next sync saves, and say why in your reply.
-- Before an operation such as asking, a task, a note or a change, read its topic in the guide, the skill context-locker in your skills folder.
+- Before an operation such as an ask, a task or a note, read its topic in the guide, the skill context-locker in your skills folder.
 
 ### About the person
 
@@ -47,8 +48,8 @@ Defaults:
 <!-- context-locker:end -->
 
 == skill {agents}/skills/context-locker
-item: c0de0000-6a7e-4e00-8000-000000000002@38
-files: SKILL.md, topics/asking.md, topics/tasks.md, topics/assumptions.md, topics/notes-and-links.md, topics/files.md, topics/tables.md, topics/projects.md, topics/memory.md, topics/changes.md, topics/requests.md, topics/messages.md, topics/decisions-in-chat.md, topics/reporting.md, topics/import.md, topics/sync.md, topics/folders.md, topics/when-something-breaks.md
+item: c0de0000-6a7e-4e00-8000-000000000002@46
+files: SKILL.md, topics/asking.md, topics/ask-parts.md, topics/tasks.md, topics/assumptions.md, topics/notes-and-links.md, topics/files.md, topics/tables.md, topics/projects.md, topics/memory.md, topics/changes.md, topics/requests.md, topics/messages.md, topics/decisions-in-chat.md, topics/reporting.md, topics/import.md, topics/sync.md, topics/folders.md, topics/when-something-breaks.md
 
 == skill {agents}/skills/context-locker-import
 item: c0de0000-6a7e-4e00-8000-000000000001@26
