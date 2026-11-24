@@ -101,7 +101,7 @@ export const TEXT = {
           : `${sentences} to their first sentence and ${names} to their name`;
     return `${count === 1 ? "1 preference is" : `${count} preferences are`} shortened here, ${how}, marked (shortened), as this file has no room for ${them} whole. Read ${them} whole with the sync script's \`context <app>\` before work.`;
   },
-  /** A project's map: the notes and pointers whose summaries a new agent reads first */
+  /** A project's map: the notes and pointers whose descriptions a new agent reads first */
   startHereHeading: "### Start here",
   /**
    * After the Start here entries: what to do with them, and where the rest of
@@ -109,7 +109,7 @@ export const TEXT = {
    * the sync writes, and the tool over MCP (G1-335)
    */
   onboarding: (reach: Reach) =>
-    `Start each session with a three-line startup brief for the person: the project, the sources you'll use, and your first step. These come from the project's map in Context Locker. Read the Start here summaries above now, and open an entry only when the work needs it. When the work needs more of the map, ${reach === "sync" ? "run the sync script's `map <app>`" : "call Context Locker's project_map tool if you have it"}.`,
+    `Start each session with a three-line startup brief for the person: the project, the sources you'll use, and your first step. These come from the project's map in Context Locker. Read the Start here descriptions above now, and open an entry only when the work needs it. When the work needs more of the map, ${reach === "sync" ? "run the sync script's `map <app>`" : "call Context Locker's project_map tool if you have it"}.`,
   /** After a note that has no file here, which the reader can open */
   readNote: (reach: Reach) =>
     reach === "sync"
@@ -151,11 +151,11 @@ export const TEXT = {
   mapNeedsReading:
     "The documentation and work locations didn't fit here. Read them with the sync script's `context <app>` before choosing where to save docs or track work.",
   startHereNeedsReading:
-    "Some Start here summaries didn't fit here. Read them with the sync script's `map <app>` before work, and open the full entries only when needed.",
+    "Some Start here descriptions didn't fit here. Read them with the sync script's `map <app>` before work, and open the full entries only when needed.",
   tightBlock:
-    "The full project didn't fit in this file. Before work, run the sync script's `context <app>` in this project and read all Start here summaries. Preferences and documentation or work locations omitted here still apply. If you can't fetch them, tell the person what is missing before acting.",
+    "The full project didn't fit in this file. Before work, run the sync script's `context <app>` in this project and read all Start here descriptions. Preferences and documentation or work locations omitted here still apply. If you can't fetch them, tell the person what is missing before acting.",
   noRoom:
-    "There is no room for a complete Context Locker block in AGENTS.md within the apps' reading limits. The block is not loaded. Before work, run the sync script's `context <app>` in this project and read all Start here summaries. If you can't fetch them, tell the person what is missing before acting. Text outside the block stays unchanged.",
+    "There is no room for a complete Context Locker block in AGENTS.md within the apps' reading limits. The block is not loaded. Before work, run the sync script's `context <app>` in this project and read all Start here descriptions. If you can't fetch them, tell the person what is missing before acting. Text outside the block stays unchanged.",
 } as const;
 
 /** How the reader reaches what a line names: an MCP tool, or the sync script's command (G1-335) */

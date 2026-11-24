@@ -849,7 +849,7 @@ describe("the standing rules in a block (G1-309)", () => {
     const rules = standingRules("sync");
     assert.match(
       rules,
-      /Keep what another agent or session needs where every app can read it/,
+      /Keep what another agent needs where every app can read it/,
     );
     assert.match(
       rules,

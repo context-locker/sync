@@ -8,7 +8,7 @@ This repository is a published copy of the code Context Locker runs. It's update
 
 ## Setting up an app
 
-Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v71`](setup/v71), which runs `context-locker@0.1.18`, bundling script 40, then takes script 58, the newest, with `update`. The setup command 0.1.20, on npm since 10 Nov 2026, bundles script 49, and takes script 58 the same way. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for yourself, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
+Paste this line into the AI app you want to connect: `Set up Context Locker: download https://context.locker/setup/SKILL.md with curl and follow the steps in it`. That address always has the newest steps, now [`setup/v73`](setup/v73), which runs `context-locker@0.1.18`, bundling script 40, then takes script 60, the newest, with `update`. The setup command 0.1.20, on npm since 10 Nov 2026, bundles script 49, and takes script 60 the same way. Connect an AI app in Context Locker gives any app the same steps with a one-time code: `Connect to Context Locker: read https://context.locker/setup/SKILL.md and follow its steps for yourself, with this one-time code: <code>`. Since setup 37, their first step finds each app's own way in: device sync, as below, for an app that runs commands on a computer it keeps; a key it claims with the code, for an app in the cloud that adds an MCP server with a header; or the person's account connector, whose steps it gives them in the chat, for a chat app or any other app.
 
 Setup configures only the app running it, when reliable session markers identify it. Otherwise select one explicitly, for example `npx context-locker@0.1.20 setup --app codex`. Installed folders and commands never select other apps. Connection registration, credentials, pending approval, synced files and hooks all belong to the selected app; the shared sync script stays reusable. Run setup separately in another app to connect it. Repeating setup preserves existing connections and does not duplicate hooks.
 
@@ -175,6 +175,14 @@ Script 57, in setup 70, names the level above projects Personal context for the 
 
 Script 58, in setup 71, names the agent's page as its page in Context Locker where it said its page in Agents, the AI apps page's old name: in the per-prompt line while hearing of new asks is off, and in what `remove` says it leaves. Its header no longer says a project can have its own auto sync setting, as projects lost theirs on 31 Oct 2026. Only the script's words change, so earlier scripts take it in place with `update`.
 
+## A doc's description
+
+Script 59, in setup 72, changes only the files command's help, which says a kept file's description where it said its summary, as a doc's one line is its description, as a skill's is, in Context Locker's tools, the guide and synced files from the same release. Nothing it reads or writes changes, so earlier scripts take it in place with `update`.
+
+## A script that updates itself
+
+Script 60, in setup 73, takes a newer sync script by itself once a sync's own work is done, a daily run's too, asking nobody and saying nothing, when the global manifest says it can take it in place. It checks what `update` checks, the SHA-256 Context Locker gives, the version and that it reads as a script, and that the new script starts on the computer: it runs it with `version`, a new command that says the script's version and does nothing else. It gives up after 15 seconds and never fails the sync: the script stays as it is, a later sync tries again, and one that failed other than for the network is said once at a session start, with why. Its session start no longer offers `update`, which stays a command to run by hand, and Context Locker's inbox no longer has a card for it. Earlier scripts take script 60 in place with `update`, after which each computer's script takes the next one by itself.
+
 ## Links checked only in the repo
 
 Script 52, in setup 65, checks a project's links to paths in its repo only in a folder that is that repo: one whose `.contextlocker.json` names the project, or whose git remote is the project's repository, which the script asks Context Locker about with `POST /v1/sync/repo`. It looks for each path in the default branch the checkout last fetched, not in the files on disk, so an old branch or an unpushed file neither raises a request nor hides one, and anywhere else it checks no links. For a public repo on GitHub, Context Locker asks GitHub instead.
@@ -189,7 +197,7 @@ Script 54, in setup 67, brings a project into a folder only where that folder is
 
 ## Files and tables
 
-Script 55, in setup 68, gives a project's files and tables commands, as a computer keeps no copy of either: `files <app> write <request.json> --file <path>` sends a file in parts of up to 4 MB and keeps it, `files <app> upload <path>` sends one for a note to show as `file:<id>`, and `table <app> <request.json>` makes a table and finds, adds and changes its rows. A note, a file or a table is read by its id with `notes <app> read`. Script 56, in setup 69, says so in the notes command's help, which now names the list_docs and search_docs arguments it takes. Setups 65 to 71 still run the setup command 0.1.18, which saves script 40, then take the newest script with `update`.
+Script 55, in setup 68, gives a project's files and tables commands, as a computer keeps no copy of either: `files <app> write <request.json> --file <path>` sends a file in parts of up to 4 MB and keeps it, `files <app> upload <path>` sends one for a note to show as `file:<id>`, and `table <app> <request.json>` makes a table and finds, adds and changes its rows. A note, a file or a table is read by its id with `notes <app> read`. Script 56, in setup 69, says so in the notes command's help, which now names the list_docs and search_docs arguments it takes. Setups 65 to 73 still run the setup command 0.1.18, which saves script 40, then take the newest script with `update`.
 
 ## Skill file transfers
 
@@ -205,7 +213,7 @@ retains an unchanged file from that authorised base, and `file bytes path`
 carries changed bytes. Omitted paths are removed. The server still checks the
 whole reconstructed skill, its limits, approval rules and concurrent changes.
 
-Existing scripts from version 20 can update in place after the person agrees.
+Existing scripts from version 20 can update in place, by hand with `update`, and from script 60 by themselves at a sync.
 CLI 0.1.13 remains supported; the newest setup steps run the script update after
 setup. No new hooks or schedules are added. Free allows 100 MB of current active
 skills and Pro 1 GB, counted from original file sizes, excluding older versions

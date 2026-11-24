@@ -1,8 +1,10 @@
-// The sync scripts' update command (G1-112). It takes the newest script from
-// where setup publishes it, only when Context Locker says this one can, and
-// only when it matches the SHA-256 Context Locker gives for it, keeping the
-// old one beside it and changing nothing else. The session start and the
-// doctor name it. These run the real scripts against a fake Context Locker
+// How the sync scripts take the newest one (G1-112, CLK-531): a sync does it
+// once its own work is done, asking nobody, and the update command does it by
+// hand. Each takes it from where setup publishes it, only when Context Locker
+// says this one can, and only when it matches the SHA-256 Context Locker gives
+// for it, is the version named and starts here, keeping the old one beside it
+// and changing nothing else. One a sync can't take is said once, and the
+// doctor names it. These run the real scripts against a fake Context Locker
 // that also plays the website.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
@@ -248,8 +250,35 @@ describe("the sync scripts' update command", () => {
 
   for (const shell of SHELLS) {
     describe(`in ${shell}`, () => {
-      it("says at session start and in the doctor how to update, when Context Locker says this script can", async () => {
+      it("takes the newest script once a sync's own work is done, asking nobody and saying nothing", async () => {
         const machine = computer(shell);
+        const old = readFileSync(machine.installed);
+        const next = scriptAs(scriptName(shell), NEXT);
+        publish(shell, next);
+        fake.manifest = buildManifest({
+          workspaceId: WORKSPACE,
+          outputs: [],
+          holds: [],
+          script: NEXT,
+          update: { hash: sha256(next), setup: SETUP },
+        }).text;
+        const synced = await run(shell, machine, ["codex"]);
+        assert.equal(synced.status, 0, synced.stdout + synced.stderr);
+        assert.doesNotMatch(synced.stdout, /sync script/);
+        assert.deepEqual(readFileSync(machine.installed), next);
+        assert.deepEqual(readFileSync(`${machine.installed}.previous`), old);
+        // From the website alone, without the connection's token
+        assert.deepEqual(
+          fake.requests
+            .filter((request) => request.route.startsWith("GET /setup/"))
+            .map((request) => [request.route, request.token]),
+          [[`GET /setup/v${SETUP}/${scriptName(shell)}`, false]],
+        );
+      });
+
+      it("says once why a sync couldn't take the newest script, and the doctor that the next sync takes it", async () => {
+        const machine = computer(shell);
+        const old = readFileSync(machine.installed);
         fake.manifest = buildManifest({
           workspaceId: WORKSPACE,
           outputs: [],
@@ -261,15 +290,19 @@ describe("the sync scripts' update command", () => {
         assert.equal(synced.status, 0, synced.stdout + synced.stderr);
         assert.ok(
           synced.stdout.includes(
-            `Context Locker: version ${NEXT} of its sync script is out. When it suits the person, offer to update it, and once they say yes, run \`${runLine(shell)} update codex\`. That changes only the script, and the one installed keeps working until then.\n`,
+            `Context Locker: version ${NEXT} of the sync script is out, but this computer's stays at version ${SYNC_SCRIPT_VERSION}, as ${baseUrl}/setup/v${SETUP}/${scriptName(shell)} answered 404. It keeps working. Tell the person why, or offer to set Context Locker up again for them: once they say yes, download the newest steps with \`curl -fsSL https://context.locker/setup/SKILL.md\` and follow them.\n`,
           ),
           synced.stdout,
         );
+        assert.deepEqual(readFileSync(machine.installed), old);
+        const again = await run(shell, machine, ["codex"]);
+        assert.equal(again.status, 0, again.stdout + again.stderr);
+        assert.doesNotMatch(again.stdout, /sync script/);
         const doctor = await run(shell, machine, ["doctor", "codex"]);
         assert.match(
           doctor.stdout,
           new RegExp(
-            `^WARN {2}${escape(`Version ${NEXT} of the sync script is out, and updating to it changes only the script. When it suits you, run: ${runLine(shell)} update codex`)}$`,
+            `^WARN {2}${escape(`Version ${NEXT} of the sync script is out, and the next sync takes it, changing only the script. To take it now, run: ${runLine(shell)} update codex`)}$`,
             "m",
           ),
         );
@@ -281,15 +314,15 @@ describe("the sync scripts' update command", () => {
           holds: [],
           script: NEXT,
         }).text;
-        const again = await run(shell, machine, ["codex"]);
-        assert.equal(again.status, 0, again.stdout + again.stderr);
+        const setUp = await run(shell, machine, ["codex"]);
+        assert.equal(setUp.status, 0, setUp.stdout + setUp.stderr);
         assert.ok(
-          again.stdout.includes(
+          setUp.stdout.includes(
             "Context Locker: a newer version of its sync script is out. When it suits the person, offer to set Context Locker up again for them: once they say yes, download the newest steps with `curl -fsSL https://context.locker/setup/SKILL.md` and follow them. The one installed keeps working until then.\n",
           ),
-          again.stdout,
+          setUp.stdout,
         );
-        assert.doesNotMatch(again.stdout, / update codex/);
+        assert.doesNotMatch(setUp.stdout, / update codex/);
       });
 
       it("takes the newest script from setup's folder, keeps the old one beside it and changes nothing else", async () => {
@@ -331,13 +364,25 @@ describe("the sync scripts' update command", () => {
         assert.deepEqual(readFileSync(`${machine.installed}.previous`), old);
       });
 
-      it("won't take a script that doesn't match, isn't the version named or doesn't read as a script", async () => {
+      it("won't take a script that doesn't match, isn't the version named, doesn't read as a script or doesn't start", async () => {
         const name = scriptName(shell);
         const next = scriptAs(name, NEXT);
         const broken = scriptAs(
           name,
           NEXT,
           shell === "pwsh" ? "\nfunction Broken {\n" : "\nif then\n",
+        );
+        // One that reads as a script but stops before it says its version
+        const stops = Buffer.from(
+          next
+            .toString("utf8")
+            .replace(
+              shell === "pwsh"
+                ? `\n$ScriptVersion = ${NEXT}\n`
+                : `\nSCRIPT_VERSION=${NEXT}\n`,
+              (line) => `\nexit 3${line}`,
+            ),
+          "utf8",
         );
         const cases: Array<{
           why: string;
@@ -347,20 +392,25 @@ describe("the sync scripts' update command", () => {
           {
             why: "a different file",
             set: () => publish(shell, next, sha256("something else")),
-            says: /doesn't match the SHA-256 Context Locker gives for version \d+, so it wasn't used, and the script stays as it is\./,
+            says: /doesn't match the SHA-256 Context Locker gives for version \d+, so the sync script stays as it is\./,
           },
           {
             why: "another version",
             set: () => publish(shell, scriptAs(name, NEXT + 1)),
-            says: /isn't version \d+, so it wasn't used, and the script stays as it is\./,
+            says: /isn't version \d+, so the sync script stays as it is\./,
           },
           {
             why: "not a script",
             set: () => publish(shell, broken),
             says:
               shell === "pwsh"
-                ? /doesn't read as a PowerShell script here, so it wasn't used/
-                : /doesn't read as a shell script here, so it wasn't used/,
+                ? /doesn't read as a PowerShell script here, so the sync script stays as it is\./
+                : /doesn't read as a shell script here, so the sync script stays as it is\./,
+          },
+          {
+            why: "one that doesn't start",
+            set: () => publish(shell, stops),
+            says: /doesn't start here, so the sync script stays as it is\./,
           },
           {
             why: "not there",
@@ -371,7 +421,7 @@ describe("the sync scripts' update command", () => {
                 body: "Not found",
               });
             },
-            says: /answered 404, so the sync script stays as it is\. Try again later\./,
+            says: /answered 404, so the sync script stays as it is\./,
           },
           {
             why: "nothing to take in place",

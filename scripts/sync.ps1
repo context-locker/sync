@@ -13,6 +13,7 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 plan|doctor|readback|daily-job <app>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 prompt <app>
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 update <app>
+#   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 version
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 remove <app> [-Yes]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 context <app> [request.json] [-Project <id>] [-Json]
 #   powershell -NoProfile -ExecutionPolicy Bypass -File sync.ps1 tasks <app> list|read|write|places [request.json] [-Project <id>] [-Json]
@@ -132,13 +133,16 @@
 # 2 to 4 --choice <label> asks the person a question back, which they answer
 # in one press, or with something else, and the answer comes back in fix.
 #
-# update takes the newest sync script, once the person says yes, when Context
-# Locker says this one can. It downloads it from where setup publishes it, at
-# context.locker/setup, checks its SHA-256 against the one Context Locker
-# gives, that it's the version it says and that PowerShell can read it, keeps
-# this one beside it as sync.ps1.previous and puts the new one in its place.
-# It changes nothing else. When the newest script needs more than the script,
-# such as a new hook, it says to set Context Locker up again instead.
+# A sync that hears of a newer sync script this one can take takes it once
+# its own work is done, asking nobody (CLK-531). It downloads it from where
+# setup publishes it, at context.locker/setup, checks its SHA-256 against the
+# one Context Locker gives, that it's the version it says, that PowerShell can
+# read it and that it starts here, keeps this one beside it as
+# sync.ps1.previous and puts the new one in its place. It changes nothing
+# else, and a failed one leaves this script as it is and is said once. update
+# does the same by hand. When the newest script needs more than the script,
+# such as a new hook, the session start says to set Context Locker up again
+# instead. version says the script's version and does nothing else.
 #
 # For setup (see context.locker/setup):
 #   signin    connects the app with a code you approve in your browser. The
@@ -209,7 +213,13 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ScriptVersion = 58
+$ScriptVersion = 60
+# A newer script is started with version before it takes this one's place,
+# to show it runs here: it says its version and does nothing else (CLK-531)
+if ($First -eq 'version') {
+  [Console]::Out.WriteLine([string]$ScriptVersion)
+  exit 0
+}
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Uuid = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $Hash = '^[0-9a-f]{64}$'
@@ -396,7 +406,7 @@ sync.ps1 notes <app> list|search|read|write [request.json] [-Project <id>] [-Jso
   Lists and searches the docs of Personal context and each of your projects, reads a note, link, file or table, and writes notes and links. Fields: request.json holds list_docs, search_docs, read_note or write_note arguments, and only list may leave it out. Guide: topics/notes-and-links.md.
 sync.ps1 files <app> write <request.json> [-File <path>] [-Json]
 sync.ps1 files <app> upload <path>
-  Keeps a file in a project, sent from this computer, or changes a kept file's name, summary or place, or replaces its bytes; upload sends one for a note to show as file:<id>. Fields: request.json holds write_file arguments, and -File <path> sends that file in parts as their upload. Limits: A file is at most 10 MB on Free and 50 MB on Pro, and nothing is kept on the computer; read one with notes read. Guide: topics/files.md.
+  Keeps a file in a project, sent from this computer, or changes a kept file's name, description or place, or replaces its bytes; upload sends one for a note to show as file:<id>. Fields: request.json holds write_file arguments, and -File <path> sends that file in parts as their upload. Limits: A file is at most 10 MB on Free and 50 MB on Pro, and nothing is kept on the computer; read one with notes read. Guide: topics/files.md.
 sync.ps1 table <app> <request.json> [-Json]
   Makes a table, and finds, adds, changes and takes out its rows by their key. Fields: request.json holds table arguments. Limits: Rows come from the request, never from a copy on the computer. Guide: topics/tables.md.
 sync.ps1 versions <app> list|read <request.json> [-Json]
@@ -701,10 +711,10 @@ if (@('sync', 'plan', 'map', 'gather', 'gather-submit', 'export', 'notes-move-ou
 }
 
 # The global manifest names the newest sync script, and when this one can
-# take it with update, where it's published and its SHA-256 (G1-112). A newer
-# one than this gets a line at session start and in the doctor; nothing
-# changes on its own. When more than the script changed, the app offers to
-# set Context Locker up again, as it offers to update (G1-258).
+# take it, where it's published and its SHA-256 (G1-112). A sync takes one it
+# can once its own work is done (CLK-531). When more than the script changed,
+# the session start and the doctor say so, for the app to offer to set
+# Context Locker up again (G1-258).
 $NewerLine = "a newer version of its sync script is out. When it suits the person, offer to set Context Locker up again for them: once they say yes, $SetupSteps. The one installed keeps working until then."
 $Script:NewestScript = 0
 # The newest script's lines: from this sync's answer when Context Locker gave
@@ -5426,7 +5436,7 @@ function Invoke-Doctor {
   }
   if (Test-NewerScript) {
     if (Test-CanUpdate) {
-      Warning "Version $($Script:NewestScript) of the sync script is out, and updating to it changes only the script. When it suits you, run: $Run update $Harness"
+      Warning "Version $($Script:NewestScript) of the sync script is out, and the next sync takes it, changing only the script. To take it now, run: $Run update $Harness"
     } else {
       # Offered, as the session start does (G1-258)
       Warning "A newer version of the sync script is out. When it suits the person, offer to set Context Locker up again for them: once they say yes, $SetupSteps. This one keeps working until then."
@@ -7391,12 +7401,127 @@ function Undo-MoveOut([string]$Dest, [string]$File) {
 
 # --- Update ---------------------------------------------------------------
 
-# Takes the newest sync script, when Context Locker says this one can, from
-# setup's folder for its release and nowhere else, as setup would save it: it
-# must match the SHA-256 Context Locker gives, say it's the version Context
-# Locker names and read as a PowerShell script. This one stays beside it as
+# How long taking a newer script may hold up a sync, in seconds, so a session
+# starts after no more than a moment (CLK-531)
+$UpdateMaxTime = 15
+
+# Takes version $Newest of the sync script, whose SHA-256 is $Want, from
+# setup's folder for release $Setup and nowhere else, as setup would save it,
+# within $Seconds: it must match the SHA-256, say it's that version, read as a
+# PowerShell script and start here. This one stays beside it as
 # sync.ps1.previous, and the new one takes its place in one step. Nothing
-# else changes (G1-112).
+# else changes (G1-112, CLK-531). Gives 0 once it's in place, 2 when the site
+# couldn't be reached and 1 for anything else, with why in $Script:TakeWhy.
+function Invoke-TakeScript([int]$Newest, [string]$Want, [string]$Setup, [int]$Seconds) {
+  $Script:TakeWhy = ''
+  $Script:TakeUrl = "$Site/setup/v$Setup/sync.ps1"
+  $url = $Script:TakeUrl
+  # Straight from the site, without the connection's token, which only
+  # Context Locker's API is sent
+  $status = 0
+  $bytes = [byte[]]@()
+  $timer = New-Object System.Threading.CancellationTokenSource([TimeSpan]::FromSeconds($Seconds))
+  try {
+    $request = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Get, $url)
+    $response = $Client.SendAsync($request, $timer.Token).GetAwaiter().GetResult()
+    $status = [int]$response.StatusCode
+    $bytes = $response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+  } catch {
+    $status = 0
+  } finally {
+    $timer.Dispose()
+  }
+  if ($status -eq 0) { $Script:TakeWhy = "couldn't download version $Newest of the sync script from $url"; return 2 }
+  if ($status -ne 200) { $Script:TakeWhy = "$url answered $status"; return 1 }
+  if ((Get-Sha256Bytes $bytes) -ne $Want) {
+    $Script:TakeWhy = "the sync script from $url doesn't match the SHA-256 Context Locker gives for version $Newest"
+    return 1
+  }
+  $saysVersion = ''
+  foreach ($line in ($Utf8.GetString($bytes) -split "`n")) {
+    if ($line -match '^\$ScriptVersion = (\d+)\r?$') { $saysVersion = $Matches[1]; break }
+  }
+  if ($saysVersion -ne [string]$Newest) { $Script:TakeWhy = "the sync script from $url isn't version $Newest"; return 1 }
+  # Ending in .ps1, as -File takes nothing else on Windows
+  $new = Join-Path $Tmp 'sync.new.ps1'
+  [IO.File]::WriteAllBytes($new, $bytes)
+  $tokens = $null
+  $errors = $null
+  [void][Management.Automation.Language.Parser]::ParseFile($new, [ref]$tokens, [ref]$errors)
+  if ($errors -and $errors.Count -gt 0) {
+    $Script:TakeWhy = "the sync script from $url doesn't read as a PowerShell script here"
+    return 1
+  }
+  # It has to start here too, in the PowerShell running this one, so one
+  # that can't run here never takes the place of one that can (CLK-531)
+  $started = ''
+  try {
+    $shell = (Get-Process -Id $PID).Path
+    $started = (& $shell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $new version 2>$null | Out-String).Trim()
+  } catch {
+    $started = ''
+  }
+  if ($started -ne [string]$Newest) { $Script:TakeWhy = "the sync script from $url doesn't start here"; return 1 }
+
+  # The old one stays beside the new one, which takes its place in one step
+  $previous = "$Installed.previous"
+  try {
+    Set-OwnerOnly $new
+    if (Test-Path -LiteralPath $previous) { Remove-Item -LiteralPath $previous -Force }
+    [IO.File]::Replace($new, $Installed, $previous)
+  } catch {
+    $Script:TakeWhy = "couldn't put the new sync script in place"
+    return 1
+  }
+  return 0
+}
+
+# A sync takes the newest script once its own work is done, when this one can
+# take it, asking nobody and saying nothing (CLK-531): the next sync runs it.
+# Only the script at its place updates, as a hook runs it, and only while it's
+# this one, as another app on the computer may have taken the newest already.
+# One that fails, other than the network being away, is noted, for the
+# session start to say once; a later sync tries again.
+function Invoke-SelfUpdate {
+  if (-not (Test-Path -LiteralPath $Installed -PathType Leaf)) { return }
+  if ((Get-Item -LiteralPath $Installed -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { return }
+  $installedVersion = ''
+  foreach ($line in [IO.File]::ReadAllLines($Installed)) {
+    if ($line -match '^\$ScriptVersion = (\d+)$') { $installedVersion = $Matches[1]; break }
+  }
+  if ($installedVersion -ne [string]$ScriptVersion) { return }
+  foreach ($line in (Get-ScriptLines)) {
+    if ($line -cmatch '^entry update ([0-9a-f]{64}) ([0-9]{1,6})\z') {
+      $took = Invoke-TakeScript $Script:NewestScript $Matches[1] $Matches[2] $UpdateMaxTime
+      $failed = Join-Path $ClHome 'update-failed'
+      if ($took -eq 0) {
+        if (Test-Path -LiteralPath $failed) { Remove-Item -LiteralPath $failed -Force -ErrorAction SilentlyContinue }
+      } elseif ($took -ne 2) {
+        try { [IO.File]::WriteAllText($failed, "$($Script:NewestScript) $($Script:TakeWhy)`n", $Utf8) } catch { }
+      }
+      return
+    }
+  }
+}
+
+# The line a session start reads once for a newer script this computer
+# couldn't take, with why, and nothing for anything else (CLK-531)
+function Get-FailedUpdateLine {
+  $failed = Join-Path $ClHome 'update-failed'
+  if (-not (Test-Path -LiteralPath $failed -PathType Leaf)) { return '' }
+  $line = ([IO.File]::ReadAllLines($failed) | Select-Object -First 1)
+  if (-not $line -or $line -notmatch '^([0-9]{1,6}) (.+)$') { return '' }
+  $version = [int]$Matches[1]
+  $why = $Matches[2]
+  if ($version -le $ScriptVersion) { return '' }
+  $said = Join-Path $ClHome 'update-said'
+  if ((Test-Path -LiteralPath $said -PathType Leaf) -and (([IO.File]::ReadAllLines($said) | Select-Object -First 1) -eq [string]$version)) { return '' }
+  try { [IO.File]::WriteAllText($said, "$version`n", $Utf8) } catch { }
+  return "Context Locker: version $version of the sync script is out, but this computer's stays at version $ScriptVersion, as $why. It keeps working. Tell the person why, or offer to set Context Locker up again for them: once they say yes, $SetupSteps.`n"
+}
+
+# update takes the newest sync script by hand, when Context Locker says this
+# one can, as a sync does once its own work is done (CLK-531)
 function Invoke-Update {
   function Stop-Update([string]$Text) { [Console]::Error.WriteLine("Context Locker: $Text") }
   if (-not (Test-Path -LiteralPath $Installed)) {
@@ -7446,54 +7571,12 @@ function Invoke-Update {
     return 1
   }
 
-  # Straight from the site, without the connection's token, which only
-  # Context Locker's API is sent
-  $url = "$Site/setup/v$setup/sync.ps1"
-  $status = 0
-  $bytes = [byte[]]@()
-  try {
-    $request = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Get, $url)
-    $response = $Client.SendAsync($request).GetAwaiter().GetResult()
-    $status = [int]$response.StatusCode
-    $bytes = $response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
-  } catch {
-    $status = 0
-  }
-  if ($status -eq 0) { Stop-Update "couldn't download version $newest of the sync script from $url, so the script stays as it is. Try again later."; return 1 }
-  if ($status -ne 200) { Stop-Update "$url answered $status, so the sync script stays as it is. Try again later."; return 1 }
-  if ((Get-Sha256Bytes $bytes) -ne $want) {
-    Stop-Update "the sync script from $url doesn't match the SHA-256 Context Locker gives for version $newest, so it wasn't used, and the script stays as it is."
-    return 1
-  }
-  $saysVersion = ''
-  foreach ($line in ($Utf8.GetString($bytes) -split "`n")) {
-    if ($line -match '^\$ScriptVersion = (\d+)\r?$') { $saysVersion = $Matches[1]; break }
-  }
-  if ($saysVersion -ne [string]$newest) {
-    Stop-Update "the sync script from $url isn't version $newest, so it wasn't used, and the script stays as it is."
-    return 1
-  }
-  $new = Join-Path $Tmp 'sync.ps1.new'
-  [IO.File]::WriteAllBytes($new, $bytes)
-  $tokens = $null
-  $errors = $null
-  [void][Management.Automation.Language.Parser]::ParseFile($new, [ref]$tokens, [ref]$errors)
-  if ($errors -and $errors.Count -gt 0) {
-    Stop-Update "the sync script from $url doesn't read as a PowerShell script here, so it wasn't used, and the script stays as it is."
-    return 1
-  }
-
-  # The old one stays beside the new one, which takes its place in one step
-  $previous = "$Installed.previous"
-  try {
-    Set-OwnerOnly $new
-    if (Test-Path -LiteralPath $previous) { Remove-Item -LiteralPath $previous -Force }
-    [IO.File]::Replace($new, $Installed, $previous)
-  } catch {
-    Stop-Update "couldn't put the new sync script in place, so the script stays as it is."
-    return 1
-  }
-  Say "Context Locker: the sync script is now version $newest, from $url. Version $ScriptVersion is kept at $previous, and nothing else changed."
+  $took = Invoke-TakeScript $newest $want $setup ([int]$Client.Timeout.TotalSeconds)
+  if ($took -eq 2) { Stop-Update "$($Script:TakeWhy), so the sync script stays as it is. Try again later."; return 1 }
+  if ($took -ne 0) { Stop-Update "$($Script:TakeWhy), so the sync script stays as it is."; return 1 }
+  $failed = Join-Path $ClHome 'update-failed'
+  if (Test-Path -LiteralPath $failed) { Remove-Item -LiteralPath $failed -Force -ErrorAction SilentlyContinue }
+  Say "Context Locker: the sync script is now version $newest, from $($Script:TakeUrl). Version $ScriptVersion is kept at $Installed.previous, and nothing else changed."
   return 0
 }
 
@@ -7840,6 +7923,11 @@ try {
   # or a day has passed, after a sync that worked. A daily run says so as it
   # ends.
   if (-not $Daily -and $globalOk -eq 0 -and -not $Script:Failed) { Send-Schedule 'check' }
+  # A newer script this one can take comes in now, the sync's own work done,
+  # and a failed one never fails the sync (CLK-531)
+  if ($globalOk -eq 0 -and (Test-NewerScript) -and (Test-CanUpdate)) {
+    try { Invoke-SelfUpdate } catch { }
+  }
 } catch {
   Warn "sync stopped: $($_.Exception.Message)"
   $Script:Failed = $true
@@ -7864,7 +7952,7 @@ if ($Script:ProjectId) {
   $candidate = Join-Path (Join-Path $AppDir 'projects') "$($Script:ProjectId).context"
   if (Test-Path -LiteralPath $candidate -PathType Leaf) { $contextParts.Add((Read-Text $candidate)) }
 }
-if (-not $unusable -and (Test-NewerScript)) {
+if (-not $unusable -and (Test-NewerScript) -and -not (Test-CanUpdate)) {
   # Without Context Locker's answer this time, the newest script is the one
   # the last answer named, so the line says when that was, and a stale lock
   # doesn't read as live (G1-258)
@@ -7873,11 +7961,13 @@ if (-not $unusable -and (Test-NewerScript)) {
     $day = Get-LastSyncDay
     if ($day) { $asOf = "as of the last sync, on $day, " }
   }
-  if (Test-CanUpdate) {
-    $contextParts.Add("Context Locker: $($asOf)version $($Script:NewestScript) of its sync script is out. When it suits the person, offer to update it, and once they say yes, run ``$Run update $Harness``. That changes only the script, and the one installed keeps working until then.`n")
-  } else {
-    $contextParts.Add("Context Locker: $asOf$NewerLine`n")
-  }
+  $contextParts.Add("Context Locker: $asOf$NewerLine`n")
+}
+# A newer script this computer couldn't take, said once (CLK-531), where the
+# app reads it
+if (-not $unusable -and -not $Quiet) {
+  $failedLine = Get-FailedUpdateLine
+  if ($failedLine) { $contextParts.Add($failedLine) }
 }
 
 # What this run changed in the app's files, such as "its instructions and 2

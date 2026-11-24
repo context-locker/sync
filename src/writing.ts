@@ -203,6 +203,8 @@ export const RETIRED_WORDS = Object.freeze([
   { word: "workspace", say: "a team, or nothing" },
   { word: "suggestion", say: "a change" },
   { word: "persona", say: "nothing, as it was never built" },
+  // A doc's one line is its description, as a skill's is (CLK-524)
+  { word: "summary", say: "a description, for a doc's one line" },
 ] as const);
 
 /**
@@ -228,7 +230,8 @@ const TEAM_OWNER = [
  * everywhere and all projects as plain words stay (CLK-474). Inboxes counts
  * as the inbox page's old name, with its capital; inboxes as a plain word
  * stays (CLK-362). AI app counts for agents, and a bare app for people
- * (CLK-411).
+ * (CLK-411). Summary counts as a doc's one line, never as a summary of
+ * something or a diff's (CLK-524).
  */
 export function retiredWords(
   prose: string,
@@ -262,6 +265,9 @@ export function retiredWords(
   count("workspace", /\bworkspaces?(?:'s|s')?\b/gi);
   count("suggestion", /\bsuggestions?\b/gi);
   count("persona", /\bpersonas?\b/gi);
+  // A doc's one line, never a summary of something, such as of changes, a
+  // diff's or HTML's summary element (CLK-524)
+  count("summary", /(?<!\bdiff\s|<\/?)\bsummar(?:y|ies)\b(?!\s+of\b)/gi);
   return counts;
 }
 
